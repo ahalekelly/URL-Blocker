@@ -3,6 +3,9 @@ import SafariServices
 import SwiftUI
 
 struct MacContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
+
+    @State private var extensionState = ExtensionState.checking
     @State private var alert: AppAlert?
 
     var body: some View {
@@ -11,33 +14,55 @@ struct MacContentView: View {
                 Text("URL Blocker")
                     .font(.largeTitle.bold())
 
-                Text("Enable the Safari extension and allow website access before blocking can run.")
-                    .foregroundStyle(.secondary)
+                if extensionState == .disabled {
+                    Text("Enable the Safari extension before blocking can run.")
+                        .foregroundStyle(.secondary)
+                }
             }
 
-            VStack(alignment: .leading, spacing: 10) {
-                StepRow(number: 1, text: "Open Safari Settings.")
-                StepRow(number: 2, text: "Go to Extensions.")
-                StepRow(number: 3, text: "Enable URL Blocker.")
-                StepRow(number: 4, text: "Grant access to All Websites.")
+            if extensionState == .disabled {
+                VStack(alignment: .leading, spacing: 10) {
+                    StepRow(number: 1, text: "Open Safari Settings.")
+                    StepRow(number: 2, text: "Go to Extensions.")
+                    StepRow(number: 3, text: "Enable URL Blocker.")
+                }
             }
 
             HStack {
-                Button("Open Safari Settings", action: openSafariSettings)
+                Button("Open Extension Settings", action: openExtensionSettings)
                     .buttonStyle(.bordered)
 
-                Button("Open Blocklist Editor", action: openBlocklistEditor)
+                Button("Open Blocklist Settings", action: openBlocklistSettings)
                     .buttonStyle(.borderedProminent)
             }
         }
         .frame(width: 460, alignment: .leading)
         .padding(28)
+        .task {
+            refreshExtensionState()
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase != .active { return }
+
+            refreshExtensionState()
+        }
         .alert(item: $alert) { alert in
             Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("OK")))
         }
     }
 
-    private func openSafariSettings() {
+    private func refreshExtensionState() {
+        SFSafariExtensionManager.getStateOfSafariExtension(withIdentifier: MacSafari.extensionBundleIdentifier) { state, _ in
+            guard let state = state else {
+                extensionState = .disabled
+                return
+            }
+
+            extensionState = state.isEnabled ? .enabled : .disabled
+        }
+    }
+
+    private func openExtensionSettings() {
         SFSafariApplication.showPreferencesForExtension(withIdentifier: MacSafari.extensionBundleIdentifier) { error in
             DispatchQueue.main.async {
                 if error == nil { return }
@@ -50,7 +75,7 @@ struct MacContentView: View {
         }
     }
 
-    private func openBlocklistEditor() {
+    private func openBlocklistSettings() {
         SFSafariExtension.getBaseURI { baseURI in
             DispatchQueue.main.async {
                 guard let url = baseURI?.appendingPathComponent("options.html") else {
@@ -64,6 +89,12 @@ struct MacContentView: View {
             }
         }
     }
+}
+
+private enum ExtensionState: Equatable {
+    case checking
+    case disabled
+    case enabled
 }
 
 private enum MacSafari {
