@@ -3,7 +3,26 @@ Crash report.txt
 
 node_modules/
 
+# Xcode
+xcuserdata/
+*.xcuserstate
 DerivedData/
 build/
-*.xcuserstate
-xcuserdata/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+timeline.xctimeline
+playground.xcworkspace
+
+# Swift Package Manager
+.build/
+
+# Carthage
+Carthage/Build/
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
