@@ -9,6 +9,8 @@
   const CONTENT_SCRIPT_ID = "url-blocker-content";
 
   function createBackgroundController(api) {
+    const stateStorage = createStateStorage(api);
+
     async function handleMessage(message, sender) {
       if (!isPlainObject(message) || typeof message.type !== "string") {
         throw new Error("Extension message must include a type.");
@@ -49,11 +51,20 @@
 
       await requireWebsiteAccess(result.state);
       await syncContentScripts(result.state);
-      await api.storage.local.set({ [core.STATE_KEY]: result.state });
+      const storageResponse = await stateStorage.saveState(result.state);
+
+      if (storageResponse.type === "validationError") {
+        return storageResponse;
+      }
+
+      if (storageResponse.type !== "saved") {
+        throw new Error(storageResponse.error);
+      }
+
       await broadcastBlocklistChanged();
       await removeUnusedWebsiteAccess(result.state);
 
-      return { type: "saved", state: result.state };
+      return { type: "saved", state: storageResponse.state };
     }
 
     async function openOptions() {
@@ -72,9 +83,9 @@
     }
 
     async function loadState() {
-      const stored = await api.storage.local.get(core.STATE_KEY);
+      const stored = await stateStorage.loadState();
 
-      return core.parseStoredState(stored[core.STATE_KEY]);
+      return core.parseStoredState(stored);
     }
 
     async function requireWebsiteAccess(state) {
@@ -142,6 +153,72 @@
       saveState,
       syncContentScripts
     };
+  }
+
+  function createStateStorage(api) {
+    const browserStorage = {
+      async loadState() {
+        const stored = await api.storage.local.get(core.STATE_KEY);
+
+        return stored[core.STATE_KEY];
+      },
+      async saveState(state) {
+        await api.storage.local.set({ [core.STATE_KEY]: state });
+
+        return { type: "saved", state };
+      }
+    };
+    const nativeStorage = {
+      async loadState() {
+        const response = await sendNativeMessage(api, { type: "getState" });
+
+        switch (response.type) {
+          case "state":
+            return response.state;
+          case "stateError":
+          case "error":
+            throw new Error(response.error);
+          default:
+            throw new Error(`Unknown native getState response: ${response.type}`);
+        }
+      },
+      async saveState(state) {
+        return sendNativeMessage(api, { type: "saveState", state });
+      }
+    };
+
+    return {
+      async loadState() {
+        return (await usesNativeStorage(api)) ? nativeStorage.loadState() : browserStorage.loadState();
+      },
+      async saveState(state) {
+        return (await usesNativeStorage(api)) ? nativeStorage.saveState(state) : browserStorage.saveState(state);
+      }
+    };
+  }
+
+  async function usesNativeStorage(api) {
+    if (!api.runtime || typeof api.runtime.sendNativeMessage !== "function") {
+      return false;
+    }
+
+    if (typeof api.runtime.getPlatformInfo !== "function") {
+      return true;
+    }
+
+    const platform = await api.runtime.getPlatformInfo();
+
+    return platform.os === "ios";
+  }
+
+  async function sendNativeMessage(api, message) {
+    const response = await api.runtime.sendNativeMessage("application.id", message);
+
+    if (!isPlainObject(response) || typeof response.type !== "string") {
+      throw new Error("Native response must include a type.");
+    }
+
+    return response;
   }
 
   function attachRuntimeListener(api) {

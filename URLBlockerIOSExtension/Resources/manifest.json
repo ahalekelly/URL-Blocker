@@ -4,6 +4,7 @@
   "description": "Block Safari websites and SPA routes from a private local blocklist.",
   "version": "1.0",
   "permissions": [
+    "nativeMessaging",
     "scripting",
     "storage",
     "tabs"

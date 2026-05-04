@@ -1,49 +1,65 @@
 import SafariServices
 import SwiftUI
 import UIKit
+import WebKit
 
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
 
+    @State private var appScreen = AppScreen.setup
     @State private var extensionState = ExtensionState.checking
     @State private var alert: AppAlert?
 
     var body: some View {
         NavigationStack {
-            List {
-                if extensionState == .disabled {
-                    Section {
-                        Text("Enable the Safari extension before blocking can run.")
-                            .font(.body)
-                            .foregroundStyle(.secondary)
+            switch appScreen {
+            case .setup:
+                setupView
+            case .blocklist:
+                BlocklistWebView()
+                    .navigationTitle("Blocklist")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        Button("Open Extension Settings", action: openExtensionSettings)
                     }
-
-                    Section("Enable Extension") {
-                        StepRow(number: 1, text: "Open Settings.")
-                        StepRow(number: 2, text: "Go to Safari.")
-                        StepRow(number: 3, text: "Go to Extensions.")
-                        StepRow(number: 4, text: "Enable URL Blocker.")
-                    }
-                }
-
-                Section {
-                    Button("Open Extension Settings", action: openExtensionSettings)
-                    Button("Open Blocklist Settings", action: openBlocklistSettings)
-                }
-            }
-            .navigationTitle("URL Blocker")
-            .task {
-                refreshExtensionState()
-            }
-            .onChange(of: scenePhase) { phase in
-                if phase != .active { return }
-
-                refreshExtensionState()
-            }
-            .alert(item: $alert) { alert in
-                Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("OK")))
             }
         }
+        .task {
+            refreshExtensionState()
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase != .active { return }
+
+            refreshExtensionState()
+        }
+        .alert(item: $alert) { alert in
+            Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("OK")))
+        }
+    }
+
+    private var setupView: some View {
+        List {
+            if extensionState == .disabled {
+                Section {
+                    Text("Enable the Safari extension before blocking can run.")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Enable Extension") {
+                    StepRow(number: 1, text: "Open Settings.")
+                    StepRow(number: 2, text: "Go to Safari.")
+                    StepRow(number: 3, text: "Go to Extensions.")
+                    StepRow(number: 4, text: "Enable URL Blocker.")
+                }
+            }
+
+            Section {
+                Button("Open Extension Settings", action: openExtensionSettings)
+                Button("Open Blocklist Settings", action: openBlocklistSettings)
+            }
+        }
+        .navigationTitle("URL Blocker")
     }
 
     private func refreshExtensionState() {
@@ -52,6 +68,9 @@ struct ContentView: View {
                 do {
                     let state = try await SFSafariExtensionManager.stateOfExtension(withIdentifier: Safari.extensionBundleIdentifier)
                     extensionState = state.isEnabled ? .enabled : .disabled
+                    if state.isEnabled {
+                        appScreen = .blocklist
+                    }
                 } catch {
                     extensionState = .disabled
                 }
@@ -87,8 +106,93 @@ struct ContentView: View {
     }
 
     private func openBlocklistSettings() {
-        openExtensionSettings()
+        appScreen = .blocklist
     }
+}
+
+private struct BlocklistWebView: UIViewRepresentable {
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        let userContentController = WKUserContentController()
+        userContentController.addUserScript(WKUserScript(source: Self.browserShim, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        userContentController.add(context.coordinator, name: "blocklist")
+        configuration.userContentController = userContentController
+
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        context.coordinator.webView = webView
+        webView.loadFileURL(Safari.optionsPageURL, allowingReadAccessTo: Safari.resourcesURL)
+        return webView
+    }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {}
+
+    final class Coordinator: NSObject, WKScriptMessageHandler {
+        weak var webView: WKWebView?
+
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard let body = message.body as? [String: Any],
+                  let id = body["id"] as? String else {
+                return
+            }
+
+            guard let request = body["message"] as? [String: Any] else {
+                reply(id: id, response: ["type": "error", "error": "Blocklist message must include a message object."])
+                return
+            }
+
+            reply(id: id, response: NativeBlocklistStore.handle(request))
+        }
+
+        private func reply(id: String, response: [String: Any]) {
+            let payload: [String: Any] = ["id": id, "response": response]
+            let data = try! JSONSerialization.data(withJSONObject: payload)
+            let json = String(data: data, encoding: .utf8)!
+            webView?.evaluateJavaScript("__URLBlockerReply(\(json));")
+        }
+    }
+
+    private static let browserShim = """
+    (() => {
+      const callbacks = new Map();
+      let nextId = 0;
+
+      window.__URLBlockerReply = (reply) => {
+        const callback = callbacks.get(reply.id);
+        if (!callback) { return; }
+
+        callbacks.delete(reply.id);
+        callback(reply.response);
+      };
+
+      function sendMessage(message) {
+        return new Promise((resolve) => {
+          const id = String(++nextId);
+          callbacks.set(id, resolve);
+          window.webkit.messageHandlers.blocklist.postMessage({ id, message });
+        });
+      }
+
+      window.browser = {
+        runtime: { sendMessage },
+        permissions: {
+          contains: () => Promise.resolve(true),
+          getAll: () => Promise.resolve({ origins: [] }),
+          remove: () => Promise.resolve(true),
+          request: () => Promise.resolve(true)
+        }
+      };
+      window.chrome = window.browser;
+    })();
+    """
+}
+
+private enum AppScreen {
+    case setup
+    case blocklist
 }
 
 private enum ExtensionState: Equatable {
@@ -99,6 +203,33 @@ private enum ExtensionState: Equatable {
 
 private enum Safari {
     static let extensionBundleIdentifier = "com.akelly.URLBlockerIOS.Extension"
+    static let extensionBundleName = "URLBlockerIOSExtension"
+
+    static var optionsPageURL: URL {
+        guard let url = extensionBundle.url(forResource: "options", withExtension: "html") else {
+            fatalError("Missing options.html in Safari extension resources.")
+        }
+
+        return url
+    }
+
+    static var resourcesURL: URL {
+        optionsPageURL.deletingLastPathComponent()
+    }
+
+    private static var extensionBundle: Bundle {
+        guard let pluginsURL = Bundle.main.builtInPlugInsURL else {
+            fatalError("Missing app plug-ins directory.")
+        }
+
+        let bundleURL = pluginsURL.appendingPathComponent("\(extensionBundleName).appex")
+
+        guard let bundle = Bundle(url: bundleURL) else {
+            fatalError("Missing URL Blocker extension bundle.")
+        }
+
+        return bundle
+    }
 }
 
 private struct StepRow: View {

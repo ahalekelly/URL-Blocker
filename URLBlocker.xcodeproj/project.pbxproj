@@ -41,6 +41,9 @@
 		02A00000000000000000000F /* blocked.css in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000E /* blocked.css */; };
 		02A000000000000000000010 /* blocked.js in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000F /* blocked.js */; };
 		02A000000000000000000011 /* icons in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000010 /* icons */; };
+		03A000000000000000000001 /* NativeBlocklistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B000000000000000000001 /* NativeBlocklistStore.swift */; };
+		03A000000000000000000002 /* NativeBlocklistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B000000000000000000001 /* NativeBlocklistStore.swift */; };
+		03A000000000000000000003 /* NativeBlocklistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B000000000000000000001 /* NativeBlocklistStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -112,6 +115,9 @@
 		02B000000000000000000004 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		02C000000000000000000001 /* URLBlockerMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = URLBlockerMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		02C000000000000000000002 /* URLBlockerMacExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = URLBlockerMacExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		03B000000000000000000001 /* NativeBlocklistStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBlocklistStore.swift; sourceTree = "<group>"; };
+		03B000000000000000000002 /* URLBlockerIOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = URLBlockerIOS.entitlements; sourceTree = "<group>"; };
+		03B000000000000000000003 /* URLBlockerIOSExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = URLBlockerIOSExtension.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -157,6 +163,7 @@
 				02B300000000000000000001 /* URLBlockerMac */,
 				01B300000000000000000003 /* URLBlockerIOSExtension */,
 				02B300000000000000000002 /* URLBlockerExtensionMac */,
+				03B300000000000000000001 /* URLBlockerShared */,
 				01B300000000000000000006 /* Frameworks */,
 				01B300000000000000000005 /* Products */,
 				01B000000000000000000005 /* ios_safari_site_blocker_spec.md */,
@@ -169,6 +176,7 @@
 				01B000000000000000000001 /* URLBlockerIOSApp.swift */,
 				01B000000000000000000002 /* ContentView.swift */,
 				01B000000000000000000011 /* Info.plist */,
+				03B000000000000000000002 /* URLBlockerIOS.entitlements */,
 			);
 			path = URLBlockerIOS;
 			sourceTree = "<group>";
@@ -179,6 +187,7 @@
 				01B000000000000000000003 /* SafariWebExtensionHandler.swift */,
 				01B300000000000000000004 /* Resources */,
 				01B000000000000000000012 /* Info.plist */,
+				03B000000000000000000003 /* URLBlockerIOSExtension.entitlements */,
 			);
 			path = URLBlockerIOSExtension;
 			sourceTree = "<group>";
@@ -236,6 +245,14 @@
 				02B000000000000000000004 /* Info.plist */,
 			);
 			path = URLBlockerExtensionMac;
+			sourceTree = "<group>";
+		};
+		03B300000000000000000001 /* URLBlockerShared */ = {
+			isa = PBXGroup;
+			children = (
+				03B000000000000000000001 /* NativeBlocklistStore.swift */,
+			);
+			path = URLBlockerShared;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -402,6 +419,7 @@
 			files = (
 				01A000000000000000000001 /* URLBlockerIOSApp.swift in Sources */,
 				01A000000000000000000002 /* ContentView.swift in Sources */,
+				03A000000000000000000001 /* NativeBlocklistStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -410,6 +428,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				01A000000000000000000003 /* SafariWebExtensionHandler.swift in Sources */,
+				03A000000000000000000002 /* NativeBlocklistStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -427,6 +446,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				02A000000000000000000003 /* SafariWebExtensionHandler.swift in Sources */,
+				03A000000000000000000003 /* NativeBlocklistStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -568,6 +588,7 @@
 		01F100000000000000000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = URLBlockerIOS/URLBlockerIOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
@@ -591,6 +612,7 @@
 		01F100000000000000000004 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = URLBlockerIOS/URLBlockerIOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
@@ -615,6 +637,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = URLBlockerIOSExtension/URLBlockerIOSExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = T3TBGN4UX7;
@@ -639,6 +662,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = URLBlockerIOSExtension/URLBlockerIOSExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = T3TBGN4UX7;

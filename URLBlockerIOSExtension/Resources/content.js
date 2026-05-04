@@ -29,8 +29,18 @@
   }
 
   async function reloadState() {
-    const stored = await api.storage.local.get(core.STATE_KEY);
-    state = core.parseStoredState(stored[core.STATE_KEY]);
+    const response = await api.runtime.sendMessage({ type: "getState" });
+
+    switch (response.type) {
+      case "state":
+        state = response.state;
+        return;
+      case "stateError":
+      case "error":
+        throw new Error(response.error);
+      default:
+        throw new Error(`Unknown getState response: ${response.type}`);
+    }
   }
 
   function watchPage() {
@@ -44,10 +54,17 @@
     root.addEventListener("keydown", queueKeyboardCheck, true);
 
     root.setInterval(() => {
-      if (!document.hidden) {
-        checkCurrentUrl();
+      if (document.hidden) {
+        return;
       }
-    }, 750);
+
+      reloadState()
+        .then(() => {
+          lastCheckedUrl = "";
+          checkCurrentUrl();
+        })
+        .catch((error) => console.error("URL Blocker could not reload state.", error));
+    }, 1500);
 
     api.runtime.onMessage.addListener((message) => {
       if (!message || message.type !== "blocklistChanged") {
