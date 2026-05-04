@@ -1,0 +1,322 @@
+(function loadOptions(root) {
+  "use strict";
+
+  const api = root.browser || root.chrome;
+  const core = root.BlockerCore;
+  const state = {
+    draftEntries: [],
+    draftBlockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    draftUseSafariBlockingApi: core.DEFAULT_USE_SAFARI_BLOCKING_API,
+    rowErrors: new Map(),
+    pageError: "",
+    successMessage: "",
+    isSaving: false
+  };
+
+  const rowsElement = document.getElementById("rows");
+  const rowTemplate = document.getElementById("rowTemplate");
+  const saveButton = document.getElementById("saveButton");
+  const addRowButton = document.getElementById("addRowButton");
+  const useSafariBlockingApiInput = document.getElementById("useSafariBlockingApiInput");
+  const blockedPageHtmlInput = document.getElementById("blockedPageHtmlInput");
+  const errorSummary = document.getElementById("errorSummary");
+  const successMessage = document.getElementById("successMessage");
+  const repairPanel = document.getElementById("repairPanel");
+  const repairMessage = document.getElementById("repairMessage");
+  const resetButton = document.getElementById("resetButton");
+  const editorPanel = document.getElementById("editorPanel");
+
+  addRowButton.addEventListener("click", addRow);
+  saveButton.addEventListener("click", saveDraft);
+  useSafariBlockingApiInput.addEventListener("change", updateUseSafariBlockingApi);
+  blockedPageHtmlInput.addEventListener("input", updateBlockedPageHtml);
+  resetButton.addEventListener("click", resetBlocklist);
+
+  loadState().catch(showFatalError);
+
+  async function loadState() {
+    const response = await api.runtime.sendMessage({ type: "getState" });
+
+    switch (response.type) {
+      case "state":
+        state.draftEntries = editableEntries(response.state.entries);
+        state.draftBlockedPageHtml = response.state.blockedPageHtml;
+        state.draftUseSafariBlockingApi = response.state.useSafariBlockingApi;
+        render();
+        return;
+      case "stateError":
+        showRepair(response.error);
+        return;
+      case "error":
+        showFatalError(new Error(response.error));
+        return;
+      default:
+        throw new Error(`Unknown getState response: ${response.type}`);
+    }
+  }
+
+  function render() {
+    repairPanel.hidden = true;
+    editorPanel.hidden = false;
+    rowsElement.replaceChildren(...state.draftEntries.map(renderRow));
+    useSafariBlockingApiInput.checked = state.draftUseSafariBlockingApi;
+    blockedPageHtmlInput.value = state.draftBlockedPageHtml;
+    saveButton.disabled = state.isSaving;
+    errorSummary.hidden = state.pageError === "";
+    errorSummary.textContent = state.pageError;
+    successMessage.hidden = state.successMessage === "";
+    successMessage.textContent = state.successMessage;
+  }
+
+  function renderRow(entry) {
+    const fragment = rowTemplate.content.cloneNode(true);
+    const row = fragment.querySelector(".block-row");
+    const segments = fragment.querySelector(".segments");
+    const input = fragment.querySelector(".value-input");
+    const deleteButton = fragment.querySelector(".delete-button");
+    const rowError = fragment.querySelector(".row-error");
+    const error = state.rowErrors.get(entry.id) || "";
+
+    Object.entries(core.KIND_LABELS).forEach(([kind, label]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.setAttribute("aria-pressed", String(entry.kind === kind));
+      button.addEventListener("click", () => updateKind(entry.id, kind));
+      segments.append(button);
+    });
+
+    input.value = entry.value;
+    input.placeholder = placeholderFor(entry.kind);
+    input.addEventListener("input", () => updateValue(entry.id, input.value));
+    input.addEventListener("blur", () => normalizeUrlInput(entry.id));
+    deleteButton.disabled = state.draftEntries.length === 1;
+    deleteButton.addEventListener("click", () => deleteRow(entry.id));
+    rowError.hidden = error === "";
+    rowError.textContent = error;
+    row.dataset.entryId = entry.id;
+
+    return fragment;
+  }
+
+  function addRow() {
+    state.draftEntries.push(core.newEntry("url"));
+    clearMessages();
+    render();
+  }
+
+  function updateKind(id, kind) {
+    state.draftEntries = state.draftEntries.map((entry) => (
+      entry.id === id ? { id: entry.id, kind, value: entry.value } : entry
+    ));
+    state.rowErrors.delete(id);
+    clearMessages();
+    render();
+  }
+
+  function updateValue(id, value) {
+    const entry = findDraftEntry(id);
+    entry.value = value;
+    state.rowErrors.delete(id);
+    clearMessages();
+  }
+
+  function updateBlockedPageHtml() {
+    state.draftBlockedPageHtml = blockedPageHtmlInput.value;
+    clearMessages();
+  }
+
+  function updateUseSafariBlockingApi() {
+    state.draftUseSafariBlockingApi = useSafariBlockingApiInput.checked;
+    clearMessages();
+  }
+
+  function deleteRow(id) {
+    state.draftEntries = state.draftEntries.filter((entry) => entry.id !== id);
+    state.draftEntries = ensureDraftEntry(state.draftEntries);
+    state.rowErrors.delete(id);
+    clearMessages();
+    render();
+  }
+
+  function normalizeUrlInput(id) {
+    const entry = findDraftEntry(id);
+
+    if (entry.kind !== "url" && entry.kind !== "urlWithSubpaths") {
+      return;
+    }
+
+    if (entry.value.trim() === "") {
+      return;
+    }
+
+    try {
+      entry.value = core.normalizeUrlEntryValue(entry.value);
+      state.rowErrors.delete(id);
+    } catch (error) {
+      state.rowErrors.set(id, error.message);
+    }
+
+    render();
+  }
+
+  async function saveDraft() {
+    state.isSaving = true;
+    clearMessages();
+    render();
+
+    const localResult = normalizeAndValidateDraft();
+
+    if (localResult.type === "invalid") {
+      state.isSaving = false;
+      showValidationErrors(localResult.errors);
+      return;
+    }
+
+    const response = await api.runtime.sendMessage({
+      type: "saveState",
+      state: localResult.state
+    });
+
+    state.isSaving = false;
+
+    switch (response.type) {
+      case "saved":
+        state.draftEntries = editableEntries(response.state.entries);
+        state.draftBlockedPageHtml = response.state.blockedPageHtml;
+        state.draftUseSafariBlockingApi = response.state.useSafariBlockingApi;
+        state.successMessage = "Saved.";
+        render();
+        return;
+      case "validationError":
+        showValidationErrors(response.errors);
+        return;
+      case "error":
+        state.pageError = response.error;
+        render();
+        return;
+      default:
+        throw new Error(`Unknown saveState response: ${response.type}`);
+    }
+  }
+
+  function normalizeAndValidateDraft() {
+    try {
+      state.draftEntries = state.draftEntries.map((entry) => {
+        if (entry.kind !== "url" && entry.kind !== "urlWithSubpaths") {
+          return entry;
+        }
+
+        return { id: entry.id, kind: entry.kind, value: core.normalizeUrlEntryValue(entry.value) };
+      });
+    } catch {
+      return core.validateState({
+        schemaVersion: core.SCHEMA_VERSION,
+        entries: state.draftEntries,
+        blockedPageHtml: state.draftBlockedPageHtml,
+        useSafariBlockingApi: state.draftUseSafariBlockingApi
+      });
+    }
+
+    const result = core.validateState({
+      schemaVersion: core.SCHEMA_VERSION,
+      entries: state.draftEntries,
+      blockedPageHtml: state.draftBlockedPageHtml,
+      useSafariBlockingApi: state.draftUseSafariBlockingApi
+    });
+
+    if (result.type === "valid") {
+      state.draftBlockedPageHtml = result.state.blockedPageHtml;
+      state.draftUseSafariBlockingApi = result.state.useSafariBlockingApi;
+    }
+
+    return result;
+  }
+
+  async function resetBlocklist() {
+    const response = await api.runtime.sendMessage({
+      type: "saveState",
+      state: core.emptyState()
+    });
+
+    if (response.type !== "saved") {
+      showFatalError(new Error("Reset failed."));
+      return;
+    }
+
+    state.draftEntries = [core.newEntry("url")];
+    state.draftBlockedPageHtml = response.state.blockedPageHtml;
+    state.draftUseSafariBlockingApi = response.state.useSafariBlockingApi;
+    state.successMessage = "Reset.";
+    render();
+  }
+
+  function showValidationErrors(errors) {
+    state.rowErrors = new Map();
+    state.pageError = "Fix the highlighted rows before saving.";
+
+    errors.forEach((error) => {
+      if (error.index === null) {
+        state.pageError = error.message;
+        return;
+      }
+
+      const entry = state.draftEntries[error.index];
+
+      if (entry) {
+        state.rowErrors.set(entry.id, error.message);
+      }
+    });
+
+    render();
+  }
+
+  function showRepair(error) {
+    repairMessage.textContent = error;
+    repairPanel.hidden = false;
+    editorPanel.hidden = true;
+  }
+
+  function showFatalError(error) {
+    state.pageError = error.message;
+    render();
+  }
+
+  function clearMessages() {
+    state.pageError = "";
+    state.successMessage = "";
+  }
+
+  function findDraftEntry(id) {
+    const entry = state.draftEntries.find((candidate) => candidate.id === id);
+
+    if (!entry) {
+      throw new Error(`Missing draft entry: ${id}`);
+    }
+
+    return entry;
+  }
+
+  function editableEntries(entries) {
+    return ensureDraftEntry(entries.map((entry) => ({ id: entry.id, kind: entry.kind, value: entry.value })));
+  }
+
+  function ensureDraftEntry(entries) {
+    return entries.length === 0 ? [core.newEntry("url")] : entries;
+  }
+
+  function placeholderFor(kind) {
+    switch (kind) {
+      case "domain":
+        return "example.com";
+      case "url":
+        return "example.com/path";
+      case "urlWithSubpaths":
+        return "example.com/path";
+      case "regex":
+        return "^https://x\\.com/(home|explore)/?$";
+      default:
+        throw new Error(`Unknown matcher kind: ${kind}`);
+    }
+  }
+})(globalThis);

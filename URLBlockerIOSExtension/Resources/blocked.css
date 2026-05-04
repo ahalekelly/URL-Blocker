@@ -1,0 +1,84 @@
+:root,
+.blocked-page {
+  color-scheme: light dark;
+  --background: #f7f7f4;
+  --surface: #ffffff;
+  --text: #171717;
+  --muted: #5e635f;
+  --border: #d7d9d3;
+  --accent: #0f766e;
+  --accent-text: #ffffff;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root,
+  .blocked-page {
+    --background: #171816;
+    --surface: #232521;
+    --text: #f5f5f0;
+    --muted: #b8beb4;
+    --border: #3b4039;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.blocked-page {
+  min-height: 100vh;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  background: var(--background);
+  color: var(--text);
+}
+
+.blocked-card {
+  width: min(420px, calc(100% - 32px));
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  text-align: center;
+}
+
+h1,
+#blockedMessage,
+#blockedMessage > *,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 32px;
+  line-height: 1.1;
+}
+
+#blockedMessage,
+p {
+  margin-top: 10px;
+  color: var(--muted);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+#blockedMessage a {
+  color: var(--accent);
+}
+
+#blockedTarget {
+  font-size: 13px;
+}
+
+button {
+  min-height: 44px;
+  margin-top: 20px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-text);
+  padding: 0 18px;
+  font: inherit;
+}
