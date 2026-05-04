@@ -6,8 +6,15 @@
   const MAX_ENTRIES = 1000;
   const MAX_BLOCKED_PAGE_HTML_LENGTH = 4000;
   const DEFAULT_BLOCKED_PAGE_HTML = "<h1>Blocked</h1><p>This page is on your blocklist.</p>";
+  const ALL_WEBSITES_ORIGIN = "*://*/*";
   const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const KIND_LABELS = {
+    url: "URL",
+    urlWithSubpaths: "URL and subpaths",
+    domain: "Full domain",
+    regex: "Custom regex"
+  };
+  const EDITABLE_KIND_LABELS = {
     url: "URL",
     urlWithSubpaths: "URL and subpaths",
     domain: "Full domain",
@@ -280,6 +287,34 @@
     return { type: "none" };
   }
 
+  function permissionOriginsForState(state) {
+    const origins = [];
+    let needsAllWebsites = false;
+
+    for (const entry of state.entries) {
+      switch (entry.kind) {
+        case "domain":
+          origins.push(`*://*.${entry.value}/*`);
+          break;
+        case "url":
+        case "urlWithSubpaths":
+          origins.push(`*://*.${splitStoredUrl(entry.value).host}/*`);
+          break;
+        case "regex":
+          needsAllWebsites = true;
+          break;
+        default:
+          throw new Error(`Unknown matcher kind: ${entry.kind}`);
+      }
+    }
+
+    if (needsAllWebsites) {
+      return [ALL_WEBSITES_ORIGIN];
+    }
+
+    return [...new Set(origins)].sort();
+  }
+
   function entryMatchesUrl(entry, pageUrl) {
     switch (entry.kind) {
       case "domain":
@@ -432,6 +467,7 @@
 
   const BlockerCore = {
     DEFAULT_BLOCKED_PAGE_HTML,
+    EDITABLE_KIND_LABELS,
     KIND_LABELS,
     MAX_BLOCKED_PAGE_HTML_LENGTH,
     MAX_ENTRIES,
@@ -445,6 +481,7 @@
     normalizeBlockedPageHtml,
     normalizePageUrl,
     normalizeRegexEntryValue,
+    permissionOriginsForState,
     normalizeUrlEntryValue,
     parseStoredState,
     validateState

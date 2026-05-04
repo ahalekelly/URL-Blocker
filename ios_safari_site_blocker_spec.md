@@ -114,19 +114,19 @@ Target iOS/iPadOS 16.4 or newer for Safari Web Extension reliability. Safari 15.
 
 Required permissions:
 
+- `scripting`
 - `storage`
 - `tabs`
 - `declarativeNetRequestWithHostAccess`
 
-Required host access:
+Required optional host access:
 
-- `http://*/*`
-- `https://*/*`
+- `*://*/*`
 
 Required extension surfaces:
 
 - MV3 service worker background.
-- Static content script on `http://*/*` and `https://*/*`.
+- Dynamically registered content script on the normalized hosts in the blocklist, or on all HTTP/HTTPS websites when any Custom regex entry exists.
 - Content script runs at `document_start`.
 - Options page for editing.
 - No extension action, popup, or Safari Extensions menu item for editing the blocklist.
@@ -149,9 +149,9 @@ iOS Safari requires users to enable the extension and grant website access. The 
 3. Go to Safari.
 4. Go to Extensions.
 5. Enable the blocker.
-6. Grant website access.
+6. Save blocklist entries and grant access to those websites.
 
-The app should recommend "All Websites" for reliable blocking. Per-site grants are allowed, but the app must show that blocking only works on sites where Safari has granted extension access.
+The app should request website access only for normalized hosts in the blocklist. URL entries request the whole host so same-site SPA route changes can still be blocked. Custom regex entries require all-websites access because they can match arbitrary hosts.
 
 The extension must behave gracefully when access is missing:
 

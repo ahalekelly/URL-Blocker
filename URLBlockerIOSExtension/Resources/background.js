@@ -6,6 +6,7 @@
   }
 
   const core = root.BlockerCore || require("./blocker.js");
+  const CONTENT_SCRIPT_ID = "url-blocker-content";
 
   function createBackgroundController(api) {
     async function handleMessage(message, sender) {
@@ -46,8 +47,11 @@
         return { type: "validationError", errors: result.errors };
       }
 
+      await requireWebsiteAccess(result.state);
+      await syncContentScripts(result.state);
       await api.storage.local.set({ [core.STATE_KEY]: result.state });
       await broadcastBlocklistChanged();
+      await removeUnusedWebsiteAccess(result.state);
 
       return { type: "saved", state: result.state };
     }
@@ -73,6 +77,50 @@
       return core.parseStoredState(stored[core.STATE_KEY]);
     }
 
+    async function requireWebsiteAccess(state) {
+      const origins = core.permissionOriginsForState(state);
+
+      if (origins.length === 0) {
+        return;
+      }
+
+      const granted = await api.permissions.contains({ origins });
+
+      if (!granted) {
+        throw new Error("Website access was not granted for the requested websites.");
+      }
+    }
+
+    async function syncContentScripts(state) {
+      const origins = core.permissionOriginsForState(state);
+      const registered = await api.scripting.getRegisteredContentScripts({ ids: [CONTENT_SCRIPT_ID] });
+
+      if (registered.length > 0) {
+        await api.scripting.unregisterContentScripts({ ids: [CONTENT_SCRIPT_ID] });
+      }
+
+      if (origins.length === 0) {
+        return;
+      }
+
+      await api.scripting.registerContentScripts([{
+        id: CONTENT_SCRIPT_ID,
+        js: ["blocker.js", "content.js"],
+        matches: origins,
+        runAt: "document_start"
+      }]);
+    }
+
+    async function removeUnusedWebsiteAccess(state) {
+      const requiredOrigins = new Set(core.permissionOriginsForState(state));
+      const granted = await api.permissions.getAll();
+      const unusedOrigins = (granted.origins || []).filter((origin) => !requiredOrigins.has(origin));
+
+      if (unusedOrigins.length > 0) {
+        await api.permissions.remove({ origins: unusedOrigins });
+      }
+    }
+
     async function broadcastBlocklistChanged() {
       const tabs = await api.tabs.query({});
 
@@ -91,7 +139,8 @@
       handleMessage,
       loadState,
       openOptions,
-      saveState
+      saveState,
+      syncContentScripts
     };
   }
 
@@ -112,6 +161,8 @@
         controller.openOptions().catch(() => undefined);
       });
     }
+
+    return controller;
   }
 
   function requireKeys(object, allowedKeys, label) {
@@ -136,6 +187,10 @@
   const api = root.browser || root.chrome;
 
   if (api && api.runtime && api.runtime.onMessage) {
-    attachRuntimeListener(api);
+    const controller = attachRuntimeListener(api);
+
+    controller.loadState()
+      .then(controller.syncContentScripts)
+      .catch((error) => console.error("URL Blocker could not sync website access.", error));
   }
 })(globalThis);

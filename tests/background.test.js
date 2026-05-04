@@ -18,6 +18,7 @@ test("saveState validates, writes storage, and broadcasts", async () => {
   assert.equal(response.state.entries[0].value, "x.com/home");
   assert.equal(response.state.blockedPageHtml, "<p>Blocked.</p>");
   assert.equal(api.storageData[core.STATE_KEY].entries[0].value, "x.com/home");
+  assert.deepEqual(api.registeredScripts[0].matches, ["*://*.x.com/*"]);
   assert.equal(api.messages.length, 2);
 });
 
@@ -35,6 +36,42 @@ test("saveState migrates the old Safari API setting away", async () => {
   assert.equal(response.state.schemaVersion, 4);
   assert.equal("useSafariBlockingApi" in response.state, false);
   assert.equal("useSafariBlockingApi" in api.storageData[core.STATE_KEY], false);
+});
+
+test("saveState removes access for sites no longer blocked", async () => {
+  const api = fakeApi();
+  const controller = createBackgroundController(api);
+  const response = await controller.saveState(validState([
+    { id, kind: "domain", value: "reddit.com" },
+    { id: "22222222-2222-4222-8222-222222222222", kind: "url", value: "https://x.com/home" }
+  ]));
+
+  assert.equal(response.type, "saved");
+  assert.deepEqual(api.registeredScripts[0].matches, ["*://*.reddit.com/*", "*://*.x.com/*"]);
+  assert.deepEqual(api.removedOrigins, ["*://*.example.com/*"]);
+});
+
+test("saveState registers all websites when a regex entry exists", async () => {
+  const api = fakeApi({ grantedOrigins: ["*://*/*", "*://*.example.com/*"] });
+  const controller = createBackgroundController(api);
+  const response = await controller.saveState(validState([
+    { id, kind: "regex", value: "^https://x\\.com/(home|explore)/?$" }
+  ]));
+
+  assert.equal(response.type, "saved");
+  assert.deepEqual(api.registeredScripts[0].matches, ["*://*/*"]);
+  assert.deepEqual(api.removedOrigins, ["*://*.example.com/*"]);
+});
+
+test("missing website access returns an error response", async () => {
+  const api = fakeApi({ grantedOrigins: [] });
+  const controller = createBackgroundController(api);
+  await assert.rejects(() => controller.handleMessage({
+    type: "saveState",
+    state: validState([{ id, kind: "url", value: "https://x.com/home" }])
+  }, {}), /Website access/);
+
+  assert.equal(api.storageData[core.STATE_KEY], undefined);
 });
 
 test("failed validation leaves storage untouched", async () => {
@@ -81,10 +118,13 @@ function validState(entries) {
   };
 }
 
-function fakeApi() {
+function fakeApi(overrides = {}) {
   const api = {
     storageData: {},
+    grantedOrigins: overrides.grantedOrigins || ["*://*.example.com/*", "*://*.reddit.com/*", "*://*.x.com/*"],
     messages: [],
+    registeredScripts: [],
+    removedOrigins: [],
     removedTabs: [],
     runtime: {
       getURL(path) {
@@ -99,6 +139,29 @@ function fakeApi() {
         async set(value) {
           Object.assign(api.storageData, value);
         }
+      }
+    },
+    permissions: {
+      async contains({ origins }) {
+        return origins.every((origin) => api.grantedOrigins.includes(origin));
+      },
+      async getAll() {
+        return { origins: api.grantedOrigins };
+      },
+      async remove({ origins }) {
+        api.removedOrigins.push(...origins);
+        api.grantedOrigins = api.grantedOrigins.filter((origin) => !origins.includes(origin));
+      }
+    },
+    scripting: {
+      async getRegisteredContentScripts({ ids }) {
+        return api.registeredScripts.filter((script) => ids.includes(script.id));
+      },
+      async unregisterContentScripts({ ids }) {
+        api.registeredScripts = api.registeredScripts.filter((script) => !ids.includes(script.id));
+      },
+      async registerContentScripts(scripts) {
+        api.registeredScripts.push(...scripts);
       }
     },
     tabs: {

@@ -11,6 +11,13 @@ const ids = [
 ];
 
 test("labels matcher options in display order", () => {
+  assert.deepEqual(Object.entries(core.EDITABLE_KIND_LABELS), [
+    ["url", "URL"],
+    ["urlWithSubpaths", "URL and subpaths"],
+    ["domain", "Full domain"],
+    ["regex", "Custom regex"]
+  ]);
+
   assert.deepEqual(Object.entries(core.KIND_LABELS), [
     ["url", "URL"],
     ["urlWithSubpaths", "URL and subpaths"],
@@ -172,6 +179,29 @@ test("keeps root URL entries scoped to the root path", () => {
   assert.equal(core.findMatchingEntry(state, "https://reddit.com").type, "match");
   assert.equal(core.findMatchingEntry(state, "https://reddit.com/").type, "match");
   assert.equal(core.findMatchingEntry(state, "https://reddit.com/r/safari").type, "none");
+});
+
+test("maps blocklist entries to host permissions", () => {
+  const state = validState([
+    { id: ids[0], kind: "url", value: "https://reddit.com/popular" },
+    { id: ids[1], kind: "urlWithSubpaths", value: "https://old.reddit.com/r/safari" },
+    { id: ids[2], kind: "domain", value: "example.com" }
+  ]);
+
+  assert.deepEqual(core.permissionOriginsForState(state), [
+    "*://*.example.com/*",
+    "*://*.old.reddit.com/*",
+    "*://*.reddit.com/*"
+  ]);
+});
+
+test("maps regex entries to all-website permissions", () => {
+  const state = validState([
+    { id: ids[1], kind: "domain", value: "example.com" },
+    { id: ids[0], kind: "regex", value: "^https://x\\.com/(home|explore)/?$" }
+  ]);
+
+  assert.deepEqual(core.permissionOriginsForState(state), ["*://*/*"]);
 });
 
 test("matches regex entries case-insensitively without fragments", () => {

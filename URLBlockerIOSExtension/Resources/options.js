@@ -72,7 +72,7 @@
     const rowError = fragment.querySelector(".row-error");
     const error = state.rowErrors.get(entry.id) || "";
 
-    Object.entries(core.KIND_LABELS).forEach(([kind, label]) => {
+    Object.entries(core.EDITABLE_KIND_LABELS).forEach(([kind, label]) => {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = label;
@@ -163,6 +163,15 @@
       return;
     }
 
+    try {
+      await requestWebsiteAccess(localResult.state);
+    } catch (error) {
+      state.isSaving = false;
+      state.pageError = error.message;
+      render();
+      return;
+    }
+
     const response = await api.runtime.sendMessage({
       type: "saveState",
       state: localResult.state
@@ -186,6 +195,20 @@
         return;
       default:
         throw new Error(`Unknown saveState response: ${response.type}`);
+    }
+  }
+
+  async function requestWebsiteAccess(blockerState) {
+    const origins = core.permissionOriginsForState(blockerState);
+
+    if (origins.length === 0) {
+      return;
+    }
+
+    const granted = await api.permissions.request({ origins });
+
+    if (!granted) {
+      throw new Error("Allow the requested website access before saving.");
     }
   }
 
