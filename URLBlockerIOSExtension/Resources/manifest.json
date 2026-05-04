@@ -5,8 +5,7 @@
   "version": "1.0",
   "permissions": [
     "storage",
-    "tabs",
-    "declarativeNetRequestWithHostAccess"
+    "tabs"
   ],
   "host_permissions": [
     "http://*/*",

@@ -6,7 +6,6 @@
   const state = {
     draftEntries: [],
     draftBlockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
-    draftUseSafariBlockingApi: core.DEFAULT_USE_SAFARI_BLOCKING_API,
     rowErrors: new Map(),
     pageError: "",
     successMessage: "",
@@ -17,7 +16,6 @@
   const rowTemplate = document.getElementById("rowTemplate");
   const saveButton = document.getElementById("saveButton");
   const addRowButton = document.getElementById("addRowButton");
-  const useSafariBlockingApiInput = document.getElementById("useSafariBlockingApiInput");
   const blockedPageHtmlInput = document.getElementById("blockedPageHtmlInput");
   const errorSummary = document.getElementById("errorSummary");
   const successMessage = document.getElementById("successMessage");
@@ -28,7 +26,6 @@
 
   addRowButton.addEventListener("click", addRow);
   saveButton.addEventListener("click", saveDraft);
-  useSafariBlockingApiInput.addEventListener("change", updateUseSafariBlockingApi);
   blockedPageHtmlInput.addEventListener("input", updateBlockedPageHtml);
   resetButton.addEventListener("click", resetBlocklist);
 
@@ -41,7 +38,6 @@
       case "state":
         state.draftEntries = editableEntries(response.state.entries);
         state.draftBlockedPageHtml = response.state.blockedPageHtml;
-        state.draftUseSafariBlockingApi = response.state.useSafariBlockingApi;
         render();
         return;
       case "stateError":
@@ -59,7 +55,6 @@
     repairPanel.hidden = true;
     editorPanel.hidden = false;
     rowsElement.replaceChildren(...state.draftEntries.map(renderRow));
-    useSafariBlockingApiInput.checked = state.draftUseSafariBlockingApi;
     blockedPageHtmlInput.value = state.draftBlockedPageHtml;
     saveButton.disabled = state.isSaving;
     errorSummary.hidden = state.pageError === "";
@@ -126,11 +121,6 @@
     clearMessages();
   }
 
-  function updateUseSafariBlockingApi() {
-    state.draftUseSafariBlockingApi = useSafariBlockingApiInput.checked;
-    clearMessages();
-  }
-
   function deleteRow(id) {
     state.draftEntries = state.draftEntries.filter((entry) => entry.id !== id);
     state.draftEntries = ensureDraftEntry(state.draftEntries);
@@ -184,7 +174,6 @@
       case "saved":
         state.draftEntries = editableEntries(response.state.entries);
         state.draftBlockedPageHtml = response.state.blockedPageHtml;
-        state.draftUseSafariBlockingApi = response.state.useSafariBlockingApi;
         state.successMessage = "Saved.";
         render();
         return;
@@ -213,21 +202,18 @@
       return core.validateState({
         schemaVersion: core.SCHEMA_VERSION,
         entries: state.draftEntries,
-        blockedPageHtml: state.draftBlockedPageHtml,
-        useSafariBlockingApi: state.draftUseSafariBlockingApi
+        blockedPageHtml: state.draftBlockedPageHtml
       });
     }
 
     const result = core.validateState({
       schemaVersion: core.SCHEMA_VERSION,
       entries: state.draftEntries,
-      blockedPageHtml: state.draftBlockedPageHtml,
-      useSafariBlockingApi: state.draftUseSafariBlockingApi
+      blockedPageHtml: state.draftBlockedPageHtml
     });
 
     if (result.type === "valid") {
       state.draftBlockedPageHtml = result.state.blockedPageHtml;
-      state.draftUseSafariBlockingApi = result.state.useSafariBlockingApi;
     }
 
     return result;
@@ -246,7 +232,6 @@
 
     state.draftEntries = [core.newEntry("url")];
     state.draftBlockedPageHtml = response.state.blockedPageHtml;
-    state.draftUseSafariBlockingApi = response.state.useSafariBlockingApi;
     state.successMessage = "Reset.";
     render();
   }

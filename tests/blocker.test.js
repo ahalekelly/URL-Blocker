@@ -85,27 +85,34 @@ test("validates blocked page HTML and migrates old state", () => {
   });
 
   assert.equal(migrated.type, "valid");
-  assert.equal(migrated.state.schemaVersion, 3);
+  assert.equal(migrated.state.schemaVersion, 4);
   assert.equal(migrated.state.entries[0].value, "example.com/path");
   assert.equal(migrated.state.blockedPageHtml, core.DEFAULT_BLOCKED_PAGE_HTML);
-  assert.equal(migrated.state.useSafariBlockingApi, false);
+
+  const legacyApiSetting = core.validateState({
+    schemaVersion: 3,
+    entries: [{ id: ids[0], kind: "domain", value: "example.com" }],
+    blockedPageHtml: "<p>Blocked.</p>",
+    useSafariBlockingApi: true
+  });
+
+  assert.equal(legacyApiSetting.type, "valid");
+  assert.equal(legacyApiSetting.state.schemaVersion, 4);
+  assert.equal("useSafariBlockingApi" in legacyApiSetting.state, false);
 
   const custom = core.validateState({
-    schemaVersion: 3,
+    schemaVersion: 4,
     entries: [],
-    blockedPageHtml: " <p><strong>Nope.</strong></p> ",
-    useSafariBlockingApi: true
+    blockedPageHtml: " <p><strong>Nope.</strong></p> "
   });
 
   assert.equal(custom.type, "valid");
   assert.equal(custom.state.blockedPageHtml, "<p><strong>Nope.</strong></p>");
-  assert.equal(custom.state.useSafariBlockingApi, true);
 
   const script = core.validateState({
-    schemaVersion: 3,
+    schemaVersion: 4,
     entries: [],
-    blockedPageHtml: "<img src=x onerror=alert(1)>",
-    useSafariBlockingApi: false
+    blockedPageHtml: "<img src=x onerror=alert(1)>"
   });
 
   assert.equal(script.type, "invalid");
@@ -176,38 +183,11 @@ test("matches regex entries case-insensitively without fragments", () => {
   assert.equal(core.findMatchingEntry(state, "https://x.com/messages").type, "none");
 });
 
-test("skips DNR rules unless Safari blocking API is enabled", () => {
-  const state = validState([
-    { id: ids[0], kind: "domain", value: "example.com" }
-  ]);
-
-  assert.deepEqual(core.buildDnrRules(state), []);
-});
-
-test("generates DNR rules with app-owned IDs and explicit case handling", () => {
-  const state = validState([
-    { id: ids[0], kind: "domain", value: "example.com" },
-    { id: ids[1], kind: "url", value: "reddit.com/popular" },
-    { id: ids[2], kind: "urlWithSubpaths", value: "reddit.com/popular" },
-    { id: ids[3], kind: "regex", value: "^https://x\\.com/home/?$" }
-  ], true);
-
-  const rules = core.buildDnrRules(state);
-
-  assert.deepEqual(rules.map((rule) => rule.id), [1, 2, 3, 4]);
-  assert.deepEqual(rules[0].action, { type: "block" });
-  assert.deepEqual(rules[0].condition.resourceTypes, ["main_frame"]);
-  assert.equal(rules[0].condition.isUrlFilterCaseSensitive, false);
-  assert.equal(rules[1].condition.regexFilter, "^https?://(?:[^./?#]+\\.)*reddit\\.com/popular/*(?:\\?[^#]*)?$");
-  assert.equal(rules[2].condition.regexFilter, "^https?://(?:[^./?#]+\\.)*reddit\\.com/popular(?:/[^?#]*)?(?:\\?[^#]*)?$");
-});
-
-function validState(entries, useSafariBlockingApi = false) {
+function validState(entries) {
   const result = core.validateState({
-    schemaVersion: 3,
+    schemaVersion: 4,
     entries,
-    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
-    useSafariBlockingApi
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML
   });
 
   assert.equal(result.type, "valid");

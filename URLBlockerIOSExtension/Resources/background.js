@@ -20,9 +20,6 @@
         case "saveState":
           requireKeys(message, ["type", "state"], "saveState message");
           return saveState(message.state);
-        case "urlMatched":
-          requireKeys(message, ["type", "url", "entryId"], "urlMatched message");
-          return blockMatchedUrl(message, sender);
         case "openOptions":
           requireKeys(message, ["type"], "openOptions message");
           return openOptions();
@@ -49,52 +46,15 @@
         return { type: "validationError", errors: result.errors };
       }
 
-      const replacement = await replaceBlockingRules(result.state);
-
-      try {
-        await api.storage.local.set({ [core.STATE_KEY]: result.state });
-      } catch (error) {
-        await replaceAppOwnedRules(replacement.previousRules, replacement.nextRules);
-        throw error;
-      }
-
+      await api.storage.local.set({ [core.STATE_KEY]: result.state });
       await broadcastBlocklistChanged();
 
       return { type: "saved", state: result.state };
     }
 
-    async function blockMatchedUrl(message, sender) {
-      if (typeof message.url !== "string") {
-        throw new Error("urlMatched message URL must be a string.");
-      }
-
-      if (typeof message.entryId !== "string") {
-        throw new Error("urlMatched message entry ID must be a string.");
-      }
-
-      const state = await loadState();
-      const match = core.findMatchingEntry(state, message.url);
-
-      if (match.type === "none" || match.entry.id !== message.entryId) {
-        return { type: "notBlocked" };
-      }
-
-      if (!sender.tab || typeof sender.tab.id !== "number") {
-        return { type: "notBlocked" };
-      }
-
-      await api.tabs.update(sender.tab.id, { url: blockedUrl(message.url) });
-
-      return { type: "blocked" };
-    }
-
     async function openOptions() {
       await api.tabs.create({ url: api.runtime.getURL("options.html") });
       return { type: "opened" };
-    }
-
-    async function syncBlockingRules() {
-      await replaceBlockingRules(await loadState());
     }
 
     async function closeCurrentTab(sender) {
@@ -113,51 +73,6 @@
       return core.parseStoredState(stored[core.STATE_KEY]);
     }
 
-    async function getAppOwnedRules() {
-      const rules = await api.declarativeNetRequest.getDynamicRules();
-      const appRuleIds = new Set(core.APP_RULE_IDS);
-
-      return rules.filter((rule) => appRuleIds.has(rule.id));
-    }
-
-    async function ensureRegexRulesAreSupported(rules) {
-      for (const rule of rules) {
-        const result = await api.declarativeNetRequest.isRegexSupported({
-          regex: rule.condition.regexFilter,
-          isCaseSensitive: false
-        });
-
-        if (!result.isSupported) {
-          throw new Error(result.reason || `Rule ${rule.id} is not supported by Safari.`);
-        }
-      }
-    }
-
-    async function replaceBlockingRules(state) {
-      const nextRules = core.buildDnrRules(state);
-      const previousRules = await getAppOwnedRules();
-
-      await ensureRegexRulesAreSupported(nextRules);
-      await replaceAppOwnedRules(nextRules, previousRules);
-
-      return { previousRules, nextRules };
-    }
-
-    async function replaceAppOwnedRules(nextRules, restoreRules) {
-      try {
-        await api.declarativeNetRequest.updateDynamicRules({
-          removeRuleIds: core.APP_RULE_IDS,
-          addRules: nextRules
-        });
-      } catch (error) {
-        await api.declarativeNetRequest.updateDynamicRules({
-          removeRuleIds: core.APP_RULE_IDS,
-          addRules: restoreRules
-        });
-        throw error;
-      }
-    }
-
     async function broadcastBlocklistChanged() {
       const tabs = await api.tabs.query({});
 
@@ -170,20 +85,13 @@
       }));
     }
 
-    function blockedUrl(url) {
-      return `${api.runtime.getURL("blocked.html")}#${encodeURIComponent(url)}`;
-    }
-
     return {
-      blockMatchedUrl,
-      blockedUrl,
       closeCurrentTab,
       getState,
       handleMessage,
       loadState,
       openOptions,
-      saveState,
-      syncBlockingRules
+      saveState
     };
   }
 
@@ -204,8 +112,6 @@
         controller.openOptions().catch(() => undefined);
       });
     }
-
-    controller.syncBlockingRules().catch(() => undefined);
   }
 
   function requireKeys(object, allowedKeys, label) {

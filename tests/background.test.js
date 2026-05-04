@@ -6,39 +6,38 @@ const { createBackgroundController } = require("../URLBlockerIOSExtension/Resour
 
 const id = "11111111-1111-4111-8111-111111111111";
 
-test("saveState validates, checks regex support, updates DNR, writes storage, and broadcasts", async () => {
+test("saveState validates, writes storage, and broadcasts", async () => {
   const api = fakeApi();
   const controller = createBackgroundController(api);
   const response = await controller.handleMessage({
     type: "saveState",
-    state: enabledState([{ id, kind: "url", value: "https://x.com/home?foo=bar" }])
+    state: validState([{ id, kind: "url", value: "https://x.com/home?foo=bar" }])
   }, {});
 
   assert.equal(response.type, "saved");
   assert.equal(response.state.entries[0].value, "x.com/home");
   assert.equal(response.state.blockedPageHtml, "<p>Blocked.</p>");
-  assert.equal(response.state.useSafariBlockingApi, true);
   assert.equal(api.storageData[core.STATE_KEY].entries[0].value, "x.com/home");
-  assert.equal(api.dynamicRules.length, 1);
   assert.equal(api.messages.length, 2);
 });
 
-test("saveState removes DNR rules when Safari blocking API is off", async () => {
+test("saveState migrates the old Safari API setting away", async () => {
   const api = fakeApi();
-  api.dynamicRules = [{ id: 1, condition: { regexFilter: "old" } }];
   const controller = createBackgroundController(api);
   const response = await controller.saveState({
     schemaVersion: 3,
     entries: [{ id, kind: "domain", value: "example.com" }],
     blockedPageHtml: "<p>Blocked.</p>",
-    useSafariBlockingApi: false
+    useSafariBlockingApi: true
   });
 
   assert.equal(response.type, "saved");
-  assert.deepEqual(api.dynamicRules, []);
+  assert.equal(response.state.schemaVersion, 4);
+  assert.equal("useSafariBlockingApi" in response.state, false);
+  assert.equal("useSafariBlockingApi" in api.storageData[core.STATE_KEY], false);
 });
 
-test("failed validation leaves DNR and storage untouched", async () => {
+test("failed validation leaves storage untouched", async () => {
   const api = fakeApi();
   const controller = createBackgroundController(api);
   const response = await controller.saveState({
@@ -47,67 +46,7 @@ test("failed validation leaves DNR and storage untouched", async () => {
   });
 
   assert.equal(response.type, "validationError");
-  assert.equal(api.dynamicRules.length, 0);
   assert.equal(api.storageData[core.STATE_KEY], undefined);
-});
-
-test("unsupported DNR regex leaves DNR and storage untouched", async () => {
-  const api = fakeApi();
-  api.unsupportedRegex = "^https://x\\.com/home/?$";
-  const controller = createBackgroundController(api);
-
-  await assert.rejects(
-    () => controller.saveState({
-      ...enabledState([{ id, kind: "regex", value: "^https://x\\.com/home/?$" }])
-    }),
-    /unsupported/
-  );
-
-  assert.equal(api.dynamicRules.length, 0);
-  assert.equal(api.storageData[core.STATE_KEY], undefined);
-});
-
-test("failed dynamic rule update restores previous app-owned rules", async () => {
-  const api = fakeApi();
-  api.dynamicRules = [{ id: 1, condition: { regexFilter: "old" } }];
-  api.failNextUpdate = true;
-  const controller = createBackgroundController(api);
-
-  await assert.rejects(
-    () => controller.saveState({
-      ...enabledState([{ id, kind: "domain", value: "example.com" }])
-    }),
-    /DNR failed/
-  );
-
-  assert.deepEqual(api.dynamicRules, [{ id: 1, condition: { regexFilter: "old" } }]);
-  assert.equal(api.storageData[core.STATE_KEY], undefined);
-});
-
-test("urlMatched re-checks current storage before redirecting", async () => {
-  const api = fakeApi();
-  api.storageData[core.STATE_KEY] = {
-    schemaVersion: 1,
-    entries: [{ id, kind: "url", value: "https://x.com/home" }]
-  };
-  const controller = createBackgroundController(api);
-
-  const blocked = await controller.handleMessage(
-    { type: "urlMatched", url: "https://x.com/home#feed", entryId: id },
-    { tab: { id: 7 } }
-  );
-
-  assert.equal(blocked.type, "blocked");
-  assert.match(api.updatedTabs[0].url, /blocked\.html#https%3A%2F%2Fx\.com%2Fhome%23feed$/);
-
-  api.storageData[core.STATE_KEY] = core.emptyState();
-  const stale = await controller.handleMessage(
-    { type: "urlMatched", url: "https://x.com/home#feed", entryId: id },
-    { tab: { id: 7 } }
-  );
-
-  assert.equal(stale.type, "notBlocked");
-  assert.equal(api.updatedTabs.length, 1);
 });
 
 test("unknown messages raise errors", async () => {
@@ -134,45 +73,22 @@ test("closeCurrentTab removes sender tab", async () => {
   assert.deepEqual(api.removedTabs, [7]);
 });
 
-test("syncBlockingRules removes stale DNR rules for migrated states", async () => {
-  const api = fakeApi();
-  api.dynamicRules = [{ id: 1, condition: { regexFilter: "old" } }];
-  api.storageData[core.STATE_KEY] = {
-    schemaVersion: 2,
-    entries: [{ id, kind: "domain", value: "example.com" }],
-    blockedPageHtml: "<p>Blocked.</p>"
-  };
-  const controller = createBackgroundController(api);
-
-  await controller.syncBlockingRules();
-
-  assert.deepEqual(api.dynamicRules, []);
-});
-
-function enabledState(entries) {
+function validState(entries) {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     entries,
-    blockedPageHtml: "<p>Blocked.</p>",
-    useSafariBlockingApi: true
+    blockedPageHtml: "<p>Blocked.</p>"
   };
 }
 
 function fakeApi() {
   const api = {
     storageData: {},
-    dynamicRules: [],
     messages: [],
-    updatedTabs: [],
     removedTabs: [],
-    unsupportedRegex: "",
-    failNextUpdate: false,
     runtime: {
       getURL(path) {
         return `safari-web-extension://extension/${path}`;
-      },
-      async openOptionsPage() {
-        api.openedOptions = true;
       }
     },
     storage: {
@@ -185,35 +101,12 @@ function fakeApi() {
         }
       }
     },
-    declarativeNetRequest: {
-      async getDynamicRules() {
-        return api.dynamicRules.slice();
-      },
-      async isRegexSupported({ regex }) {
-        if (regex === api.unsupportedRegex) {
-          return { isSupported: false, reason: "unsupported regex" };
-        }
-
-        return { isSupported: true };
-      },
-      async updateDynamicRules({ addRules }) {
-        if (api.failNextUpdate) {
-          api.failNextUpdate = false;
-          throw new Error("DNR failed");
-        }
-
-        api.dynamicRules = addRules.slice();
-      }
-    },
     tabs: {
       async query() {
         return [{ id: 1 }, { id: 2 }];
       },
       async sendMessage(tabId, message) {
         api.messages.push({ tabId, message });
-      },
-      async update(tabId, update) {
-        api.updatedTabs.push({ tabId, url: update.url });
       },
       async create({ url }) {
         api.createdTab = url;

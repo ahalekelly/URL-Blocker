@@ -2,12 +2,10 @@
   "use strict";
 
   const STATE_KEY = "blockerState";
-  const SCHEMA_VERSION = 3;
+  const SCHEMA_VERSION = 4;
   const MAX_ENTRIES = 1000;
   const MAX_BLOCKED_PAGE_HTML_LENGTH = 4000;
   const DEFAULT_BLOCKED_PAGE_HTML = "<h1>Blocked</h1><p>This page is on your blocklist.</p>";
-  const DEFAULT_USE_SAFARI_BLOCKING_API = false;
-  const APP_RULE_IDS = Array.from({ length: MAX_ENTRIES }, (_, index) => index + 1);
   const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const KIND_LABELS = {
     url: "URL",
@@ -20,8 +18,7 @@
     return {
       schemaVersion: SCHEMA_VERSION,
       entries: [],
-      blockedPageHtml: DEFAULT_BLOCKED_PAGE_HTML,
-      useSafariBlockingApi: DEFAULT_USE_SAFARI_BLOCKING_API
+      blockedPageHtml: DEFAULT_BLOCKED_PAGE_HTML
     };
   }
 
@@ -40,7 +37,7 @@
       return invalid([{ index: null, message: "Blocklist data must be an object." }]);
     }
 
-    if (rawState.schemaVersion !== 1 && rawState.schemaVersion !== 2 && rawState.schemaVersion !== SCHEMA_VERSION) {
+    if (rawState.schemaVersion !== 1 && rawState.schemaVersion !== 2 && rawState.schemaVersion !== 3 && rawState.schemaVersion !== SCHEMA_VERSION) {
       errors.push({ index: null, message: "Unsupported blocklist version. Reset the blocklist to repair it." });
     }
 
@@ -54,16 +51,11 @@
       errors.push({ index: null, message: "Blocked page HTML must be a string." });
     }
 
-    if (rawState.schemaVersion === SCHEMA_VERSION && typeof rawState.useSafariBlockingApi !== "boolean") {
-      errors.push({ index: null, message: "Safari blocking API setting must be true or false." });
-    }
-
     if (errors.length > 0) {
       return invalid(errors);
     }
 
     let blockedPageHtml = DEFAULT_BLOCKED_PAGE_HTML;
-    let useSafariBlockingApi = DEFAULT_USE_SAFARI_BLOCKING_API;
 
     try {
       if (rawState.schemaVersion >= 2) {
@@ -71,10 +63,6 @@
       }
     } catch (error) {
       errors.push({ index: null, message: error.message });
-    }
-
-    if (rawState.schemaVersion === SCHEMA_VERSION) {
-      useSafariBlockingApi = rawState.useSafariBlockingApi;
     }
 
     if (rawState.entries.length > MAX_ENTRIES) {
@@ -107,7 +95,7 @@
       return invalid(errors);
     }
 
-    return { type: "valid", state: { schemaVersion: SCHEMA_VERSION, entries, blockedPageHtml, useSafariBlockingApi } };
+    return { type: "valid", state: { schemaVersion: SCHEMA_VERSION, entries, blockedPageHtml } };
   }
 
   function parseStoredState(rawState) {
@@ -301,39 +289,7 @@
       case "urlWithSubpaths":
         return makeContentRegex(entry).test(pageUrl.pathMatchUrl);
       case "regex":
-        return new RegExp(entry.value, "i").test(pageUrl.dnrVisibleUrl);
-      default:
-        throw new Error(`Unknown matcher kind: ${entry.kind}`);
-    }
-  }
-
-  function buildDnrRules(state) {
-    if (!state.useSafariBlockingApi) {
-      return [];
-    }
-
-    return state.entries.map((entry, index) => ({
-      id: index + 1,
-      priority: 1,
-      action: { type: "block" },
-      condition: {
-        regexFilter: makeDnrRegex(entry),
-        resourceTypes: ["main_frame"],
-        isUrlFilterCaseSensitive: false
-      }
-    }));
-  }
-
-  function makeDnrRegex(entry) {
-    switch (entry.kind) {
-      case "domain":
-        return `^https?://(?:[^./?#]+\\.)*${escapeRegex(entry.value)}(?::[0-9]+)?(?:[/?#].*)?$`;
-      case "url":
-        return makeUrlRegex(entry, true);
-      case "urlWithSubpaths":
-        return makeUrlWithSubpathsRegex(entry, true);
-      case "regex":
-        return entry.value;
+        return new RegExp(entry.value, "i").test(pageUrl.regexMatchUrl);
       default:
         throw new Error(`Unknown matcher kind: ${entry.kind}`);
     }
@@ -342,9 +298,9 @@
   function makeContentRegex(entry) {
     switch (entry.kind) {
       case "url":
-        return new RegExp(makeUrlRegex(entry, false), "i");
+        return new RegExp(makeUrlRegex(entry), "i");
       case "urlWithSubpaths":
-        return new RegExp(makeUrlWithSubpathsRegex(entry, false), "i");
+        return new RegExp(makeUrlWithSubpathsRegex(entry), "i");
       case "domain":
       case "regex":
         throw new Error(`${entry.kind} entries do not use content URL regexes.`);
@@ -353,19 +309,16 @@
     }
   }
 
-  function makeUrlRegex(entry, allowQuery) {
+  function makeUrlRegex(entry) {
     const { host, path } = splitStoredUrl(entry.value);
-    const query = allowQuery ? "(?:\\?[^#]*)?" : "";
-    const trailingSlash = allowQuery ? "/*" : "";
 
-    return `^https?://(?:[^./?#]+\\.)*${escapeRegex(host)}${escapeRegex(path)}${trailingSlash}${query}$`;
+    return `^https?://(?:[^./?#]+\\.)*${escapeRegex(host)}${escapeRegex(path)}$`;
   }
 
-  function makeUrlWithSubpathsRegex(entry, allowQuery) {
+  function makeUrlWithSubpathsRegex(entry) {
     const { host, path } = splitStoredUrl(entry.value);
-    const query = allowQuery ? "(?:\\?[^#]*)?" : "";
 
-    return `^https?://(?:[^./?#]+\\.)*${escapeRegex(host)}${escapeRegex(path)}(?:/[^?#]*)?${query}$`;
+    return `^https?://(?:[^./?#]+\\.)*${escapeRegex(host)}${escapeRegex(path)}(?:/[^?#]*)?$`;
   }
 
   function normalizePageUrl(rawUrl) {
@@ -381,14 +334,14 @@
       const base = `${scheme}//${host}${url.port === "" ? "" : `:${url.port}`}`;
       const path = stripTrailingSlashes(url.pathname);
       const pathMatchUrl = `${base}${path === "/" ? "" : path}`;
-      const dnrVisibleUrl = `${base}${url.pathname}${url.search}`;
+      const regexMatchUrl = `${base}${url.pathname}${url.search}`;
 
       return {
         type: "valid",
         url: {
           host,
           pathMatchUrl,
-          dnrVisibleUrl
+          regexMatchUrl
         }
       };
     } catch {
@@ -468,27 +421,25 @@
         return ["schemaVersion", "entries"];
       case 2:
         return ["schemaVersion", "entries", "blockedPageHtml"];
+      case 3:
+        return ["schemaVersion", "entries", "blockedPageHtml", "useSafariBlockingApi"];
       case SCHEMA_VERSION:
-        return ["schemaVersion", "entries", "blockedPageHtml", "useSafariBlockingApi"];
+        return ["schemaVersion", "entries", "blockedPageHtml"];
       default:
-        return ["schemaVersion", "entries", "blockedPageHtml", "useSafariBlockingApi"];
+        return ["schemaVersion", "entries", "blockedPageHtml"];
     }
   }
 
   const BlockerCore = {
-    APP_RULE_IDS,
     DEFAULT_BLOCKED_PAGE_HTML,
-    DEFAULT_USE_SAFARI_BLOCKING_API,
     KIND_LABELS,
     MAX_BLOCKED_PAGE_HTML_LENGTH,
     MAX_ENTRIES,
     SCHEMA_VERSION,
     STATE_KEY,
-    buildDnrRules,
     emptyState,
     entryMatchesUrl,
     findMatchingEntry,
-    makeDnrRegex,
     newEntry,
     normalizeDomainEntryValue,
     normalizeBlockedPageHtml,
