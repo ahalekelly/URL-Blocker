@@ -16,10 +16,28 @@
 
 ## Commands
 
+Show build and install targets:
+
+```sh
+make help
+```
+
 Run JavaScript tests:
 
 ```sh
-npm test
+make test
+```
+
+Build both unsigned platform targets:
+
+```sh
+make build
+```
+
+Build and install the signed macOS app:
+
+```sh
+make macos-install
 ```
 
 Sync default blocked pages after editing defaults:
