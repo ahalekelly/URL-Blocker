@@ -2,35 +2,14 @@
   "use strict";
 
   const api = root.browser || root.chrome;
-  const core = root.BlockerCore;
-  let state = core.emptyState();
-  let lastCheckedUrl = "";
-  let pendingBlockedUrl = "";
+  let lastSentUrl = "";
   let queuedCheck = 0;
 
-  start().catch((error) => {
-    console.error("URL Blocker content script failed to start.", error);
-  });
+  start();
 
-  async function start() {
-    await reloadState();
+  function start() {
     checkCurrentUrl();
     watchPage();
-  }
-
-  async function reloadState() {
-    const response = await api.runtime.sendMessage({ type: "getState" });
-
-    switch (response.type) {
-      case "state":
-        state = response.state;
-        return;
-      case "stateError":
-      case "error":
-        throw new Error(response.error);
-      default:
-        throw new Error(`Unknown getState response: ${response.type}`);
-    }
   }
 
   function watchPage() {
@@ -48,28 +27,8 @@
         return;
       }
 
-      reloadState()
-        .then(() => {
-          lastCheckedUrl = "";
-          pendingBlockedUrl = "";
-          checkCurrentUrl();
-        })
-        .catch((error) => console.error("URL Blocker could not reload state.", error));
+      checkCurrentUrl();
     }, 1500);
-
-    api.runtime.onMessage.addListener((message) => {
-      if (!message || message.type !== "blocklistChanged") {
-        return;
-      }
-
-      reloadState()
-        .then(() => {
-          lastCheckedUrl = "";
-          pendingBlockedUrl = "";
-          checkCurrentUrl();
-        })
-        .catch((error) => console.error("URL Blocker could not reload state.", error));
-    });
   }
 
   function checkWhenVisible() {
@@ -98,57 +57,15 @@
   function checkCurrentUrl() {
     const currentUrl = location.href;
 
-    if (currentUrl === lastCheckedUrl) {
+    if (currentUrl === lastSentUrl) {
       return;
     }
 
-    lastCheckedUrl = currentUrl;
-
-    const match = core.findMatchingEntry(state, currentUrl);
-
-    switch (match.type) {
-      case "none":
-        pendingBlockedUrl = "";
-        return;
-      case "match":
-        sendMatchedUrl(currentUrl);
-        return;
-      default:
-        throw new Error(`Unknown match type: ${match.type}`);
-    }
-  }
-
-  function sendMatchedUrl(url) {
-    if (url === pendingBlockedUrl) {
-      return;
-    }
-
-    pendingBlockedUrl = url;
-    api.runtime.sendMessage({ type: "urlMatched", url })
-      .then(handleUrlMatchedResponse)
+    lastSentUrl = currentUrl;
+    api.runtime.sendMessage({ type: "urlChanged", url: currentUrl })
       .catch((error) => {
-        lastCheckedUrl = "";
-        pendingBlockedUrl = "";
-        console.error("URL Blocker could not redirect blocked URL.", error);
+        lastSentUrl = "";
+        console.error("URL Blocker could not check the current URL.", error);
       });
-  }
-
-  function handleUrlMatchedResponse(response) {
-    if (!response || typeof response.type !== "string") {
-      throw new Error("urlMatched response must include a type.");
-    }
-
-    switch (response.type) {
-      case "redirected":
-        return;
-      case "notRedirected":
-        pendingBlockedUrl = "";
-        return;
-      case "error":
-        pendingBlockedUrl = "";
-        throw new Error(response.error);
-      default:
-        throw new Error(`Unknown urlMatched response: ${response.type}`);
-    }
   }
 })(globalThis);

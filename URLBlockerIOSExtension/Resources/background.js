@@ -26,12 +26,9 @@
         case "openOptions":
           requireKeys(message, ["type"], "openOptions message");
           return openOptions();
-        case "closeCurrentTab":
-          requireKeys(message, ["type"], "closeCurrentTab message");
-          return closeCurrentTab(sender);
-        case "urlMatched":
-          requireKeys(message, ["type", "url"], "urlMatched message");
-          return urlMatched(message.url, sender);
+        case "urlChanged":
+          requireKeys(message, ["type", "url"], "urlChanged message");
+          return urlChanged(message.url, sender);
         default:
           throw new Error(`Unknown message type: ${message.type}`);
       }
@@ -64,7 +61,7 @@
         throw new Error(storageResponse.error);
       }
 
-      await broadcastBlocklistChanged();
+      await redirectOpenBlockedTabs(storageResponse.state);
       await removeUnusedWebsiteAccess(result.state);
 
       return { type: "saved", state: storageResponse.state };
@@ -75,23 +72,9 @@
       return { type: "opened" };
     }
 
-    async function closeCurrentTab(sender) {
+    async function urlChanged(rawUrl, sender) {
       if (!sender.tab || typeof sender.tab.id !== "number") {
-        return { type: "notClosed" };
-      }
-
-      await api.tabs.remove(sender.tab.id);
-
-      return { type: "closed" };
-    }
-
-    async function urlMatched(rawUrl, sender) {
-      if (typeof rawUrl !== "string" || rawUrl.trim() === "") {
-        throw new Error("urlMatched message must include a URL.");
-      }
-
-      if (!sender.tab || typeof sender.tab.id !== "number") {
-        return { type: "notRedirected" };
+        throw new Error("urlChanged message must come from a tab.");
       }
 
       return redirectBlockedUrl(sender.tab.id, rawUrl);
@@ -108,9 +91,27 @@
 
       const match = core.findMatchingEntry(await loadState(), rawUrl);
 
+      return redirectFromMatch(tabId, rawUrl, match);
+    }
+
+    async function redirectOpenBlockedTabs(state) {
+      const tabs = await api.tabs.query({});
+
+      await Promise.all(tabs.map((tab) => {
+        if (typeof tab.id !== "number" || typeof tab.url !== "string") {
+          return undefined;
+        }
+
+        const match = core.findMatchingEntry(state, tab.url);
+
+        return redirectFromMatch(tab.id, tab.url, match);
+      }));
+    }
+
+    async function redirectFromMatch(tabId, rawUrl, match) {
       switch (match.type) {
         case "none":
-          return { type: "notRedirected" };
+          return { type: "allowed" };
         case "match":
           await api.tabs.update(tabId, { url: blockedPageUrl(rawUrl) });
           return { type: "redirected" };
@@ -157,7 +158,7 @@
 
       await api.scripting.registerContentScripts([{
         id: CONTENT_SCRIPT_ID,
-        js: ["blocker.js", "content.js"],
+        js: ["content.js"],
         matches: origins,
         runAt: "document_start"
       }]);
@@ -173,28 +174,14 @@
       }
     }
 
-    async function broadcastBlocklistChanged() {
-      const tabs = await api.tabs.query({});
-
-      await Promise.all(tabs.map((tab) => {
-        if (typeof tab.id !== "number") {
-          return Promise.resolve();
-        }
-
-        return api.tabs.sendMessage(tab.id, { type: "blocklistChanged" }).catch(() => undefined);
-      }));
-    }
-
     return {
-      closeCurrentTab,
       getState,
       handleMessage,
       loadState,
       openOptions,
       redirectBlockedUrl,
       saveState,
-      syncContentScripts,
-      urlMatched
+      syncContentScripts
     };
   }
 

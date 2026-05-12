@@ -6,7 +6,7 @@ const { createBackgroundController } = require("../URLBlockerIOSExtension/Resour
 
 const id = "11111111-1111-4111-8111-111111111111";
 
-test("saveState validates, writes storage, and broadcasts", async () => {
+test("saveState validates, writes storage, and syncs content scripts", async () => {
   const api = fakeApi();
   const controller = createBackgroundController(api);
   const response = await controller.handleMessage({
@@ -18,8 +18,8 @@ test("saveState validates, writes storage, and broadcasts", async () => {
   assert.equal(response.state.entries[0].value, "x.com/home");
   assert.equal(response.state.blockedPageHtml, "<p>Blocked.</p>");
   assert.equal(api.storageData[core.STATE_KEY].entries[0].value, "x.com/home");
+  assert.deepEqual(api.registeredScripts[0].js, ["content.js"]);
   assert.deepEqual(api.registeredScripts[0].matches, ["*://*.x.com/*"]);
-  assert.equal(api.messages.length, 2);
 });
 
 test("saveState migrates the old Safari API setting away", async () => {
@@ -101,23 +101,14 @@ test("openOptions opens the options page in a tab", async () => {
   assert.equal(api.createdTab, "safari-web-extension://extension/options.html");
 });
 
-test("closeCurrentTab removes sender tab", async () => {
-  const api = fakeApi();
-  const controller = createBackgroundController(api);
-  const response = await controller.handleMessage({ type: "closeCurrentTab" }, { tab: { id: 7 } });
-
-  assert.equal(response.type, "closed");
-  assert.deepEqual(api.removedTabs, [7]);
-});
-
-test("urlMatched redirects matching sender tab to the blocked page", async () => {
+test("urlChanged redirects matching sender tab to the blocked page", async () => {
   const api = fakeApi();
   api.storageData[core.STATE_KEY] = validState([
     { id, kind: "url", value: "https://x.com" },
     { id: "22222222-2222-4222-8222-222222222222", kind: "url", value: "https://x.com/home" }
   ]);
   const controller = createBackgroundController(api);
-  const response = await controller.handleMessage({ type: "urlMatched", url: "https://x.com/home" }, { tab: { id: 7 } });
+  const response = await controller.handleMessage({ type: "urlChanged", url: "https://x.com/home" }, { tab: { id: 7 } });
 
   assert.equal(response.type, "redirected");
   assert.deepEqual(api.updatedTabs, [{
@@ -126,16 +117,35 @@ test("urlMatched redirects matching sender tab to the blocked page", async () =>
   }]);
 });
 
-test("urlMatched ignores stale content script matches", async () => {
+test("urlChanged allows URLs that no longer match saved state", async () => {
   const api = fakeApi();
   api.storageData[core.STATE_KEY] = validState([
     { id, kind: "url", value: "https://x.com" }
   ]);
   const controller = createBackgroundController(api);
-  const response = await controller.handleMessage({ type: "urlMatched", url: "https://x.com/home" }, { tab: { id: 7 } });
+  const response = await controller.handleMessage({ type: "urlChanged", url: "https://x.com/home" }, { tab: { id: 7 } });
 
-  assert.equal(response.type, "notRedirected");
+  assert.equal(response.type, "allowed");
   assert.deepEqual(api.updatedTabs, []);
+});
+
+test("saveState redirects open tabs that match the new state", async () => {
+  const api = fakeApi({
+    tabs: [
+      { id: 7, url: "https://x.com/home" },
+      { id: 8, url: "https://x.com/messages" }
+    ]
+  });
+  const controller = createBackgroundController(api);
+  const response = await controller.saveState(validState([
+    { id, kind: "url", value: "https://x.com/home" }
+  ]));
+
+  assert.equal(response.type, "saved");
+  assert.deepEqual(api.updatedTabs, [{
+    tabId: 7,
+    url: "safari-web-extension://extension/blocked.html#https%3A%2F%2Fx.com%2Fhome"
+  }]);
 });
 
 function validState(entries) {
@@ -150,10 +160,9 @@ function fakeApi(overrides = {}) {
   const api = {
     storageData: {},
     grantedOrigins: overrides.grantedOrigins || ["*://*.example.com/*", "*://*.reddit.com/*", "*://*.x.com/*"],
-    messages: [],
+    tabsData: overrides.tabs || [],
     registeredScripts: [],
     removedOrigins: [],
-    removedTabs: [],
     updatedTabs: [],
     runtime: {
       getURL(path) {
@@ -195,16 +204,10 @@ function fakeApi(overrides = {}) {
     },
     tabs: {
       async query() {
-        return [{ id: 1 }, { id: 2 }];
-      },
-      async sendMessage(tabId, message) {
-        api.messages.push({ tabId, message });
+        return api.tabsData;
       },
       async create({ url }) {
         api.createdTab = url;
-      },
-      async remove(tabId) {
-        api.removedTabs.push(tabId);
       },
       async update(tabId, { url }) {
         api.updatedTabs.push({ tabId, url });

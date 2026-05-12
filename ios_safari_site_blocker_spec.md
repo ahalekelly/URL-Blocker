@@ -22,6 +22,7 @@ Build the full iOS app with a packaged Safari Web Extension.
 - Block direct navigation to a blocked URL.
 - Block SPA route changes to a blocked URL.
 - Allow other URLs on the same host when the rule is path-specific.
+- Allow blocking to navigate the tab to the extension blocked page.
 - Make invalid input fail before saving.
 - Keep the app small, understandable, and privacy-preserving.
 - Avoid desktop-only Safari extension APIs.
@@ -332,7 +333,7 @@ Save flow:
 6. Service worker adds the new dynamic rules.
 7. Service worker writes the validated state to storage.
 8. Service worker returns the validated normalized state to the options page.
-9. Service worker broadcasts a blocklist-changed message to open tabs.
+9. Service worker redirects any already-open tabs that match the new state.
 
 The save must be transactional from the user's perspective. If DNR update fails, keep the old storage state and show the error.
 
@@ -346,7 +347,7 @@ Rule IDs:
 DNR actions:
 
 - Prefer `redirect` to `/blocked.html` for top-level navigation.
-- If redirect is not reliable on a tested iOS Safari version, use `block` as the fallback action and keep the SPA blocked page for content-script redirects.
+- If redirect is not reliable on a tested iOS Safari version, use `block` as the DNR fallback and keep content-script blocking on worker-owned tab redirects.
 - Do not use `modifyHeaders`.
 - Do not use `regexSubstitution` in v1; it creates extra compatibility risk and is not needed for simple blocking.
 
@@ -364,10 +365,9 @@ DNR only sees requests that reach Safari's network/request layer. A single-page 
 The content script must:
 
 - Run on `http` and `https` pages at `document_start`.
-- Load the current blocklist snapshot.
 - Check `location.href` on startup.
 - Re-check when the visible URL changes.
-- Redirect blocked URLs quickly without waiting for a full page refresh.
+- Send changed URLs to the service worker quickly without waiting for a full page refresh.
 
 Use a simple URL monitor instead of relying only on `tabs.onUpdated`.
 
@@ -386,14 +386,14 @@ The monitor should call `checkCurrentUrl()` from:
 
 The interval is intentionally boring. It avoids depending on fragile history monkey-patching across isolated content-script worlds. Later, if Safari supports reliable main-world content script injection for this use case, the interval can be replaced or supplemented with a page-world history hook.
 
-When the content script finds a match:
+When the content script sees a changed URL:
 
-1. It sends the normalized current URL and matched entry ID to the service worker.
-2. The service worker checks the URL against the current saved state again.
+1. It sends the current URL to the service worker.
+2. The service worker checks the URL against the current saved state.
 3. If still blocked, the service worker updates the tab to the extension blocked page.
 4. The blocked page receives the blocked URL in the fragment for display.
 
-Never trust the content script as the final authority. The service worker re-check prevents stale content scripts from blocking after a user removes a rule.
+The content script does not load or interpret blocklist state. The service worker is the only component that decides whether a URL is blocked.
 
 # Blocked Page
 
@@ -402,6 +402,8 @@ The blocked page should be minimal:
 - Title: `Blocked`
 - Show the blocked host or full URL when available.
 - Button: `Close`
+
+Blocking may change the address bar to the extension blocked page. The blocked page shows the original URL when it was passed by the worker.
 
 The Close button closes the current tab by calling `browser.tabs.getCurrent()` from `blocked.js`, then `browser.tabs.remove(tab.id)`.
 
@@ -462,9 +464,9 @@ Supported messages:
 
 | Message | Sender | Receiver | Purpose |
 |---|---|---|---|
-| `getState` | options/content/blocked page | service worker | Read the current saved blocklist |
+| `getState` | options/blocked page | service worker | Read the current saved blocklist |
 | `saveState` | options page | service worker | Validate, update DNR, save state |
-| `urlMatched` | content script | service worker | Ask worker to block the current SPA route |
+| `urlChanged` | content script | service worker | Ask worker to check the current page URL |
 | `openOptions` | native app | service worker | Open the editor |
 
 Unknown message types must raise an error. Do not silently ignore them.
@@ -492,11 +494,11 @@ Missing Safari website access:
 Service worker suspended:
 
 - DNR rules still handle direct navigations.
-- Content scripts reload state from storage and can wake the worker with messages.
+- Content scripts can wake the worker with `urlChanged` messages.
 
-Stale content script:
+Content script route report:
 
-- Service worker re-checks the URL before redirecting.
+- Service worker checks current saved state before redirecting.
 
 URL input containing query, fragment, or trailing slash:
 
@@ -622,14 +624,14 @@ Message protocol tests:
 
 - `getState` returns the saved state.
 - `saveState` accepts only a complete replacement state.
-- `urlMatched` re-checks the URL against current saved state before redirecting.
+- `urlChanged` checks the URL against current saved state before redirecting.
 - `openOptions` opens the options page.
 - Unknown message types raise an error.
 - Invalid message shapes raise an error.
 
 Save flow tests:
 
-- Successful save validates entries, checks DNR regex support, updates dynamic rules, writes storage, returns normalized state, and broadcasts `blocklist-changed`.
+- Successful save validates entries, checks DNR regex support, updates dynamic rules, writes storage, returns normalized state, and redirects open matching tabs.
 - Failed validation does not update DNR or storage.
 - Failed DNR support check does not update DNR or storage.
 - Failed dynamic rule update does not write storage.
@@ -639,19 +641,16 @@ Save flow tests:
 
 SPA blocking tests:
 
-- A matching `urlMatched` message redirects the tab to the extension blocked page.
-- A non-matching `urlMatched` message does nothing.
-- A stale content script cannot block a URL after the matching entry was removed.
+- A matching `urlChanged` message redirects the tab to the extension blocked page.
+- A non-matching `urlChanged` message does nothing.
 - The blocked URL is passed to the blocked page in the fragment.
 
 ## Content Script Tests
 
-Startup and state tests:
+Startup tests:
 
-- The script loads the current state from storage on startup.
 - The script checks `location.href` on startup.
-- The script reloads state after a `blocklist-changed` message.
-- Invalid stored state raises an error instead of silently allowing unknown shapes.
+- The script does not load blocklist state.
 
 Route detection tests:
 
@@ -666,12 +665,11 @@ Route detection tests:
 - The visible-page interval triggers a URL check.
 - The interval pauses or does not redirect while the page is hidden.
 
-Blocking tests:
+Worker handoff tests:
 
-- Matching URLs send `urlMatched` to the service worker.
-- Non-matching URLs do not send `urlMatched`.
-- Query strings, fragments, and trailing slashes are stripped before matching URL-based entries.
-- Multiple rapid URL changes send only the latest blocked URL when practical.
+- Changed URLs send `urlChanged` to the service worker.
+- Repeated checks for the same URL do not send duplicate messages.
+- Multiple rapid checks for the same URL send one message.
 
 ## Options Page Tests
 

@@ -4,67 +4,63 @@ const test = require("node:test");
 const vm = require("node:vm");
 const assert = require("node:assert/strict");
 
-const core = require("../URLBlockerIOSExtension/Resources/blocker.js");
 const contentScript = fs.readFileSync(path.join(__dirname, "../URLBlockerIOSExtension/Resources/content.js"), "utf8");
 
-const state = {
-  schemaVersion: 4,
-  entries: [
-    { id: "11111111-1111-4111-8111-111111111111", kind: "url", value: "x.com" },
-    { id: "22222222-2222-4222-8222-222222222222", kind: "url", value: "x.com/home" }
-  ],
-  blockedPageHtml: "<p>Blocked.</p>"
-};
+test("content script reports the startup URL to the worker", async () => {
+  const page = runContentScript("https://x.com/home");
 
-test("content script reports blocked startup URLs to the worker", async () => {
-  const messages = await runContentScript("https://x.com/home");
-
-  assert.deepEqual(messages, [
-    { type: "getState" },
-    { type: "urlMatched", url: "https://x.com/home" }
+  assert.deepEqual(page.messages, [
+    { type: "urlChanged", url: "https://x.com/home" }
   ]);
 });
 
-test("content script leaves unmatched startup URLs alone", async () => {
-  const messages = await runContentScript("https://x.com/messages");
+test("content script reports changed URLs once", async () => {
+  const page = runContentScript("https://x.com");
 
-  assert.deepEqual(messages, [{ type: "getState" }]);
+  page.location.href = "https://x.com/home";
+  page.dispatch("popstate");
+  page.dispatch("focus");
+
+  assert.deepEqual(page.messages, [
+    { type: "urlChanged", url: "https://x.com" },
+    { type: "urlChanged", url: "https://x.com/home" }
+  ]);
 });
 
-async function runContentScript(url) {
-  const messages = [];
+function runContentScript(url) {
   const context = {
-    BlockerCore: core,
     browser: {
       runtime: {
         async sendMessage(message) {
-          messages.push(message);
+          context.messages.push(message);
 
-          switch (message.type) {
-            case "getState":
-              return { type: "state", state };
-            case "urlMatched":
-              return { type: "redirected" };
-            default:
-              throw new Error(`Unknown message type: ${message.type}`);
-          }
-        },
-        onMessage: {
-          addListener() {}
+          return { type: "allowed" };
         }
       }
     },
     console,
     document: { hidden: false },
+    listeners: new Map(),
     location: { href: url },
-    addEventListener() {},
+    messages: [],
+    addEventListener(type, listener) {
+      context.listeners.set(type, listener);
+    },
     clearTimeout() {},
     setInterval() {},
-    setTimeout() {}
+    setTimeout(listener) {
+      listener();
+    }
   };
 
   vm.runInNewContext(contentScript, context, { filename: "content.js" });
-  await new Promise((resolve) => setImmediate(resolve));
 
-  return JSON.parse(JSON.stringify(messages));
+  return {
+    location: context.location,
+    messages: JSON.parse(JSON.stringify(context.messages)),
+    dispatch(type) {
+      context.listeners.get(type)();
+      this.messages = JSON.parse(JSON.stringify(context.messages));
+    }
+  };
 }
