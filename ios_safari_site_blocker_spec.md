@@ -10,8 +10,8 @@ The core requirement is SPA-safe blocking: if a user starts on an allowed page a
 
 Build the full iOS app with a packaged Safari Web Extension.
 
-- Use Manifest V3 and `declarativeNetRequest` dynamic rules for normal top-level navigations.
-- Use a content script to catch single-page-app route changes after a page is already loaded.
+- Use Manifest V3 with a background service worker that owns all block decisions.
+- Use a content script to report initial page URLs and single-page-app route changes.
 - Use a simple extension options page for the blocklist editor.
 - Make the native containing app the only user-facing entry point for opening the blocklist editor.
 - Do not expose a blocklist editor item or popup from Safari's Extensions menu.
@@ -72,8 +72,7 @@ Trailing slash behavior:
 
 Fragment behavior:
 
-- Fragments are visible to the content script.
-- Fragments are not sent in HTTP requests, so DNR cannot enforce fragment-specific rules before the page loads.
+- Fragments are visible to the content script and service worker.
 - Fragments entered in URL-based entries are stripped before storage.
 - The options page updates the URL input field to show the stripped URL.
 - Page URL fragments are ignored when matching URL-based entries.
@@ -91,8 +90,8 @@ The native app is deliberately boring. It shows onboarding instructions, a butto
 The Web Extension owns all blocker state:
 
 - `browser.storage.local` stores the blocklist.
-- The background service worker validates saves and updates DNR dynamic rules.
-- A content script observes current page URLs and catches SPA route changes.
+- The background service worker validates saves, syncs content-script registration, and redirects blocked tabs.
+- A content script reports current page URLs and catches SPA route changes.
 - An options page edits the blocklist and is opened from the native app.
 - A blocked page gives the user a clear destination when a block occurs.
 
@@ -103,7 +102,7 @@ The extension should contain these files:
 | File | Purpose |
 |---|---|
 | `manifest.json` | MV3 manifest, permissions, content script, options page, blocked page resources |
-| `background.js` | validation, storage writes, DNR dynamic rule updates, tab redirection |
+| `background.js` | validation, storage writes, content-script registration, tab redirection |
 | `content.js` | URL monitor for initial loads and SPA route changes |
 | `options.html` / `options.js` | blocklist editor |
 | `blocked.html` / `blocked.js` | blocked-page UI |
@@ -111,14 +110,14 @@ The extension should contain these files:
 
 # Manifest Requirements
 
-Target iOS/iPadOS 16.4 or newer for Safari Web Extension reliability. Safari 15.4 added MV3 service workers and DNR dynamic/session rules, while Safari 16.4 fixed several DNR and service-worker issues.
+Target iOS/iPadOS 16.4 or newer for Safari Web Extension reliability. Safari 15.4 added MV3 service workers, while Safari 16.4 fixed several extension reliability issues.
 
 Required permissions:
 
+- `nativeMessaging`
 - `scripting`
 - `storage`
 - `tabs`
-- `declarativeNetRequestWithHostAccess`
 
 Required optional host access:
 
@@ -131,7 +130,7 @@ Required extension surfaces:
 - Content script runs at `document_start`.
 - Options page for editing.
 - No extension action, popup, or Safari Extensions menu item for editing the blocklist.
-- `blocked.html` listed as a web-accessible extension resource if DNR redirects to it.
+- `blocked.html` listed as a web-accessible extension resource so the worker can redirect to it.
 
 Do not request these in v1:
 
@@ -156,7 +155,6 @@ The app should request website access only for normalized hosts in the blocklist
 
 The extension must behave gracefully when access is missing:
 
-- DNR rules may not redirect as expected without site permission.
 - Content scripts will not run on sites where access is denied.
 - The blocked list editor should show a visible warning that Safari permissions control whether blocking can happen.
 
@@ -181,7 +179,7 @@ type BlockEntry =
 
 `id` is a UUID generated when the entry is created. It stays stable until the entry is deleted.
 
-There is no disabled state in v1. A row exists or it does not. This keeps matching and rule generation easy to reason about.
+There is no disabled state in v1. A row exists or it does not. This keeps matching easy to reason about.
 
 # Validation
 
@@ -221,9 +219,8 @@ Full Domain Blocking:
 Custom Regex:
 
 - Must compile as a JavaScript regular expression.
-- Must be accepted by `declarativeNetRequest.isRegexSupported`.
-- Must match against the normalized DNR-visible URL string, which has no fragment.
-- Must be case-insensitive in both DNR and content-script matching.
+- Must match against the normalized page URL string, which has no fragment.
+- Must be case-insensitive.
 - Must not contain `#`; fragment-specific regex rules are not supported in v1.
 - Must not use lookbehind, backreferences, or unsupported flags.
 - Must not be an unanchored `.*` style catch-all unless the user explicitly confirms a "block everything" warning.
@@ -248,16 +245,11 @@ Input normalization:
 - Preserve path case.
 - Ignore page URL query strings, fragments, and trailing slashes when matching URL-based entries.
 
-Matching strings:
-
-- DNR URL matching string: normalized URL without fragment. Generated DNR regexes still allow any query suffix because DNR sees query strings.
-- Content-script URL matching string: normalized URL with query, fragment, and trailing slashes stripped.
-
-This keeps URL-based rules path-based even when the live page URL has tracking parameters or a hash route.
+The worker normalizes page URLs before matching. URL-based entries ignore query strings, fragments, and trailing slashes. Regex entries match the normalized page URL without a fragment.
 
 # Matching Semantics
 
-Every matcher must have a JavaScript predicate and, when possible, a DNR rule.
+Every matcher has one JavaScript predicate in the shared blocker core.
 
 URL predicates:
 
@@ -272,13 +264,7 @@ URL blocking:
 - Match the stored path with or without trailing slashes.
 - Do not match descendant paths.
 
-Generated URL blocking regex shape for a URL with no query, fragment, or trailing slash:
-
-```regex
-^https?://(?:[^./?#]+\.)*<escaped-host><escaped-path>/*(?:\?[^#]*)?$
-```
-
-The URL blocking content-script predicate strips query, fragment, and trailing slashes before matching, then uses this shape:
+URL blocking predicate shape after page URL normalization:
 
 ```regex
 ^https?://(?:[^./?#]+\.)*<escaped-host><escaped-path>$
@@ -290,20 +276,12 @@ URL blocking including subpaths:
 - Match descendant paths.
 - Do not match sibling paths that only share the same text prefix.
 
-Generated URL blocking including subpaths regex shape for a URL with no query, fragment, or trailing slash:
-
-```regex
-^https?://(?:[^./?#]+\.)*<escaped-host><escaped-path>(?:/[^?#]*)?(?:\?[^#]*)?$
-```
-
-The URL blocking including subpaths content-script predicate strips query, fragment, and trailing slashes before matching, then uses this shape:
+URL blocking including subpaths predicate shape after page URL normalization:
 
 ```regex
 ^https?://(?:[^./?#]+\.)*<escaped-host><escaped-path>(?:/[^?#]*)?$
 ```
 
-- DNR regexes allow any query suffix because queries are present in request URLs.
-- The content script strips query, fragment, and trailing slashes first so SPA and hash-route changes use the same URL behavior.
 - If the user enters a query, fragment, or trailing slash in a URL-based entry, normalization removes it and the options page updates the input field to the stripped URL.
 - When the stored path is empty, use an empty `<escaped-path>` so the root URL still matches with or without trailing slashes.
 
@@ -315,52 +293,28 @@ Domain predicate:
 
 Regex predicate:
 
-- Match the normalized DNR-visible URL string, which has no fragment.
+- Match the normalized page URL string, which has no fragment.
 - Use case-insensitive matching.
-- Reject regexes that behave differently in JavaScript and DNR.
 
-# Rule Generation
+# Save Flow
 
-The background service worker is the only component that writes DNR dynamic rules.
+The background service worker is the only component that decides whether a URL is blocked.
 
 Save flow:
 
 1. Options page sends the complete proposed blocklist to the service worker.
 2. Service worker validates all entries.
-3. Service worker converts entries to DNR rules where possible.
-4. Service worker asks Safari whether generated regex rules are supported.
-5. Service worker removes existing app-owned dynamic rule IDs.
-6. Service worker adds the new dynamic rules.
-7. Service worker writes the validated state to storage.
-8. Service worker returns the validated normalized state to the options page.
-9. Service worker redirects any already-open tabs that match the new state.
+3. Service worker confirms Safari has the requested website access.
+4. Service worker updates the dynamic content-script registration for the required hosts.
+5. Service worker writes the validated state to storage.
+6. Service worker returns the validated normalized state to the options page.
+7. Service worker redirects any already-open tabs that match the new state.
 
-The save must be transactional from the user's perspective. If DNR update fails, keep the old storage state and show the error.
+The save must be transactional from the user's perspective. If validation, website access, content-script registration, or storage fails, leave the old saved blocklist active and show the error.
 
-Rule IDs:
+# URL Change Blocking
 
-- Reserve IDs `1...1000` for blocklist DNR rules.
-- Assign IDs by array index plus one.
-- Rebuild all app-owned DNR rules on every save.
-- Do not preserve DNR rule IDs as stable user-facing identifiers.
-
-DNR actions:
-
-- Prefer `redirect` to `/blocked.html` for top-level navigation.
-- If redirect is not reliable on a tested iOS Safari version, use `block` as the DNR fallback and keep content-script blocking on worker-owned tab redirects.
-- Do not use `modifyHeaders`.
-- Do not use `regexSubstitution` in v1; it creates extra compatibility risk and is not needed for simple blocking.
-
-DNR conditions:
-
-- Limit rules to `main_frame`.
-- Set case sensitivity explicitly instead of relying on browser defaults.
-- Use generated regex filters for Full domain blocking, URL blocking, and URL blocking including subpaths entries so the DNR rule matches the JavaScript predicate as closely as Safari permits.
-- URL-based entries always generate DNR rules because query strings, fragments, and trailing slashes are stripped before storage.
-
-# SPA Route Blocking
-
-DNR only sees requests that reach Safari's network/request layer. A single-page app can change the visible URL without a top-level document request. The content script exists to close that gap.
+A single-page app can change the visible URL without a top-level document request. The content script exists to report those changes to the service worker.
 
 The content script must:
 
@@ -407,9 +361,7 @@ Blocking may change the address bar to the extension blocked page. The blocked p
 
 The Close button closes the current tab by calling `browser.tabs.getCurrent()` from `blocked.js`, then `browser.tabs.remove(tab.id)`.
 
-For DNR redirects, the blocked page may not know the original URL in v1. In that case it shows a generic blocked message.
-
-For content-script SPA redirects, pass the blocked URL in the fragment, not the query string. Fragments are not sent as HTTP requests.
+Pass the blocked URL to `blocked.html` in the fragment, not the query string. Fragments are not sent as HTTP requests.
 
 The blocked page must not open the blocklist editor. Users edit the blocklist by opening the native app.
 
@@ -465,7 +417,7 @@ Supported messages:
 | Message | Sender | Receiver | Purpose |
 |---|---|---|---|
 | `getState` | options/blocked page | service worker | Read the current saved blocklist |
-| `saveState` | options page | service worker | Validate, update DNR, save state |
+| `saveState` | options page | service worker | Validate, sync content scripts, save state |
 | `urlChanged` | content script | service worker | Ask worker to check the current page URL |
 | `openOptions` | native app | service worker | Open the editor |
 
@@ -475,15 +427,15 @@ Unknown message types must raise an error. Do not silently ignore them.
 
 Invalid blocklist:
 
-- Do not update DNR.
+- Do not update content-script registration.
 - Do not update storage.
 - Show validation errors.
 
-DNR update failure:
+Content-script registration failure:
 
-- Keep old rules and old storage.
-- Show the DNR error.
-- Ask the user to reduce rule count if the error is quota-related.
+- Keep old storage.
+- Show the registration error.
+- Ask the user to reduce entry count if the error is quota-related.
 
 Missing Safari website access:
 
@@ -493,7 +445,6 @@ Missing Safari website access:
 
 Service worker suspended:
 
-- DNR rules still handle direct navigations.
 - Content scripts can wake the worker with `urlChanged` messages.
 
 Content script route report:
@@ -523,15 +474,15 @@ Run these tests on iPhone and iPad. Simulators are useful but not sufficient for
 | Root only | Block `https://reddit.com` | Root is blocked; `/r/safari` is allowed |
 | Domain | Block `example.com` | `example.com` and subdomains are blocked |
 | Regex valid | Add an anchored regex for two paths | Matching paths block; non-matching paths allow |
-| Regex invalid | Add unsupported regex | Save fails and old rules remain active |
+| Regex invalid | Add unsupported regex | Save fails and old blocklist remains active |
 | URL input with query | Add `https://x.com/home?foo=bar` | Input updates to `https://x.com/home`; save blocks `/home` with any query |
 | URL input with fragment | Add `https://x.com/home#feed` | Input updates to `https://x.com/home`; save blocks `/home` with any fragment |
 | URL input with trailing slash | Add `https://x.com/home/` | Input updates to `https://x.com/home`; save blocks `/home` and `/home/` |
 | Root URL input | Add `https://x.com/` | Input updates to `https://x.com`; save blocks `https://x.com` and `https://x.com/` |
 | Hash route on blocked path | Block `https://x.com/home` | `/home#feed` is blocked |
 | Permission denied | Deny website access for a test site | Editor works; site is not reliably blocked; warning is visible |
-| Safari restart | Save rules, force quit Safari, reopen blocked URL | Direct navigation is still blocked |
-| Rule removal | Remove a rule and save | Previously blocked URL is allowed after refresh/new navigation |
+| Safari restart | Save blocklist, force quit Safari, reopen blocked URL | Direct navigation is still blocked |
+| Entry removal | Remove an entry and save | Previously blocked URL is allowed after refresh/new navigation |
 | Stale tab | Remove a rule while old tab is open | Content script does not keep blocking after service worker re-check |
 
 # Automated Test Suite Plan
@@ -542,22 +493,22 @@ Automated tests should prove the blocker contract before device testing. Keep mo
 
 | Target | Suggested tool | Runs | Verifies |
 |---|---|---|---|
-| Shared extension unit tests | JavaScript test runner | Every commit | normalization, validation, matching, DNR rule generation |
-| Background worker tests | JavaScript tests with explicit browser API fakes | Every commit | message handling, transactional saves, DNR/storage updates, SPA re-checks |
-| Content script tests | DOM-capable JavaScript tests | Every commit | startup checks, route-change detection, stale blocklist behavior |
+| Shared extension unit tests | JavaScript test runner | Every commit | normalization, validation, matching, permission origins |
+| Background worker tests | JavaScript tests with explicit browser API fakes | Every commit | message handling, transactional saves, storage updates, redirects |
+| Content script tests | DOM-capable JavaScript tests | Every commit | startup checks, route-change detection, duplicate suppression |
 | Options page tests | DOM-capable JavaScript tests | Every commit | row editing, validation errors, save flow, normalized field updates |
 | Native iOS tests | XCTest | Native app changes | onboarding screen, settings button, blocklist editor launch button |
 | Safari integration tests | Xcode UI tests on simulator | Before merge when blocker behavior changes | extension wiring, direct navigation blocking, SPA blocking, persistence |
 | Device smoke tests | iPhone and iPad release checklist | Before release | real Safari permission behavior and extension reliability |
 
-Use one shared fixture table for normalization, matching, DNR generation, and integration tests. Each fixture should include:
+Use one shared fixture table for normalization, matching, permission origins, and integration tests. Each fixture should include:
 
 - entry kind
 - raw user input
 - normalized stored entry
 - URLs that must block
 - URLs that must allow
-- expected DNR regex shape when a rule is generated
+- expected host permission origins
 
 ## Shared Unit Tests
 
@@ -602,21 +553,15 @@ Matching tests:
 - URL-with-subpaths rules do not match sibling text prefixes.
 - Root URL rules block only the root path.
 - Regex rules are case-insensitive.
-- Regex rules match the normalized DNR-visible URL string with no fragment.
+- Regex rules match the normalized page URL string with no fragment.
 
-DNR generation tests:
+Permission origin tests:
 
-- Rule IDs are array index plus one.
-- Only app-owned rule IDs `1...1000` are removed or replaced.
-- Rules are limited to `main_frame`.
-- Rule actions redirect to `blocked.html` by default.
-- Case sensitivity is set explicitly.
-- Domain, URL, and URL-with-subpaths rules generate regex filters.
-- URL regex filters allow query suffixes.
-- URL regex filters do not allow descendant paths for plain URL rules.
-- URL-with-subpaths regex filters allow descendants without matching text prefixes.
-- Generated regexes are checked with `declarativeNetRequest.isRegexSupported`.
-- Generated DNR regex behavior matches the JavaScript predicate for every shared fixture, except that DNR cannot see fragments.
+- Domain entries map to host-scoped origins.
+- URL and URL-with-subpaths entries map to their normalized host origins.
+- Duplicate host origins are removed.
+- Origins are sorted for stable saves and tests.
+- Regex entries require all-website access.
 
 ## Background Worker Tests
 
@@ -631,13 +576,11 @@ Message protocol tests:
 
 Save flow tests:
 
-- Successful save validates entries, checks DNR regex support, updates dynamic rules, writes storage, returns normalized state, and redirects open matching tabs.
-- Failed validation does not update DNR or storage.
-- Failed DNR support check does not update DNR or storage.
-- Failed dynamic rule update does not write storage.
-- Failed dynamic rule update leaves the previous active rules intact or restores them.
+- Successful save validates entries, syncs content scripts, writes storage, returns normalized state, and redirects open matching tabs.
+- Failed validation does not update content scripts or storage.
+- Failed content-script registration does not write storage.
 - Failed storage write reports an error and does not report success to the options page.
-- Removing a rule and saving rebuilds the app-owned dynamic rules from the new list.
+- Removing a rule and saving updates the registered content-script origins from the new list.
 
 SPA blocking tests:
 
@@ -735,8 +678,8 @@ Simulator tests should cover:
 - hash route on a blocked path
 - query string on a blocked path
 - subdomain matching when the fixture host setup supports it
-- rule removal followed by a fresh navigation
-- Safari relaunch after saving rules
+- entry removal followed by a fresh navigation
+- Safari relaunch after saving the blocklist
 
 Keep simulator tests small and stable. If Safari settings automation is unreliable, set up permissions manually for the simulator image and keep the automated flow focused on extension behavior.
 
@@ -755,13 +698,13 @@ Blocking-behavior changes should also run Safari simulator integration tests bef
 
 # Acceptance Criteria
 
-- Directly opening a blocked URL is blocked by DNR.
+- Directly opening a blocked URL is redirected to the extension blocked page.
 - Navigating from an allowed page to a blocked SPA route is blocked by the content script path.
 - URL blocking entries block the entered path across subdomains, with or without trailing slashes, and with any query or fragment.
 - URL blocking including subpaths entries also block descendant paths.
 - Allowed URLs on the same domain remain allowed when the rule is path-specific.
 - Descendant paths remain allowed for URL blocking entries.
-- Invalid regex entries fail before rules are saved.
+- Invalid regex entries fail before the blocklist is saved.
 - The old blocklist remains active when a save fails.
 - The implementation has no dependency on any third-party extension code.
 
@@ -770,14 +713,13 @@ Blocking-behavior changes should also run Safari simulator integration tests bef
 Keep the code small.
 
 - One validation module.
-- One matching module shared by options, content, and worker code if the build setup permits it.
-- One DNR rule generation module.
+- One matching module used by options and worker code.
 - No framework unless the default Xcode template already includes one.
 - No clever parsing. Use the URL parser, then fail loudly on unsupported input.
 - No optional fields in stored entries.
 - No hidden disabled state.
 
-The most important invariant is parity between DNR matching and content-script matching. If an entry cannot be represented safely in DNR, mark it as content-script-only and warn the user.
+The most important invariant is that every redirect decision goes through the service worker's current saved state.
 
 # Sources
 
@@ -789,5 +731,3 @@ The most important invariant is parity between DNR matching and content-script m
 - Apple, [Safari 16.4 Release Notes](https://developer.apple.com/documentation/safari-release-notes/safari-16_4-release-notes)
 - WebKit, [New WebKit Features in Safari 15.4](https://webkit.org/blog/12445/new-webkit-features-in-safari-15-4/)
 - WebKit, [WebKit Features in Safari 16.4](https://webkit.org/blog/13966/webkit-features-in-safari-16-4/)
-- MDN, [declarativeNetRequest](https://developer.mozilla.org/docs/Mozilla/Add-ons/WebExtensions/API/declarativeNetRequest)
-- MDN, [declarativeNetRequest Redirect](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/declarativeNetRequest/Redirect)
