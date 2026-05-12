@@ -110,6 +110,34 @@ test("closeCurrentTab removes sender tab", async () => {
   assert.deepEqual(api.removedTabs, [7]);
 });
 
+test("urlMatched redirects matching sender tab to the blocked page", async () => {
+  const api = fakeApi();
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "https://x.com" },
+    { id: "22222222-2222-4222-8222-222222222222", kind: "url", value: "https://x.com/home" }
+  ]);
+  const controller = createBackgroundController(api);
+  const response = await controller.handleMessage({ type: "urlMatched", url: "https://x.com/home" }, { tab: { id: 7 } });
+
+  assert.equal(response.type, "redirected");
+  assert.deepEqual(api.updatedTabs, [{
+    tabId: 7,
+    url: "safari-web-extension://extension/blocked.html#https%3A%2F%2Fx.com%2Fhome"
+  }]);
+});
+
+test("urlMatched ignores stale content script matches", async () => {
+  const api = fakeApi();
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "https://x.com" }
+  ]);
+  const controller = createBackgroundController(api);
+  const response = await controller.handleMessage({ type: "urlMatched", url: "https://x.com/home" }, { tab: { id: 7 } });
+
+  assert.equal(response.type, "notRedirected");
+  assert.deepEqual(api.updatedTabs, []);
+});
+
 function validState(entries) {
   return {
     schemaVersion: 4,
@@ -126,6 +154,7 @@ function fakeApi(overrides = {}) {
     registeredScripts: [],
     removedOrigins: [],
     removedTabs: [],
+    updatedTabs: [],
     runtime: {
       getURL(path) {
         return `safari-web-extension://extension/${path}`;
@@ -176,6 +205,9 @@ function fakeApi(overrides = {}) {
       },
       async remove(tabId) {
         api.removedTabs.push(tabId);
+      },
+      async update(tabId, { url }) {
+        api.updatedTabs.push({ tabId, url });
       }
     }
   };

@@ -29,6 +29,9 @@
         case "closeCurrentTab":
           requireKeys(message, ["type"], "closeCurrentTab message");
           return closeCurrentTab(sender);
+        case "urlMatched":
+          requireKeys(message, ["type", "url"], "urlMatched message");
+          return urlMatched(message.url, sender);
         default:
           throw new Error(`Unknown message type: ${message.type}`);
       }
@@ -80,6 +83,44 @@
       await api.tabs.remove(sender.tab.id);
 
       return { type: "closed" };
+    }
+
+    async function urlMatched(rawUrl, sender) {
+      if (typeof rawUrl !== "string" || rawUrl.trim() === "") {
+        throw new Error("urlMatched message must include a URL.");
+      }
+
+      if (!sender.tab || typeof sender.tab.id !== "number") {
+        return { type: "notRedirected" };
+      }
+
+      return redirectBlockedUrl(sender.tab.id, rawUrl);
+    }
+
+    async function redirectBlockedUrl(tabId, rawUrl) {
+      if (typeof tabId !== "number") {
+        throw new Error("Blocked tab ID must be a number.");
+      }
+
+      if (typeof rawUrl !== "string" || rawUrl.trim() === "") {
+        throw new Error("Blocked URL must be a string.");
+      }
+
+      const match = core.findMatchingEntry(await loadState(), rawUrl);
+
+      switch (match.type) {
+        case "none":
+          return { type: "notRedirected" };
+        case "match":
+          await api.tabs.update(tabId, { url: blockedPageUrl(rawUrl) });
+          return { type: "redirected" };
+        default:
+          throw new Error(`Unknown match type: ${match.type}`);
+      }
+    }
+
+    function blockedPageUrl(rawUrl) {
+      return `${api.runtime.getURL("blocked.html")}#${encodeURIComponent(rawUrl)}`;
     }
 
     async function loadState() {
@@ -150,8 +191,10 @@
       handleMessage,
       loadState,
       openOptions,
+      redirectBlockedUrl,
       saveState,
-      syncContentScripts
+      syncContentScripts,
+      urlMatched
     };
   }
 
@@ -236,6 +279,17 @@
     if (action && action.onClicked) {
       action.onClicked.addListener(() => {
         controller.openOptions().catch(() => undefined);
+      });
+    }
+
+    if (api.tabs.onUpdated) {
+      api.tabs.onUpdated.addListener((tabId, changeInfo) => {
+        if (typeof changeInfo.url !== "string") {
+          return;
+        }
+
+        controller.redirectBlockedUrl(tabId, changeInfo.url)
+          .catch((error) => console.error("URL Blocker could not redirect updated tab.", error));
       });
     }
 
