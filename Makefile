@@ -17,13 +17,14 @@ SAFARI_EXTENSION_ID := com.akelly.URLBlockerMac.Extension
 SAFARI_EXTENSION_SDK := com.apple.Safari.web-extension
 LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister
 
-.PHONY: help test build both check ios-build macos-build macos-install macos-clean-registration macos-verify macos-plugin-check
+.PHONY: help test all build check ios-build macos-build macos-install macos-clean-registration macos-verify macos-plugin-check
 
 help:
 	@printf "Targets:\n"
 	@printf "  make test                    Run JavaScript tests.\n"
 	@printf "  make ios-build               Build the unsigned iOS device app.\n"
 	@printf "  make macos-build             Build the signed macOS app.\n"
+	@printf "  make all                     Build iOS and macOS.\n"
 	@printf "  make build                   Build iOS and macOS.\n"
 	@printf "  make check                   Run tests, then build iOS and macOS.\n"
 	@printf "  make macos-install           Build, install to /Applications, and verify Safari registration.\n"
@@ -32,9 +33,9 @@ help:
 test:
 	npm test
 
-build: ios-build macos-build
+all: build
 
-both: build
+build: ios-build macos-build
 
 check: test build
 

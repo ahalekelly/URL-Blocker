@@ -31,7 +31,7 @@ make test
 Build both unsigned platform targets:
 
 ```sh
-make build
+make all
 ```
 
 Build and install the signed macOS app:
