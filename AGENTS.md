@@ -73,4 +73,5 @@ Use [ios_build_sign_install.md](ios_build_sign_install.md) for the complete sign
 - The current UDID Registrations account is Silver, not Platinum. Use local signing with the downloaded `.p12` and `.mobileprovision`; do not expect online signing to work.
 - Prefer temporary working directories under `/tmp` or `/private/tmp` for signing.
 - Restore the normal keychain search list after local signing.
+- After building and copying the macOS app to `/Applications`, unregister the temporary build product's Safari extension with `pluginkit -r /tmp/.../URLBlockerMac.app/Contents/PlugIns/URLBlockerMacExtension.appex` and verify `pluginkit -m -A -D -vvv -p com.apple.Safari.web-extension` shows only the `/Applications/URLBlockerMac.app` copy. Otherwise Safari can show duplicate URL Blocker extensions.
 - The UDID Registrations certificate is for iOS signing. It can manually stamp the macOS app and Safari extension with `codesign`, but it did not produce a normally trusted macOS signing result in local testing. Use an Apple Development, Mac Development, or Developer ID Application certificate for macOS Safari extension signing.
