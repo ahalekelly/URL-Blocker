@@ -23,6 +23,9 @@
         case "saveState":
           requireKeys(message, ["type", "state"], "saveState message");
           return saveState(message.state);
+        case "resetState":
+          requireKeys(message, ["type"], "resetState message");
+          return resetState();
         case "openOptions":
           requireKeys(message, ["type"], "openOptions message");
           return openOptions();
@@ -65,6 +68,10 @@
       await removeUnusedWebsiteAccess(result.state);
 
       return { type: "saved", state: storageResponse.state };
+    }
+
+    async function resetState() {
+      return saveState(await loadDefaultState());
     }
 
     async function openOptions() {
@@ -127,7 +134,21 @@
     async function loadState() {
       const stored = await stateStorage.loadState();
 
+      if (stored === undefined) {
+        return loadDefaultState();
+      }
+
       return core.parseStoredState(stored);
+    }
+
+    async function loadDefaultState() {
+      const response = await fetch(api.runtime.getURL("default-blocked-pages.json"));
+
+      if (!response.ok) {
+        throw new Error("Default blocked pages could not be loaded.");
+      }
+
+      return core.emptyState(await response.json());
     }
 
     async function requireWebsiteAccess(state) {
@@ -166,8 +187,11 @@
 
     async function removeUnusedWebsiteAccess(state) {
       const requiredOrigins = new Set(core.permissionOriginsForState(state));
+      const installTimeOrigins = new Set(api.runtime.getManifest().host_permissions);
       const granted = await api.permissions.getAll();
-      const unusedOrigins = (granted.origins || []).filter((origin) => !requiredOrigins.has(origin));
+      const unusedOrigins = (granted.origins || []).filter((origin) => (
+        !requiredOrigins.has(origin) && !installTimeOrigins.has(origin)
+      ));
 
       if (unusedOrigins.length > 0) {
         await api.permissions.remove({ origins: unusedOrigins });
@@ -180,6 +204,7 @@
       loadState,
       openOptions,
       redirectBlockedUrl,
+      resetState,
       saveState,
       syncContentScripts
     };

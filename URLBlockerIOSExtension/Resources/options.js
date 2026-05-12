@@ -244,8 +244,7 @@
 
   async function resetBlocklist() {
     const response = await api.runtime.sendMessage({
-      type: "saveState",
-      state: core.emptyState()
+      type: "resetState"
     });
 
     if (response.type !== "saved") {
@@ -253,7 +252,7 @@
       return;
     }
 
-    state.draftEntries = [core.newEntry("url")];
+    state.draftEntries = editableEntries(response.state.entries);
     state.draftBlockedPageHtml = response.state.blockedPageHtml;
     state.successMessage = "Reset.";
     render();

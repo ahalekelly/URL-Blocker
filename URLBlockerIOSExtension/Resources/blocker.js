@@ -21,12 +21,18 @@
     regex: "Custom regex"
   };
 
-  function emptyState() {
-    return {
+  function emptyState(entries) {
+    const result = validateState({
       schemaVersion: SCHEMA_VERSION,
-      entries: [],
+      entries,
       blockedPageHtml: DEFAULT_BLOCKED_PAGE_HTML
-    };
+    });
+
+    if (result.type === "invalid") {
+      throw new Error(result.errors.map((error) => error.message).join("\n"));
+    }
+
+    return result.state;
   }
 
   function newEntry(kind) {
@@ -106,10 +112,6 @@
   }
 
   function parseStoredState(rawState) {
-    if (rawState === undefined) {
-      return emptyState();
-    }
-
     const result = validateState(rawState);
 
     if (result.type === "invalid") {
@@ -288,10 +290,14 @@
   }
 
   function permissionOriginsForState(state) {
+    return permissionOriginsForEntries(state.entries);
+  }
+
+  function permissionOriginsForEntries(entries) {
     const origins = [];
     let needsAllWebsites = false;
 
-    for (const entry of state.entries) {
+    for (const entry of entries) {
       switch (entry.kind) {
         case "domain":
           origins.push(`*://*.${entry.value}/*`);

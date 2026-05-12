@@ -23,6 +23,7 @@
 		01A00000000000000000000E /* blocked.css in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000E /* blocked.css */; };
 		01A00000000000000000000F /* blocked.js in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000F /* blocked.js */; };
 		01A000000000000000000010 /* icons in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000010 /* icons */; };
+		01A000000000000000000012 /* default-blocked-pages.json in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000013 /* default-blocked-pages.json */; };
 		01A000000000000000000011 /* SafariServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000004 /* SafariServices.framework */; };
 		02A000000000000000000001 /* URLBlockerMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02B000000000000000000001 /* URLBlockerMacApp.swift */; };
 		02A000000000000000000002 /* MacContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02B000000000000000000002 /* MacContentView.swift */; };
@@ -41,6 +42,7 @@
 		02A00000000000000000000F /* blocked.css in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000E /* blocked.css */; };
 		02A000000000000000000010 /* blocked.js in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000F /* blocked.js */; };
 		02A000000000000000000011 /* icons in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000010 /* icons */; };
+		02A000000000000000000012 /* default-blocked-pages.json in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000013 /* default-blocked-pages.json */; };
 		03A000000000000000000001 /* NativeBlocklistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B000000000000000000001 /* NativeBlocklistStore.swift */; };
 		03A000000000000000000002 /* NativeBlocklistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B000000000000000000001 /* NativeBlocklistStore.swift */; };
 		03A000000000000000000003 /* NativeBlocklistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B000000000000000000001 /* NativeBlocklistStore.swift */; };
@@ -107,6 +109,7 @@
 		01B000000000000000000010 /* icons */ = {isa = PBXFileReference; lastKnownFileType = folder; path = icons; sourceTree = "<group>"; };
 		01B000000000000000000011 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		01B000000000000000000012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		01B000000000000000000013 /* default-blocked-pages.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "default-blocked-pages.json"; sourceTree = "<group>"; };
 		01C000000000000000000001 /* URLBlockerIOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = URLBlockerIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		01C000000000000000000002 /* URLBlockerIOSExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = URLBlockerIOSExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		02B000000000000000000001 /* URLBlockerMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLBlockerMacApp.swift; sourceTree = "<group>"; };
@@ -205,6 +208,7 @@
 				01B00000000000000000000D /* blocked.html */,
 				01B00000000000000000000E /* blocked.css */,
 				01B00000000000000000000F /* blocked.js */,
+				01B000000000000000000013 /* default-blocked-pages.json */,
 				01B000000000000000000010 /* icons */,
 			);
 			path = Resources;
@@ -388,6 +392,7 @@
 				01A00000000000000000000D /* blocked.html in Resources */,
 				01A00000000000000000000E /* blocked.css in Resources */,
 				01A00000000000000000000F /* blocked.js in Resources */,
+				01A000000000000000000012 /* default-blocked-pages.json in Resources */,
 				01A000000000000000000010 /* icons in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -406,6 +411,7 @@
 				02A00000000000000000000E /* blocked.html in Resources */,
 				02A00000000000000000000F /* blocked.css in Resources */,
 				02A000000000000000000010 /* blocked.js in Resources */,
+				02A000000000000000000012 /* default-blocked-pages.json in Resources */,
 				02A000000000000000000011 /* icons in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

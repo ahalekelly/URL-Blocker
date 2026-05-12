@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "test": "node --test"
+    "sync-default-blocked-pages": "node scripts/sync-default-blocked-pages.mjs",
+    "test": "node scripts/sync-default-blocked-pages.mjs --check && node --test"
   }
 }

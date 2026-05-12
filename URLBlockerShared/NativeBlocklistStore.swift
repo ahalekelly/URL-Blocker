@@ -21,6 +21,9 @@ enum NativeBlocklistStore {
             case "saveState":
                 try requireKeys(message, ["type", "state"], "saveState message")
                 return saveState(message["state"])
+            case "resetState":
+                try requireKeys(message, ["type"], "resetState message")
+                return resetState()
             default:
                 return error("Unknown native message type: \(type).")
             }
@@ -51,9 +54,21 @@ enum NativeBlocklistStore {
         }
     }
 
+    private static func resetState() -> [String: Any] {
+        do {
+            let state = try emptyState()
+            defaults.set(state, forKey: stateKey)
+            return ["type": "saved", "state": state]
+        } catch let error as BlocklistValidationError {
+            return ["type": "validationError", "errors": error.errors.map(\.dictionary)]
+        } catch {
+            return self.error(error.localizedDescription)
+        }
+    }
+
     private static func loadState() throws -> [String: Any] {
         guard let storedState = defaults.object(forKey: stateKey) else {
-            return emptyState()
+            return try emptyState()
         }
 
         return try validateState(storedState)
@@ -179,12 +194,49 @@ enum NativeBlocklistStore {
         return string
     }
 
-    private static func emptyState() -> [String: Any] {
-        [
+    private static func emptyState() throws -> [String: Any] {
+        try validateState([
             "schemaVersion": schemaVersion,
-            "entries": [],
+            "entries": try defaultBlockedPageEntries(),
             "blockedPageHtml": defaultBlockedPageHtml
-        ]
+        ])
+    }
+
+    private static func defaultBlockedPageEntries() throws -> [[String: Any]] {
+        let data = try Data(contentsOf: defaultBlockedPageURL())
+        let json = try JSONSerialization.jsonObject(with: data)
+
+        guard let entries = json as? [[String: Any]] else {
+            throw NativeBlocklistError("Default blocked pages must be an array.")
+        }
+
+        return entries
+    }
+
+    private static func defaultBlockedPageURL() throws -> URL {
+        for bundle in defaultBlockedPageBundles() {
+            if let url = bundle.url(forResource: "default-blocked-pages", withExtension: "json") {
+                return url
+            }
+        }
+
+        throw NativeBlocklistError("Missing default-blocked-pages.json.")
+    }
+
+    private static func defaultBlockedPageBundles() -> [Bundle] {
+        var bundles = [Bundle.main]
+
+        if let pluginsURL = Bundle.main.builtInPlugInsURL {
+            ["URLBlockerIOSExtension", "URLBlockerMacExtension"].forEach { name in
+                let url = pluginsURL.appendingPathComponent("\(name).appex")
+
+                if let bundle = Bundle(url: url) {
+                    bundles.append(bundle)
+                }
+            }
+        }
+
+        return bundles
     }
 
     private static func error(_ message: String) -> [String: Any] {

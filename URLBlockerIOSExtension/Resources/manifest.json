@@ -9,6 +9,13 @@
     "storage",
     "tabs"
   ],
+  "host_permissions": [
+    "*://*.reddit.com/*",
+    "*://*.twitter.com/*",
+    "*://*.x.com/*",
+    "*://*.ycombinator.com/*",
+    "*://*.youtube.com/*"
+  ],
   "optional_host_permissions": [
     "*://*/*"
   ],
@@ -29,8 +36,12 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["blocked.html"],
-      "matches": ["*://*/*"]
+      "resources": [
+        "blocked.html"
+      ],
+      "matches": [
+        "*://*/*"
+      ]
     }
   ],
   "icons": {

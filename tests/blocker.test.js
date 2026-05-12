@@ -2,6 +2,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const core = require("../URLBlockerIOSExtension/Resources/blocker.js");
+const defaultBlockedPages = require("../URLBlockerIOSExtension/Resources/default-blocked-pages.json");
+const manifest = require("../URLBlockerIOSExtension/Resources/manifest.json");
 
 const ids = [
   "11111111-1111-4111-8111-111111111111",
@@ -24,6 +26,25 @@ test("labels matcher options in display order", () => {
     ["domain", "Full domain"],
     ["regex", "Custom regex"]
   ]);
+});
+
+test("loads default blocked pages for new installs", () => {
+  const state = core.emptyState(defaultBlockedPages);
+
+  assert.deepEqual(state.entries.map(({ kind, value }) => ({ kind, value })), [
+    { kind: "url", value: "x.com" },
+    { kind: "url", value: "x.com/home" },
+    { kind: "url", value: "twitter.com" },
+    { kind: "url", value: "twitter.com/home" },
+    { kind: "url", value: "youtube.com" },
+    { kind: "url", value: "reddit.com" },
+    { kind: "url", value: "ycombinator.com" },
+    { kind: "url", value: "ycombinator.com/news" }
+  ]);
+});
+
+test("keeps install-time permissions aligned with default blocked pages", () => {
+  assert.deepEqual(core.permissionOriginsForState(core.emptyState(defaultBlockedPages)), manifest.host_permissions);
 });
 
 test("normalizes URL entries for path-based matching", () => {
