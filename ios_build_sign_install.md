@@ -252,17 +252,38 @@ The built app should be here:
 /tmp/urlblocker_macos_build/Build/Products/Release/URLBlockerMac.app
 ```
 
+Install the signed app:
+
+```sh
+ditto \
+  /tmp/urlblocker_macos_build/Build/Products/Release/URLBlockerMac.app \
+  /Applications/URLBlockerMac.app
+```
+
+Xcode registers the temporary build product with PluginKit. After copying the app to `/Applications`, remove that temporary registration so Safari resolves the installed app:
+
+```sh
+pluginkit -r \
+  /tmp/urlblocker_macos_build/Build/Products/Release/URLBlockerMac.app/Contents/PlugIns/URLBlockerMacExtension.appex
+
+/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister \
+  -f \
+  -R \
+  -trusted \
+  /Applications/URLBlockerMac.app
+```
+
 Verify the app and embedded extension signatures:
 
 ```sh
-codesign -v --strict --deep \
-  /tmp/urlblocker_macos_build/Build/Products/Release/URLBlockerMac.app
+codesign --verify --strict --deep --verbose=4 \
+  /Applications/URLBlockerMac.app
 
 codesign -dv --verbose=4 \
-  /tmp/urlblocker_macos_build/Build/Products/Release/URLBlockerMac.app
+  /Applications/URLBlockerMac.app
 
 codesign -dv --verbose=4 \
-  /tmp/urlblocker_macos_build/Build/Products/Release/URLBlockerMac.app/Contents/PlugIns/URLBlockerMacExtension.appex
+  /Applications/URLBlockerMac.app/Contents/PlugIns/URLBlockerMacExtension.appex
 ```
 
 Expected signature details:
@@ -270,13 +291,21 @@ Expected signature details:
 - `Authority=Apple Development: ahalekelly@gmail.com (...)`
 - `TeamIdentifier=T3TBGN4UX7`
 
+If `codesign` reports `CSSMERR_TP_NOT_TRUSTED` from a sandboxed shell, rerun the verification outside the sandbox. The sandbox can hide the normal keychain search list from trust evaluation.
+
 Verify PluginKit can see the Safari extension:
 
 ```sh
-pluginkit -m -A -D -p com.apple.Safari.web-extension
+pluginkit -m -A -D -vvv -p com.apple.Safari.web-extension
 ```
 
-Expected output includes `com.akelly.URLBlockerMac.Extension`.
+Expected output includes one `com.akelly.URLBlockerMac.Extension` entry whose path is:
+
+```text
+/Applications/URLBlockerMac.app/Contents/PlugIns/URLBlockerMacExtension.appex
+```
+
+Open Safari, choose `Safari > Settings > Extensions`, and verify that `URL Blocker` appears in the installed extensions list. A correctly Apple Development-signed build does not need Safari's `Allow unsigned extensions` setting. Only use that Safari setting for unsigned or `Sign to Run Locally` builds.
 
 The UDID Registrations certificate was tested against the macOS app and Safari Web Extension target, but it is not usable for this project on macOS:
 
@@ -286,4 +315,4 @@ The UDID Registrations certificate was tested against the macOS app and Safari W
 
 Treat the UDID Registrations certificate as iOS-only for this project.
 
-Apple Development signing is for local development and Safari extension registration. Gatekeeper distribution requires a Developer ID Application certificate and notarization.
+Apple Development signing is for local development and Safari extension registration. Gatekeeper distribution requires a Developer ID Application certificate and notarization. Safari 18.4 and later can load Developer ID-signed and notarized Safari Web Extensions.

@@ -65,11 +65,13 @@ struct MacContentView: View {
     private func openExtensionSettings() {
         SFSafariApplication.showPreferencesForExtension(withIdentifier: MacSafari.extensionBundleIdentifier) { error in
             DispatchQueue.main.async {
-                if error == nil { return }
+                guard let error = error else { return }
+
+                let nsError = error as NSError
 
                 alert = AppAlert(
                     title: "Safari Settings Unavailable",
-                    message: "Safari cannot find URL Blocker right now. For this local build, open Safari, choose Develop > Allow Unsigned Extensions, then run URL Blocker again and open Safari Settings > Extensions."
+                    message: "Open Safari, choose Safari > Settings > Extensions, then enable URL Blocker. Safari returned: \(error.localizedDescription) (\(nsError.domain) \(nsError.code))."
                 )
             }
         }
