@@ -44,6 +44,10 @@ xcodebuild \
 
 Use [ios_build_sign_install.md](ios_build_sign_install.md) for the complete signing and iPhone install flow.
 
+## Finish Workflow
+
+- After finishing and testing each change, commit all changes for that completed work.
+
 ## Coding Preferences
 
 - Keep code extremely easy to skim.
