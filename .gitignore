@@ -10,6 +10,10 @@ DerivedData/
 build/
 *.hmap
 *.ipa
+*.keychain-db
+*.mobileprovision
+*.p12
+*.p12.password
 *.dSYM.zip
 *.dSYM
 timeline.xctimeline

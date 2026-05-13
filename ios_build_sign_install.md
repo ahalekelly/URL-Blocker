@@ -25,20 +25,42 @@ $HOME/Documents/UDIDRegistrations/iOSSigning/Development.p12
 $HOME/Documents/UDIDRegistrations/iOSSigning/Development.mobileprovision
 ```
 
+Optionally save the `.p12` password outside the repo so `make ios-install` can run without prompting:
+
+```text
+$HOME/Documents/UDIDRegistrations/iOSSigning/Development.p12.password
+```
+
+Keep that file out of git and restrict it to your user:
+
+```sh
+chmod 600 "$HOME/Documents/UDIDRegistrations/iOSSigning/Development.p12.password"
+```
+
 Run from the repo root, then set local shell variables for the guide commands:
 
 ```sh
 SIGNING_ASSETS="$HOME/Documents/UDIDRegistrations/iOSSigning"
 REPO_ROOT="$(pwd)"
-read -rsp "UDID .p12 password: " P12_PASSWORD
-printf "\n"
 ```
 
 The `.p12` certificate is reusable for iOS signing. The `.mobileprovision` and bundle/app-group values below are specific to this URL Blocker app id.
 
 # Fast Path
 
-Use the detailed sections below, but this is the shape of a normal run:
+Use the detailed sections below when troubleshooting. The normal command-line flow is:
+
+```sh
+make ios-install
+```
+
+That target builds `build/URLBlockerIOS-signed.ipa` with UDID Registrations signing, then installs it on the connected iPhone. To build the signed IPA without installing it:
+
+```sh
+make ios-signed-ipa
+```
+
+The target does this:
 
 1. Download `Development.p12` and `Development.mobileprovision` to `$HOME/Documents/UDIDRegistrations/iOSSigning`.
 2. Inspect the provisioning profile and confirm the app id, team id, app group, and iPhone UDID.
@@ -78,6 +100,8 @@ The current profile lists multiple app groups. URL Blocker uses `group.d944b6645
 
 # Prepare a Signing Copy
 
+`make ios-signed-ipa` handles this section. These commands are the manual fallback.
+
 UDID Registrations signs against its generated app id, not the project defaults. Build from a temporary copy so the repo stays clean.
 
 ```sh
@@ -105,7 +129,7 @@ In the temporary copy, update these values:
 
 # Build the App Bundle
 
-Build an unsigned device app bundle:
+`make ios-signed-ipa` handles this section. The manual command builds an unsigned device app bundle:
 
 ```sh
 xcodebuild \
@@ -136,7 +160,7 @@ This can be required even for a physical-device `iphoneos` build because asset c
 
 # Create Signing Entitlements
 
-Create `/tmp/urlblocker_signing/entitlements.plist` using values from the provisioning profile:
+`make ios-signed-ipa` handles this section. For a manual signing run, create `/tmp/urlblocker_signing/entitlements.plist` using values from the provisioning profile:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -163,7 +187,7 @@ Create `/tmp/urlblocker_signing/entitlements.plist` using values from the provis
 
 # Import the Certificate
 
-Use a temporary keychain instead of importing into the login keychain:
+`make ios-signed-ipa` handles this section and prompts for the `.p12` password when needed. For a manual signing run, use a temporary keychain instead of importing into the login keychain:
 
 ```sh
 mkdir -p /tmp/urlblocker_signing
@@ -171,6 +195,8 @@ mkdir -p /tmp/urlblocker_signing
 security create-keychain -p urlblocker /tmp/urlblocker_signing/signing.keychain-db
 security unlock-keychain -p urlblocker /tmp/urlblocker_signing/signing.keychain-db
 security set-keychain-settings -lut 21600 /tmp/urlblocker_signing/signing.keychain-db
+
+P12_PASSWORD="$(cat "$SIGNING_ASSETS/Development.p12.password")"
 
 security import "$SIGNING_ASSETS/Development.p12" \
   -k /tmp/urlblocker_signing/signing.keychain-db \
@@ -201,7 +227,7 @@ Do not use `-allowProvisioningUpdates` or automatic Apple signing for this flow.
 
 # Sign and Package
 
-Set the identity hash:
+`make ios-signed-ipa` handles this section. For a manual signing run, set the identity hash:
 
 ```sh
 IDENTITY_HASH=954D99D17036F84F30F655128FB9B87560F87630
@@ -279,7 +305,7 @@ After installing:
 
 ## Command-Line Install
 
-Apple Configurator is not required. Xcode's `devicectl` can install the signed app bundle from the IPA:
+Apple Configurator is not required. `make ios-install` builds the signed IPA and installs it with Xcode's `devicectl`:
 
 ```sh
 make ios-devices
@@ -290,6 +316,12 @@ make ios-install
 
 ```sh
 make ios-install DEVICE="My iPhone"
+```
+
+To rebuild the signed IPA without installing it:
+
+```sh
+make ios-signed-ipa
 ```
 
 The raw commands are:
@@ -385,10 +417,6 @@ rm -rf /tmp/urlblocker_ios_install.*
 ```
 
 `build/URLBlockerIOS-signed.ipa` is ignored by git. Keep it if you want a local reinstall artifact; delete it if you want a fully clean workspace.
-
-# Future Automation
-
-The manual replacement step in the temporary source copy is the riskiest part. A future script should inspect the provisioning profile, derive `TEAM_ID`, `APP_ID`, `EXTENSION_ID`, and `APP_GROUP`, patch only the temporary copy, build, sign, package, and verify the final entitlements.
 
 # Online Signing
 

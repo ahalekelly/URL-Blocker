@@ -8,6 +8,13 @@ MACOS_SCHEME := URLBlockerMac
 IOS_DERIVED_DATA ?= /tmp/urlblocker_ios_build
 IOS_SIGNED_IPA ?= $(CURDIR)/build/URLBlockerIOS-signed.ipa
 IOS_DEVICE_SCRIPT := $(CURDIR)/scripts/connected-iphone.mjs
+IOS_SIGNING_ASSETS ?= $(HOME)/Documents/UDIDRegistrations/iOSSigning
+IOS_SIGNING_DERIVED_DATA ?= /tmp/urlblocker_signing/build
+IOS_SIGNING_SCRIPT := $(CURDIR)/scripts/sign-ios-udid.mjs
+IOS_SIGNING_WORK_DIR ?= /tmp/urlblocker_signing
+IOS_SIGNED_DIR ?= /tmp/urlblocker_signed
+IOS_APP_GROUP ?= group.d944b664533a4c2f.1
+P12_PASSWORD_FILE ?= $(IOS_SIGNING_ASSETS)/Development.p12.password
 MACOS_DERIVED_DATA ?= /tmp/urlblocker_macos_build
 MACOS_CODE_SIGN_IDENTITY ?= Apple Development
 
@@ -19,15 +26,16 @@ SAFARI_EXTENSION_ID := com.akelly.URLBlockerMac.Extension
 SAFARI_EXTENSION_SDK := com.apple.Safari.web-extension
 LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister
 
-.PHONY: help test all build check ios-build ios-devices ios-install macos-build macos-install macos-clean-registration macos-verify macos-plugin-check
+.PHONY: help test all build check ios-build ios-signed-ipa ios-devices ios-install macos-build macos-install macos-clean-registration macos-verify macos-plugin-check
 
 help:
 	@printf "Targets:\n"
 	@printf "  make test                    Run JavaScript tests.\n"
 	@printf "  make ios-build               Build the unsigned iOS device app.\n"
+	@printf "  make ios-signed-ipa          Build build/URLBlockerIOS-signed.ipa with UDID Registrations signing.\n"
 	@printf "  make ios-devices             List iOS devices available to Xcode.\n"
-	@printf "  make ios-install             Install build/URLBlockerIOS-signed.ipa on the connected iPhone.\n"
-	@printf "  make ios-install DEVICE=...  Install on a specific iPhone.\n"
+	@printf "  make ios-install             Build the signed IPA, then install it on the connected iPhone.\n"
+	@printf "  make ios-install DEVICE=...  Build the signed IPA, then install it on a specific iPhone.\n"
 	@printf "  make macos-build             Build the signed macOS app.\n"
 	@printf "  make all                     Build iOS and macOS.\n"
 	@printf "  make build                   Build iOS and macOS.\n"
@@ -56,10 +64,22 @@ ios-build:
 	  COMPILATION_CACHE_ENABLE_CACHING=NO \
 	  build
 
+ios-signed-ipa:
+	IOS_APP_GROUP="$(IOS_APP_GROUP)" \
+	IOS_PROJECT="$(PROJECT)" \
+	IOS_SCHEME="$(IOS_SCHEME)" \
+	IOS_SIGNED_DIR="$(IOS_SIGNED_DIR)" \
+	IOS_SIGNED_IPA="$(IOS_SIGNED_IPA)" \
+	IOS_SIGNING_ASSETS="$(IOS_SIGNING_ASSETS)" \
+	IOS_SIGNING_DERIVED_DATA="$(IOS_SIGNING_DERIVED_DATA)" \
+	IOS_SIGNING_WORK_DIR="$(IOS_SIGNING_WORK_DIR)" \
+	P12_PASSWORD_FILE="$(P12_PASSWORD_FILE)" \
+	node "$(IOS_SIGNING_SCRIPT)"
+
 ios-devices:
 	xcrun devicectl list devices
 
-ios-install:
+ios-install: ios-signed-ipa
 	@if [[ ! -f "$(IOS_SIGNED_IPA)" ]]; then \
 	  printf "Missing signed IPA: %s\n" "$(IOS_SIGNED_IPA)" >&2; \
 	  exit 1; \
