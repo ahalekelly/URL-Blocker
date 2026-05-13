@@ -224,6 +224,34 @@ After installing:
 4. Enable `URL Blocker`.
 5. Allow website access for the sites you want the blocker to control.
 
+## Command-Line Install
+
+Apple Configurator is not required. Xcode's `devicectl` can install the signed app bundle from the IPA:
+
+```sh
+make ios-devices
+make ios-install
+```
+
+`make ios-install` auto-detects one iPhone from Xcode's device list. If more than one iPhone is available, pass `DEVICE` with the iPhone name, UDID, serial number, or ECID printed by `make ios-devices`:
+
+```sh
+make ios-install DEVICE="My iPhone"
+```
+
+The raw commands are:
+
+```sh
+device=$(node scripts/connected-iphone.mjs)
+install_dir=$(mktemp -d /tmp/urlblocker_ios_install.XXXXXX)
+unzip -q build/URLBlockerIOS-signed.ipa -d "$install_dir"
+xcrun devicectl device install app \
+  --device "$device" \
+  "$install_dir/Payload/URLBlockerIOS.app"
+```
+
+Keep the iPhone connected by USB, unlocked, and trusted by the Mac. If the install succeeds but the app will not open, enable Developer Mode on the iPhone under `Settings > Privacy & Security > Developer Mode`.
+
 # Online Signing
 
 Do not use online signing for the current account. UDID Registrations online signing requires Platinum; this account is Silver. If an online signer says `No active registration`, that is expected. Use the local certificate/profile flow above.
@@ -243,7 +271,14 @@ xcodebuild \
   -destination generic/platform=macOS \
   -derivedDataPath /tmp/urlblocker_macos_build \
   COMPILATION_CACHE_ENABLE_CACHING=NO \
+  CODE_SIGN_IDENTITY="Apple Development" \
   build
+```
+
+If Xcode says `No signing certificate "Mac Development" found`, keep the `CODE_SIGN_IDENTITY="Apple Development"` override. Confirm the local Apple Development identity with:
+
+```sh
+security find-identity -v -p codesigning
 ```
 
 The built app should be here:
@@ -306,6 +341,19 @@ Expected output includes one `com.akelly.URLBlockerMac.Extension` entry whose pa
 ```
 
 Open Safari, choose `Safari > Settings > Extensions`, and verify that `URL Blocker` appears in the installed extensions list. A correctly Apple Development-signed build does not need Safari's `Allow unsigned extensions` setting. Only use that Safari setting for unsigned or `Sign to Run Locally` builds.
+
+# macOS Safari Extension Smoke Test
+
+After installing the signed macOS app:
+
+1. Open `/Applications/URLBlockerMac.app`.
+2. Open Safari.
+3. In the macOS app, click `Open Blocklist Settings`. Safari should open the extension's blocklist editor.
+4. In the macOS app, click `Open Extension Settings`. If Safari cannot open the settings pane automatically, use `Safari > Settings > Extensions > URL Blocker`.
+5. Open the URL Blocker toolbar item in Safari. If website access is missing, the blocklist editor should ask for website access and list the sites that need access.
+6. After choosing `Always Allow`, reload the blocklist editor. The editor should be visible, and the website access prompt should be hidden.
+
+Before shipping extension resource changes, rerun `npm test` and the unsigned iOS build command above because iOS and macOS share the extension JavaScript, CSS, HTML, and native request handler.
 
 The UDID Registrations certificate was tested against the macOS app and Safari Web Extension target, but it is not usable for this project on macOS:
 

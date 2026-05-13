@@ -6,6 +6,8 @@ IOS_SCHEME := URLBlockerIOS
 MACOS_SCHEME := URLBlockerMac
 
 IOS_DERIVED_DATA ?= /tmp/urlblocker_ios_build
+IOS_SIGNED_IPA ?= $(CURDIR)/build/URLBlockerIOS-signed.ipa
+IOS_DEVICE_SCRIPT := $(CURDIR)/scripts/connected-iphone.mjs
 MACOS_DERIVED_DATA ?= /tmp/urlblocker_macos_build
 MACOS_CODE_SIGN_IDENTITY ?= Apple Development
 
@@ -17,12 +19,15 @@ SAFARI_EXTENSION_ID := com.akelly.URLBlockerMac.Extension
 SAFARI_EXTENSION_SDK := com.apple.Safari.web-extension
 LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister
 
-.PHONY: help test all build check ios-build macos-build macos-install macos-clean-registration macos-verify macos-plugin-check
+.PHONY: help test all build check ios-build ios-devices ios-install macos-build macos-install macos-clean-registration macos-verify macos-plugin-check
 
 help:
 	@printf "Targets:\n"
 	@printf "  make test                    Run JavaScript tests.\n"
 	@printf "  make ios-build               Build the unsigned iOS device app.\n"
+	@printf "  make ios-devices             List iOS devices available to Xcode.\n"
+	@printf "  make ios-install             Install build/URLBlockerIOS-signed.ipa on the connected iPhone.\n"
+	@printf "  make ios-install DEVICE=...  Install on a specific iPhone.\n"
 	@printf "  make macos-build             Build the signed macOS app.\n"
 	@printf "  make all                     Build iOS and macOS.\n"
 	@printf "  make build                   Build iOS and macOS.\n"
@@ -50,6 +55,31 @@ ios-build:
 	  CODE_SIGNING_ALLOWED=NO \
 	  COMPILATION_CACHE_ENABLE_CACHING=NO \
 	  build
+
+ios-devices:
+	xcrun devicectl list devices
+
+ios-install:
+	@if [[ ! -f "$(IOS_SIGNED_IPA)" ]]; then \
+	  printf "Missing signed IPA: %s\n" "$(IOS_SIGNED_IPA)" >&2; \
+	  exit 1; \
+	fi
+	@device="$(DEVICE)"; \
+	if [[ -z "$$device" ]]; then \
+	  device_file=$$(mktemp /tmp/urlblocker_ios_device.XXXXXX); \
+	  if ! node "$(IOS_DEVICE_SCRIPT)" > "$$device_file"; then \
+	    exit 1; \
+	  fi; \
+	  read -r device < "$$device_file"; \
+	fi; \
+	if [[ -z "$$device" ]]; then \
+	  printf "No iPhone selected. Connect and trust one iPhone, or pass DEVICE=...\n" >&2; \
+	  exit 1; \
+	fi; \
+	printf "Installing %s on %s\n" "$(IOS_SIGNED_IPA)" "$$device"; \
+	install_dir=$$(mktemp -d /tmp/urlblocker_ios_install.XXXXXX); \
+	unzip -q "$(IOS_SIGNED_IPA)" -d "$$install_dir"; \
+	xcrun devicectl device install app --device "$$device" "$$install_dir/Payload/URLBlockerIOS.app"
 
 macos-build:
 	xcodebuild \
