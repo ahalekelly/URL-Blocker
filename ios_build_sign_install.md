@@ -2,7 +2,7 @@
 
 This guide builds a device IPA for the iOS containing app and Safari Web Extension, signs it with a UDID Registrations certificate, and installs it on the registered iPhone.
 
-Do not commit signing files. Keep `.p12`, `.mobileprovision`, temporary keychains, and signed `.ipa` files out of git. This repo already ignores `build/` and `*.ipa`.
+Do not commit signing files, order links, transaction ids, passwords, temporary keychains, or signed `.ipa` files. This repo is public. Keep durable signing assets outside the repo and use `/tmp` only for rebuildable scratch files.
 
 The current UDID Registrations account is Silver, not Platinum. Use the local signing flow in this guide. Online signing is not expected to work for this account.
 
@@ -10,13 +10,35 @@ The current UDID Registrations account is Silver, not Platinum. Use the local si
 
 - Xcode and the Xcode command line tools.
 - A UDID Registrations Silver account with the iPhone UDID registered.
-- `Development.p12` from UDID Registrations.
-- `Development.mobileprovision` from UDID Registrations.
-- The `.p12` password from UDID Registrations. It is usually `123456`.
+- The reusable iOS `Development.p12` from UDID Registrations.
+- The URL Blocker `Development.mobileprovision` from UDID Registrations.
+- The `.p12` password from UDID Registrations.
+
+# Download Signing Assets
+
+Download signing assets from the UDID Registrations order page. Do not paste the private order URL or transaction id into committed files.
+
+Save the files here:
+
+```text
+$HOME/Documents/UDIDRegistrations/iOSSigning/Development.p12
+$HOME/Documents/UDIDRegistrations/iOSSigning/Development.mobileprovision
+```
+
+Run from the repo root, then set local shell variables for the guide commands:
+
+```sh
+SIGNING_ASSETS="$HOME/Documents/UDIDRegistrations/iOSSigning"
+REPO_ROOT="$(pwd)"
+read -rsp "UDID .p12 password: " P12_PASSWORD
+printf "\n"
+```
+
+The `.p12` certificate is reusable for iOS signing. The `.mobileprovision` and bundle/app-group values below are specific to this URL Blocker app id.
 
 # Current Signing Values
 
-The UDID Registrations profile used for the latest local signing run contained these values:
+The UDID Registrations profile used for the latest local signing run contained these URL Blocker values:
 
 ```text
 TEAM_ID=W9MKY6Q657
@@ -29,19 +51,22 @@ If UDID Registrations issues a new profile, inspect it and use the new values:
 
 ```sh
 openssl smime -inform der -verify -noverify \
-  -in Development.mobileprovision \
-  -out profile.plist
+  -in "$SIGNING_ASSETS/Development.mobileprovision" \
+  -out /tmp/urlblocker_profile.plist
 
-/usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" profile.plist
-/usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" profile.plist
-/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.security.application-groups" profile.plist
+/usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" /tmp/urlblocker_profile.plist
+/usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" /tmp/urlblocker_profile.plist
+/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.security.application-groups" /tmp/urlblocker_profile.plist
 ```
+
+The current profile lists multiple app groups. URL Blocker uses `group.d944b664533a4c2f.1` to preserve the existing installed app's shared storage. Do not switch to another listed app group unless you are intentionally migrating storage.
 
 # Prepare a Signing Copy
 
 UDID Registrations signs against its generated app id, not the project defaults. Build from a temporary copy so the repo stays clean.
 
 ```sh
+rm -rf /tmp/urlblocker_signing
 mkdir -p /tmp/urlblocker_signing/source
 rsync -a --exclude .git ./ /tmp/urlblocker_signing/source/URL-Blocker/
 cd /tmp/urlblocker_signing/source/URL-Blocker
@@ -86,6 +111,14 @@ The built app should be here:
 /tmp/urlblocker_signing/build/Build/Products/Release-iphoneos/URLBlockerIOS.app
 ```
 
+If `actool` or Xcode cannot start because the selected iOS platform is unavailable, install the matching iOS platform runtime:
+
+```sh
+xcodebuild -downloadPlatform iOS
+```
+
+This can be required even for a physical-device `iphoneos` build because asset catalog compilation uses Xcode's selected iOS platform.
+
 # Create Signing Entitlements
 
 Create `/tmp/urlblocker_signing/entitlements.plist` using values from the provisioning profile:
@@ -124,9 +157,9 @@ security create-keychain -p urlblocker /tmp/urlblocker_signing/signing.keychain-
 security unlock-keychain -p urlblocker /tmp/urlblocker_signing/signing.keychain-db
 security set-keychain-settings -lut 21600 /tmp/urlblocker_signing/signing.keychain-db
 
-security import Development.p12 \
+security import "$SIGNING_ASSETS/Development.p12" \
   -k /tmp/urlblocker_signing/signing.keychain-db \
-  -P 123456 \
+  -P "$P12_PASSWORD" \
   -T /usr/bin/codesign \
   -T /usr/bin/security
 
@@ -149,6 +182,8 @@ security find-identity -v -p codesigning
 
 Use the identity hash printed for `iPhone Developer: Created via API (...)`.
 
+Do not use `-allowProvisioningUpdates` or automatic Apple signing for this flow. UDID Registrations signing must use the downloaded local certificate and provisioning profile.
+
 # Sign and Package
 
 Set the identity hash:
@@ -157,16 +192,19 @@ Set the identity hash:
 IDENTITY_HASH=954D99D17036F84F30F655128FB9B87560F87630
 ```
 
-Prepare the payload:
+Prepare a clean payload:
 
 ```sh
-mkdir -p /tmp/urlblocker_signed/Payload
-cp -R \
-  /tmp/urlblocker_signing/build/Build/Products/Release-iphoneos/URLBlockerIOS.app \
-  /tmp/urlblocker_signed/Payload/
+SIGNED_DIR=/tmp/urlblocker_signed
+rm -rf "$SIGNED_DIR"
+mkdir -p "$SIGNED_DIR/Payload"
 
-cp Development.mobileprovision \
-  /tmp/urlblocker_signed/Payload/URLBlockerIOS.app/embedded.mobileprovision
+ditto \
+  /tmp/urlblocker_signing/build/Build/Products/Release-iphoneos/URLBlockerIOS.app \
+  "$SIGNED_DIR/Payload/URLBlockerIOS.app"
+
+cp "$SIGNING_ASSETS/Development.mobileprovision" \
+  "$SIGNED_DIR/Payload/URLBlockerIOS.app/embedded.mobileprovision"
 ```
 
 Sign the extension first, then the containing app:
@@ -176,27 +214,27 @@ codesign -f \
   -s "$IDENTITY_HASH" \
   --generate-entitlement-der \
   --entitlements /tmp/urlblocker_signing/entitlements.plist \
-  /tmp/urlblocker_signed/Payload/URLBlockerIOS.app/PlugIns/URLBlockerIOSExtension.appex
+  "$SIGNED_DIR/Payload/URLBlockerIOS.app/PlugIns/URLBlockerIOSExtension.appex"
 
 codesign -f \
   -s "$IDENTITY_HASH" \
   --generate-entitlement-der \
   --entitlements /tmp/urlblocker_signing/entitlements.plist \
-  /tmp/urlblocker_signed/Payload/URLBlockerIOS.app
+  "$SIGNED_DIR/Payload/URLBlockerIOS.app"
 ```
 
 Verify the signature:
 
 ```sh
-codesign -v --strict --deep /tmp/urlblocker_signed/Payload/URLBlockerIOS.app
+codesign -v --strict --deep "$SIGNED_DIR/Payload/URLBlockerIOS.app"
 ```
 
 Package the IPA:
 
 ```sh
-mkdir -p build
-cd /tmp/urlblocker_signed
-zip -qry -X /Users/akelly/Git/URL-Blocker/build/URLBlockerIOS-signed.ipa Payload
+mkdir -p "$REPO_ROOT/build"
+cd "$SIGNED_DIR"
+zip -qry -X "$REPO_ROOT/build/URLBlockerIOS-signed.ipa" Payload
 ```
 
 Restore the normal keychain search list:
@@ -251,6 +289,31 @@ xcrun devicectl device install app \
 ```
 
 Keep the iPhone connected by USB, unlocked, and trusted by the Mac. If the install succeeds but the app will not open, enable Developer Mode on the iPhone under `Settings > Privacy & Security > Developer Mode`.
+
+After an iOS update, prepare device support before installing:
+
+```sh
+xcodebuild -prepareDeviceSupport \
+  -platform iOS \
+  -osVersion 26.5 \
+  -architecture arm64e
+```
+
+Check device support services if install hangs or reports a missing developer disk image:
+
+```sh
+xcrun devicectl device info ddiServices --device "$device"
+```
+
+Wi-Fi pairing can work when the phone is paired, awake, unlocked, and reachable on the same network. USB is more reliable for installs.
+
+If an accidental automatic-signing build was installed, remove that separate bundle after the UDID-signed app is installed:
+
+```sh
+xcrun devicectl device uninstall app \
+  --device "$device" \
+  com.akelly.URLBlockerIOS
+```
 
 # Online Signing
 
