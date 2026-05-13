@@ -36,6 +36,20 @@ printf "\n"
 
 The `.p12` certificate is reusable for iOS signing. The `.mobileprovision` and bundle/app-group values below are specific to this URL Blocker app id.
 
+# Fast Path
+
+Use the detailed sections below, but this is the shape of a normal run:
+
+1. Download `Development.p12` and `Development.mobileprovision` to `$HOME/Documents/UDIDRegistrations/iOSSigning`.
+2. Inspect the provisioning profile and confirm the app id, team id, app group, and iPhone UDID.
+3. Copy the repo to `/tmp/urlblocker_signing/source/URL-Blocker`.
+4. In that temporary copy, replace the iOS bundle ids, team id, and app group with the UDID Registrations values.
+5. Build unsigned with `CODE_SIGNING_ALLOWED=NO`.
+6. Import the `.p12` into a temporary keychain.
+7. Embed the `.mobileprovision`, sign the extension, sign the app, and package `build/URLBlockerIOS-signed.ipa`.
+8. Install with Apple Configurator or `devicectl`.
+9. Verify the installed bundle id, restore the keychain search list, and delete scratch files.
+
 # Current Signing Values
 
 The UDID Registrations profile used for the latest local signing run contained these URL Blocker values:
@@ -57,6 +71,7 @@ openssl smime -inform der -verify -noverify \
 /usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" /tmp/urlblocker_profile.plist
 /usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" /tmp/urlblocker_profile.plist
 /usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.security.application-groups" /tmp/urlblocker_profile.plist
+/usr/libexec/PlistBuddy -c "Print :ProvisionedDevices" /tmp/urlblocker_profile.plist
 ```
 
 The current profile lists multiple app groups. URL Blocker uses `group.d944b664533a4c2f.1` to preserve the existing installed app's shared storage. Do not switch to another listed app group unless you are intentionally migrating storage.
@@ -290,6 +305,12 @@ xcrun devicectl device install app \
 
 Keep the iPhone connected by USB, unlocked, and trusted by the Mac. If the install succeeds but the app will not open, enable Developer Mode on the iPhone under `Settings > Privacy & Security > Developer Mode`.
 
+## Device Identifiers
+
+UDID Registrations profiles use the iPhone's hardware UDID, such as `00008140-...`. The profile must include that hardware UDID or the app will not install on the phone.
+
+`devicectl list devices` may show a different CoreDevice identifier, such as `E9E787F0-...`. Use the identifier printed by `devicectl` for `--device` commands when it is available. That identifier does not replace the hardware UDID in the provisioning profile.
+
 After an iOS update, prepare device support before installing:
 
 ```sh
@@ -314,6 +335,60 @@ xcrun devicectl device uninstall app \
   --device "$device" \
   com.akelly.URLBlockerIOS
 ```
+
+# Final Verification
+
+Before and after installing, verify the signed bundle:
+
+```sh
+/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
+  "$SIGNED_DIR/Payload/URLBlockerIOS.app/Info.plist"
+
+/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
+  "$SIGNED_DIR/Payload/URLBlockerIOS.app/PlugIns/URLBlockerIOSExtension.appex/Info.plist"
+
+codesign -v --strict --deep "$SIGNED_DIR/Payload/URLBlockerIOS.app"
+
+codesign -d --entitlements :- \
+  "$SIGNED_DIR/Payload/URLBlockerIOS.app" \
+  >/tmp/urlblocker_app_entitlements.plist \
+  2>/dev/null
+
+codesign -d --entitlements :- \
+  "$SIGNED_DIR/Payload/URLBlockerIOS.app/PlugIns/URLBlockerIOSExtension.appex" \
+  >/tmp/urlblocker_extension_entitlements.plist \
+  2>/dev/null
+
+plutil -p /tmp/urlblocker_app_entitlements.plist
+plutil -p /tmp/urlblocker_extension_entitlements.plist
+```
+
+Expected values:
+
+- App bundle id: `app.black7278.turnip7125`
+- Extension bundle id: `app.black7278.turnip7125.Extension`
+- Team id: `W9MKY6Q657`
+- App group: `group.d944b664533a4c2f.1`
+- Profile devices include the iPhone hardware UDID.
+- Installed app check: `xcrun devicectl device info apps --device "$device" --bundle-id app.black7278.turnip7125`
+- Wrong auto-signed app check: `xcrun devicectl device info apps --device "$device" --bundle-id com.akelly.URLBlockerIOS` should show no installed apps.
+
+# Cleanup
+
+Keep the reusable signing assets in `$HOME/Documents/UDIDRegistrations/iOSSigning`. Everything else in the signing flow is rebuildable.
+
+```sh
+security list-keychains -d user -s ~/Library/Keychains/login.keychain-db
+rm -rf /tmp/urlblocker_signing
+rm -rf /tmp/urlblocker_signed
+rm -rf /tmp/urlblocker_ios_install.*
+```
+
+`build/URLBlockerIOS-signed.ipa` is ignored by git. Keep it if you want a local reinstall artifact; delete it if you want a fully clean workspace.
+
+# Future Automation
+
+The manual replacement step in the temporary source copy is the riskiest part. A future script should inspect the provisioning profile, derive `TEAM_ID`, `APP_ID`, `EXTENSION_ID`, and `APP_GROUP`, patch only the temporary copy, build, sign, package, and verify the final entitlements.
 
 # Online Signing
 
