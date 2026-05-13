@@ -9,7 +9,9 @@
     rowErrors: new Map(),
     pageError: "",
     successMessage: "",
-    isSaving: false
+    isSaving: false,
+    isRequestingPermissions: false,
+    missingOrigins: []
   };
 
   const rowsElement = document.getElementById("rows");
@@ -23,11 +25,16 @@
   const repairMessage = document.getElementById("repairMessage");
   const resetButton = document.getElementById("resetButton");
   const editorPanel = document.getElementById("editorPanel");
+  const permissionPanel = document.getElementById("permissionPanel");
+  const permissionMessage = document.getElementById("permissionMessage");
+  const permissionError = document.getElementById("permissionError");
+  const grantAccessButton = document.getElementById("grantAccessButton");
 
   addRowButton.addEventListener("click", addRow);
   saveButton.addEventListener("click", saveDraft);
   blockedPageHtmlInput.addEventListener("input", updateBlockedPageHtml);
   resetButton.addEventListener("click", resetBlocklist);
+  grantAccessButton.addEventListener("click", requestMissingWebsiteAccess);
 
   loadState().catch(showFatalError);
 
@@ -38,6 +45,7 @@
       case "state":
         state.draftEntries = editableEntries(response.state.entries);
         state.draftBlockedPageHtml = response.state.blockedPageHtml;
+        await refreshWebsiteAccess(response.state);
         render();
         return;
       case "stateError":
@@ -52,11 +60,18 @@
   }
 
   function render() {
+    const needsWebsiteAccess = state.missingOrigins.length > 0;
+
     repairPanel.hidden = true;
-    editorPanel.hidden = false;
+    permissionPanel.hidden = !needsWebsiteAccess;
+    editorPanel.hidden = needsWebsiteAccess;
     rowsElement.replaceChildren(...state.draftEntries.map(renderRow));
     blockedPageHtmlInput.value = state.draftBlockedPageHtml;
     saveButton.disabled = state.isSaving;
+    grantAccessButton.disabled = state.isRequestingPermissions;
+    permissionMessage.textContent = needsWebsiteAccess ? permissionPanelMessage() : "";
+    permissionError.hidden = state.pageError === "";
+    permissionError.textContent = state.pageError;
     errorSummary.hidden = state.pageError === "";
     errorSummary.textContent = state.pageError;
     successMessage.hidden = state.successMessage === "";
@@ -210,6 +225,57 @@
     if (!granted) {
       throw new Error("Allow the requested website access before saving.");
     }
+  }
+
+  async function requestMissingWebsiteAccess() {
+    state.isRequestingPermissions = true;
+    clearMessages();
+    render();
+
+    try {
+      const granted = await api.permissions.request({ origins: state.missingOrigins });
+
+      if (!granted) {
+        state.isRequestingPermissions = false;
+        state.pageError = "Allow website access before editing the blocklist.";
+        render();
+        return;
+      }
+
+      const response = await api.runtime.sendMessage({ type: "syncWebsiteAccess" });
+
+      if (response.type !== "synced") {
+        throw new Error("Website access was granted, but blocking could not be refreshed.");
+      }
+
+      state.isRequestingPermissions = false;
+      state.missingOrigins = [];
+      state.successMessage = "Website access granted.";
+      render();
+    } catch (error) {
+      state.isRequestingPermissions = false;
+      state.pageError = error.message;
+      render();
+    }
+  }
+
+  async function refreshWebsiteAccess(blockerState) {
+    const origins = core.permissionOriginsForState(blockerState);
+
+    if (origins.length === 0 || await api.permissions.contains({ origins })) {
+      state.missingOrigins = [];
+      return;
+    }
+
+    state.missingOrigins = origins;
+  }
+
+  function permissionPanelMessage() {
+    if (state.missingOrigins.length === 1) {
+      return "URL Blocker needs access to this website before blocking can run.";
+    }
+
+    return `URL Blocker needs access to these ${state.missingOrigins.length} websites before blocking can run.`;
   }
 
   function normalizeAndValidateDraft() {

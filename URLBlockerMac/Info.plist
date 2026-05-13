@@ -24,6 +24,8 @@
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>URL Blocker uses Safari automation to focus the blocklist editor tab.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>

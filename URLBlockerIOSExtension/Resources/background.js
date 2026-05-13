@@ -26,6 +26,9 @@
         case "resetState":
           requireKeys(message, ["type"], "resetState message");
           return resetState();
+        case "syncWebsiteAccess":
+          requireKeys(message, ["type"], "syncWebsiteAccess message");
+          return syncWebsiteAccess();
         case "openOptions":
           requireKeys(message, ["type"], "openOptions message");
           return openOptions();
@@ -77,6 +80,11 @@
     async function openOptions() {
       await api.tabs.create({ url: api.runtime.getURL("options.html") });
       return { type: "opened" };
+    }
+
+    async function syncWebsiteAccess() {
+      await syncContentScripts(await loadState());
+      return { type: "synced" };
     }
 
     async function urlChanged(rawUrl, sender) {
@@ -206,7 +214,8 @@
       redirectBlockedUrl,
       resetState,
       saveState,
-      syncContentScripts
+      syncContentScripts,
+      syncWebsiteAccess
     };
   }
 

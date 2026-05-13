@@ -62,9 +62,10 @@ xcodebuild \
 
 Use [ios_build_sign_install.md](ios_build_sign_install.md) for the complete signing and iPhone install flow.
 
-## Finish Workflow
+## Committing
 
 - After finishing and testing each change, commit all changes for that completed work.
+- If you're about to start a new change and there are uncommited code changes, commit them before you start. Make a subagent to look at the changes to figure out what they do and what a good commit message would be.
 
 ## Coding Preferences
 

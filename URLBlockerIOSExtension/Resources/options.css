@@ -9,6 +9,7 @@
   --accent-text: #ffffff;
   --danger: #b42318;
   --danger-surface: #fff0ed;
+  --scrim: rgba(23, 23, 23, 0.45);
   --success: #16703c;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
 }
@@ -85,7 +86,8 @@ h2 {
   line-height: 1.45;
 }
 
-#saveButton {
+#saveButton,
+#grantAccessButton {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-text);
@@ -99,11 +101,47 @@ h2 {
 .block-row,
 .settings-panel,
 .repair-panel,
+.permission-dialog,
 .error-summary,
 .success-message {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+.permission-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  background: var(--scrim);
+  padding: 16px;
+}
+
+.permission-panel[hidden] {
+  display: none;
+}
+
+.permission-dialog {
+  width: min(440px, 100%);
+  padding: 18px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+}
+
+.permission-dialog p {
+  margin-top: 8px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.permission-dialog button {
+  width: 100%;
+  margin-top: 14px;
+}
+
+.permission-error {
+  color: var(--danger);
 }
 
 .block-row {

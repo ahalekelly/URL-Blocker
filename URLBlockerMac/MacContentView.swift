@@ -1,4 +1,4 @@
-import AppKit
+import Foundation
 import SafariServices
 import SwiftUI
 
@@ -28,12 +28,12 @@ struct MacContentView: View {
                 }
             }
 
-            HStack {
+            VStack(alignment: .leading, spacing: 10) {
                 Button("Open Extension Settings", action: openExtensionSettings)
                     .buttonStyle(.bordered)
 
                 Button("Open Blocklist Settings", action: openBlocklistSettings)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
             }
         }
         .frame(width: 460, alignment: .leading)
@@ -65,31 +65,35 @@ struct MacContentView: View {
     private func openExtensionSettings() {
         SFSafariApplication.showPreferencesForExtension(withIdentifier: MacSafari.extensionBundleIdentifier) { error in
             DispatchQueue.main.async {
-                guard let error = error else { return }
-
-                let nsError = error as NSError
+                if error == nil { return }
 
                 alert = AppAlert(
-                    title: "Safari Settings Unavailable",
-                    message: "Open Safari, choose Safari > Settings > Extensions, then enable URL Blocker. Safari returned: \(error.localizedDescription) (\(nsError.domain) \(nsError.code))."
+                    title: "Open Safari Extension Settings",
+                    message: "Safari could not open URL Blocker settings automatically. In Safari, choose Safari > Settings > Extensions, then select URL Blocker."
                 )
             }
         }
     }
 
     private func openBlocklistSettings() {
-        SFSafariExtension.getBaseURI { baseURI in
-            DispatchQueue.main.async {
-                guard let url = baseURI?.appendingPathComponent("options.html") else {
-                    alert = AppAlert(title: "Editor Unavailable", message: "Enable the Safari extension, then try again.")
-                    return
-                }
-
-                if !NSWorkspace.shared.open(url) {
-                    alert = AppAlert(title: "Editor Unavailable", message: "Open Safari extension settings, then choose Extension Settings.")
-                }
-            }
+        guard let script = NSAppleScript(source: MacSafari.openBlocklistScript) else {
+            showEditorUnavailable()
+            return
         }
+
+        var error: NSDictionary?
+        script.executeAndReturnError(&error)
+
+        if error == nil { return }
+
+        showEditorUnavailable()
+    }
+
+    private func showEditorUnavailable() {
+        alert = AppAlert(
+            title: "Editor Unavailable",
+            message: "Open Safari and click the URL Blocker toolbar button to open the blocklist."
+        )
     }
 }
 
@@ -101,6 +105,24 @@ private enum ExtensionState: Equatable {
 
 private enum MacSafari {
     static let extensionBundleIdentifier = "com.akelly.URLBlockerMac.Extension"
+    static let openBlocklistScript = """
+    tell application "Safari"
+        repeat with safariWindow in windows
+            repeat with safariTab in tabs of safariWindow
+                set tabURL to URL of safariTab
+
+                if tabURL starts with "safari-web-extension://" and tabURL ends with "/options.html" and name of safariTab is "URL Blocker" then
+                    set current tab of safariWindow to safariTab
+                    set index of safariWindow to 1
+                    activate
+                    return
+                end if
+            end repeat
+        end repeat
+
+        error "URL Blocker options page is not open."
+    end tell
+    """
 }
 
 private struct StepRow: View {

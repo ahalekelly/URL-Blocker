@@ -18,6 +18,15 @@
       <button id="resetButton" type="button">Reset Blocklist</button>
     </section>
 
+    <section id="permissionPanel" class="permission-panel" hidden>
+      <div class="permission-dialog">
+        <h2>Website Access Required</h2>
+        <p id="permissionMessage"></p>
+        <p id="permissionError" class="permission-error" hidden></p>
+        <button id="grantAccessButton" type="button">Allow Website Access</button>
+      </div>
+    </section>
+
     <section id="editorPanel">
       <div id="errorSummary" class="error-summary" hidden></div>
       <div id="successMessage" class="success-message" hidden></div>

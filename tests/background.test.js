@@ -132,6 +132,19 @@ test("openOptions opens the options page in a tab", async () => {
   assert.equal(api.createdTab, "safari-web-extension://extension/options.html");
 });
 
+test("syncWebsiteAccess registers content scripts for the saved blocklist", async () => {
+  const api = fakeApi();
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "https://x.com/home" }
+  ]);
+
+  const controller = createBackgroundController(api);
+  const response = await controller.handleMessage({ type: "syncWebsiteAccess" }, {});
+
+  assert.equal(response.type, "synced");
+  assert.deepEqual(api.registeredScripts[0].matches, ["*://*.x.com/*"]);
+});
+
 test("urlChanged redirects matching sender tab to the blocked page", async () => {
   const api = fakeApi();
   api.storageData[core.STATE_KEY] = validState([
