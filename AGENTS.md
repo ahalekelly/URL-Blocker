@@ -34,6 +34,36 @@ Build both unsigned platform targets:
 make all
 ```
 
+Build the unsigned iOS device app:
+
+```sh
+make ios-build
+```
+
+Build the UDID-signed iOS IPA:
+
+```sh
+make ios-signed-ipa
+```
+
+List iOS devices available to Xcode:
+
+```sh
+make ios-devices
+```
+
+Build the UDID-signed iOS IPA and install it on the connected iPhone:
+
+```sh
+make ios-install
+```
+
+Install on a specific iPhone:
+
+```sh
+make ios-install DEVICE="My iPhone"
+```
+
 Build and install the signed macOS app:
 
 ```sh
@@ -46,26 +76,13 @@ Sync default blocked pages after editing defaults:
 npm run sync-default-blocked-pages
 ```
 
-Build the unsigned iOS device app:
-
-```sh
-xcodebuild \
-  -project URLBlocker.xcodeproj \
-  -scheme URLBlockerIOS \
-  -configuration Release \
-  -sdk iphoneos \
-  -destination generic/platform=iOS \
-  CODE_SIGNING_ALLOWED=NO \
-  COMPILATION_CACHE_ENABLE_CACHING=NO \
-  build
-```
-
 Use [ios_build_sign_install.md](ios_build_sign_install.md) for the complete signing and iPhone install flow.
 
 ## Committing
 
 - After finishing and testing each change, commit all changes for that completed work.
 - If you're about to start a new change and there are uncommited code changes, commit them before you start. Make a subagent to look at the changes to figure out what they do and what a good commit message would be.
+- Save any important or useful information to this file, make sure it update it when information changes, you learn new things, or you are given new general instructions
 
 ## Coding Preferences
 
