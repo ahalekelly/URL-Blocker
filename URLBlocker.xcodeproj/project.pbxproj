@@ -46,6 +46,10 @@
 		03A000000000000000000001 /* NativeBlocklistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B000000000000000000001 /* NativeBlocklistStore.swift */; };
 		03A000000000000000000002 /* NativeBlocklistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B000000000000000000001 /* NativeBlocklistStore.swift */; };
 		03A000000000000000000003 /* NativeBlocklistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B000000000000000000001 /* NativeBlocklistStore.swift */; };
+		04A000000000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 04B000000000000000000001 /* Assets.xcassets */; };
+		04A000000000000000000002 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 04B000000000000000000001 /* Assets.xcassets */; };
+		04A000000000000000000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 04B000000000000000000001 /* Assets.xcassets */; };
+		04A000000000000000000004 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 04B000000000000000000001 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -121,6 +125,7 @@
 		03B000000000000000000001 /* NativeBlocklistStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBlocklistStore.swift; sourceTree = "<group>"; };
 		03B000000000000000000002 /* URLBlockerIOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = URLBlockerIOS.entitlements; sourceTree = "<group>"; };
 		03B000000000000000000003 /* URLBlockerIOSExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = URLBlockerIOSExtension.entitlements; sourceTree = "<group>"; };
+		04B000000000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -255,6 +260,7 @@
 			isa = PBXGroup;
 			children = (
 				03B000000000000000000001 /* NativeBlocklistStore.swift */,
+				04B000000000000000000001 /* Assets.xcassets */,
 			);
 			path = URLBlockerShared;
 			sourceTree = "<group>";
@@ -268,6 +274,7 @@
 			buildPhases = (
 				01B400000000000000000001 /* Sources */,
 				01B200000000000000000001 /* Frameworks */,
+				04B500000000000000000001 /* Resources */,
 				01B100000000000000000001 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
@@ -303,6 +310,7 @@
 			buildPhases = (
 				02B400000000000000000001 /* Sources */,
 				02B200000000000000000001 /* Frameworks */,
+				04B500000000000000000002 /* Resources */,
 				02B100000000000000000001 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
@@ -378,10 +386,19 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		04B500000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				04A000000000000000000001 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		01B500000000000000000001 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				04A000000000000000000002 /* Assets.xcassets in Resources */,
 				01A000000000000000000006 /* manifest.json in Resources */,
 				01A000000000000000000007 /* blocker.js in Resources */,
 				01A000000000000000000008 /* background.js in Resources */,
@@ -397,10 +414,19 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		04B500000000000000000002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				04A000000000000000000003 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		02B500000000000000000001 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				04A000000000000000000004 /* Assets.xcassets in Resources */,
 				02A000000000000000000007 /* manifest.json in Resources */,
 				02A000000000000000000008 /* blocker.js in Resources */,
 				02A000000000000000000009 /* background.js in Resources */,
@@ -594,6 +620,7 @@
 		01F100000000000000000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = URLBlockerIOS/URLBlockerIOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -618,6 +645,7 @@
 		01F100000000000000000004 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = URLBlockerIOS/URLBlockerIOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -643,6 +671,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = URLBlockerIOSExtension/URLBlockerIOSExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -668,6 +697,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = URLBlockerIOSExtension/URLBlockerIOSExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -692,6 +722,7 @@
 		02F100000000000000000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = URLBlockerMac/URLBlockerMac.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -717,6 +748,7 @@
 		02F100000000000000000002 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = URLBlockerMac/URLBlockerMac.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -743,6 +775,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = URLBlockerExtensionMac/URLBlockerMacExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -769,6 +802,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = URLBlockerExtensionMac/URLBlockerMacExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
