@@ -9,7 +9,8 @@ const ids = [
   "11111111-1111-4111-8111-111111111111",
   "22222222-2222-4222-8222-222222222222",
   "33333333-3333-4333-8333-333333333333",
-  "44444444-4444-4444-8444-444444444444"
+  "44444444-4444-4444-8444-444444444444",
+  "55555555-5555-4555-8555-555555555555"
 ];
 
 test("labels matcher options in display order", () => {
@@ -33,14 +34,12 @@ test("loads default blocked pages for new installs", () => {
 
   assert.deepEqual(state.entries.map(({ kind, value }) => ({ kind, value })), [
     { kind: "url", value: "x.com" },
-    { kind: "url", value: "x.com/home" },
     { kind: "url", value: "twitter.com" },
-    { kind: "url", value: "twitter.com/home" },
     { kind: "url", value: "youtube.com" },
     { kind: "url", value: "reddit.com" },
-    { kind: "url", value: "ycombinator.com" },
-    { kind: "url", value: "ycombinator.com/news" }
+    { kind: "url", value: "ycombinator.com" }
   ]);
+  assert.deepEqual(state.schedule, { type: "always" });
 });
 
 test("keeps install-time permissions aligned with default blocked pages", () => {
@@ -55,6 +54,9 @@ test("normalizes URL entries for path-based matching", () => {
   assert.equal(core.normalizeUrlEntryValue("https://example.com/"), "example.com");
   assert.equal(core.normalizeUrlEntryValue("http://example.com:80/Docs/"), "example.com/Docs");
   assert.equal(core.normalizeUrlEntryValue("Example.com/Docs/?x=1#top"), "example.com/Docs");
+  assert.equal(core.normalizeUrlEntryValue("https://x.com/home"), "x.com");
+  assert.equal(core.normalizeUrlEntryValue("https://twitter.com/home"), "twitter.com");
+  assert.equal(core.normalizeUrlEntryValue("https://ycombinator.com/news"), "ycombinator.com");
   assert.throws(() => core.normalizeUrlEntryValue("ftp://example.com"), /http or https/);
   assert.throws(() => core.normalizeUrlEntryValue("https://user@example.com"), /usernames/);
   assert.throws(() => core.normalizeUrlEntryValue("https://example.com:8443/path"), /non-default ports/);
@@ -113,9 +115,10 @@ test("validates blocked page HTML and migrates old state", () => {
   });
 
   assert.equal(migrated.type, "valid");
-  assert.equal(migrated.state.schemaVersion, 4);
+  assert.equal(migrated.state.schemaVersion, 5);
   assert.equal(migrated.state.entries[0].value, "example.com/path");
   assert.equal(migrated.state.blockedPageHtml, core.DEFAULT_BLOCKED_PAGE_HTML);
+  assert.deepEqual(migrated.state.schedule, { type: "always" });
 
   const legacyApiSetting = core.validateState({
     schemaVersion: 3,
@@ -125,26 +128,85 @@ test("validates blocked page HTML and migrates old state", () => {
   });
 
   assert.equal(legacyApiSetting.type, "valid");
-  assert.equal(legacyApiSetting.state.schemaVersion, 4);
+  assert.equal(legacyApiSetting.state.schemaVersion, 5);
   assert.equal("useSafariBlockingApi" in legacyApiSetting.state, false);
 
   const custom = core.validateState({
-    schemaVersion: 4,
+    schemaVersion: 5,
     entries: [],
-    blockedPageHtml: " <p><strong>Nope.</strong></p> "
+    blockedPageHtml: " <p><strong>Nope.</strong></p> ",
+    schedule: { type: "always" }
   });
 
   assert.equal(custom.type, "valid");
   assert.equal(custom.state.blockedPageHtml, "<p><strong>Nope.</strong></p>");
 
   const script = core.validateState({
-    schemaVersion: 4,
+    schemaVersion: 5,
     entries: [],
-    blockedPageHtml: "<img src=x onerror=alert(1)>"
+    blockedPageHtml: "<img src=x onerror=alert(1)>",
+    schedule: { type: "always" }
   });
 
   assert.equal(script.type, "invalid");
   assert.match(script.errors[0].message, /inline scripts/);
+});
+
+test("validates schedules and detects active windows", () => {
+  assert.equal(core.isScheduleActive({ type: "always" }, new Date(2026, 0, 1, 12, 0)), true);
+  assert.equal(core.isScheduleActive({ type: "dailyWindow", startMinute: 540, endMinute: 1020 }, new Date(2026, 0, 1, 9, 30)), true);
+  assert.equal(core.isScheduleActive({ type: "dailyWindow", startMinute: 540, endMinute: 1020 }, new Date(2026, 0, 1, 17, 0)), false);
+  assert.equal(core.isScheduleActive({ type: "dailyWindow", startMinute: 1320, endMinute: 420 }, new Date(2026, 0, 1, 23, 0)), true);
+  assert.equal(core.isScheduleActive({ type: "dailyWindow", startMinute: 1320, endMinute: 420 }, new Date(2026, 0, 1, 6, 30)), true);
+  assert.equal(core.isScheduleActive({ type: "dailyWindow", startMinute: 1320, endMinute: 420 }, new Date(2026, 0, 1, 12, 0)), false);
+
+  const equalTimes = core.validateState({
+    schemaVersion: 5,
+    entries: [],
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: { type: "dailyWindow", startMinute: 540, endMinute: 540 }
+  });
+
+  assert.equal(equalTimes.type, "invalid");
+  assert.match(equalTimes.errors[0].message, /different/);
+});
+
+test("matches only when the schedule is active", () => {
+  const state = validState(
+    [{ id: ids[0], kind: "url", value: "example.com" }],
+    { type: "dailyWindow", startMinute: 540, endMinute: 1020 }
+  );
+
+  assert.equal(core.findActiveMatchingEntry(state, "https://example.com", new Date(2026, 0, 1, 9, 30)).type, "match");
+  assert.equal(core.findActiveMatchingEntry(state, "https://example.com", new Date(2026, 0, 1, 17, 0)).type, "none");
+});
+
+test("collapses alias-created duplicates during migration", () => {
+  const migrated = core.validateState({
+    schemaVersion: 4,
+    entries: [
+      { id: ids[0], kind: "url", value: "x.com" },
+      { id: ids[1], kind: "url", value: "x.com/home" },
+      { id: ids[2], kind: "url", value: "twitter.com/home" }
+    ],
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML
+  });
+
+  assert.equal(migrated.type, "valid");
+  assert.deepEqual(migrated.state.entries.map(({ value }) => value), ["x.com", "twitter.com"]);
+
+  const duplicate = core.validateState({
+    schemaVersion: 5,
+    entries: [
+      { id: ids[0], kind: "url", value: "x.com" },
+      { id: ids[1], kind: "url", value: "x.com/home" }
+    ],
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: { type: "always" }
+  });
+
+  assert.equal(duplicate.type, "invalid");
+  assert.match(duplicate.errors[0].message, /Duplicate/);
 });
 
 test("matches domains without matching text-similar hosts", () => {
@@ -202,6 +264,20 @@ test("keeps root URL entries scoped to the root path", () => {
   assert.equal(core.findMatchingEntry(state, "https://reddit.com/r/safari").type, "none");
 });
 
+test("matches hardcoded URL aliases as their root URLs", () => {
+  const state = validState([
+    { id: ids[0], kind: "url", value: "x.com" },
+    { id: ids[1], kind: "url", value: "twitter.com" },
+    { id: ids[2], kind: "url", value: "ycombinator.com" }
+  ]);
+
+  assert.equal(core.findMatchingEntry(state, "https://x.com/home").type, "match");
+  assert.equal(core.findMatchingEntry(state, "https://www.twitter.com/home?src=nav").type, "match");
+  assert.equal(core.findMatchingEntry(state, "https://news.ycombinator.com/news").type, "match");
+  assert.equal(core.findMatchingEntry(state, "https://ycombinator.com/news").type, "match");
+  assert.equal(core.findMatchingEntry(state, "https://x.com/messages").type, "none");
+});
+
 test("maps blocklist entries to host permissions", () => {
   const state = validState([
     { id: ids[0], kind: "url", value: "https://reddit.com/popular" },
@@ -234,11 +310,12 @@ test("matches regex entries case-insensitively without fragments", () => {
   assert.equal(core.findMatchingEntry(state, "https://x.com/messages").type, "none");
 });
 
-function validState(entries) {
+function validState(entries, schedule = core.DEFAULT_SCHEDULE) {
   const result = core.validateState({
-    schemaVersion: 4,
+    schemaVersion: 5,
     entries,
-    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule
   });
 
   assert.equal(result.type, "valid");

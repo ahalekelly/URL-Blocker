@@ -30,6 +30,31 @@
     <section id="editorPanel">
       <div id="errorSummary" class="error-summary" hidden></div>
       <div id="successMessage" class="success-message" hidden></div>
+
+      <section class="settings-panel">
+        <h2>Schedule</h2>
+        <div class="schedule-options">
+          <label class="choice-label">
+            <input id="alwaysScheduleInput" type="radio" name="scheduleType" value="always">
+            <span>Always</span>
+          </label>
+          <label class="choice-label">
+            <input id="dailyScheduleInput" type="radio" name="scheduleType" value="dailyWindow">
+            <span>Daily Window</span>
+          </label>
+        </div>
+        <div id="scheduleWindowFields" class="schedule-window-fields">
+          <label>
+            Start
+            <input id="scheduleStartInput" type="time" aria-label="Schedule start time">
+          </label>
+          <label>
+            End
+            <input id="scheduleEndInput" type="time" aria-label="Schedule end time">
+          </label>
+        </div>
+      </section>
+
       <div id="rows" class="rows"></div>
       <div class="list-actions">
         <button id="addRowButton" type="button">Add Row</button>

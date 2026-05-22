@@ -96,6 +96,7 @@ h2 {
 .rows {
   display: grid;
   gap: 12px;
+  margin-top: 12px;
 }
 
 .block-row,
@@ -153,6 +154,10 @@ h2 {
   padding: 14px;
 }
 
+.settings-panel:first-of-type {
+  margin-top: 0;
+}
+
 .row-toolbar,
 .list-actions,
 .editor-footer {
@@ -171,6 +176,22 @@ h2 {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.schedule-options,
+.schedule-window-fields {
+  display: flex;
+  gap: 12px;
+}
+
+.schedule-window-fields[hidden] {
+  display: none;
+}
+
+.choice-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .segments button {
@@ -200,6 +221,11 @@ textarea {
   border-radius: 8px;
   background: var(--background);
   color: var(--text);
+}
+
+input[type="radio"] {
+  width: auto;
+  min-height: 0;
 }
 
 input {
@@ -250,6 +276,8 @@ textarea {
 
 @media (max-width: 640px) {
   .row-toolbar,
+  .schedule-options,
+  .schedule-window-fields,
   .list-actions,
   .editor-footer {
     display: grid;

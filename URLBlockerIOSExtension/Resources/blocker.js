@@ -2,12 +2,18 @@
   "use strict";
 
   const STATE_KEY = "blockerState";
-  const SCHEMA_VERSION = 4;
+  const SCHEMA_VERSION = 5;
   const MAX_ENTRIES = 1000;
   const MAX_BLOCKED_PAGE_HTML_LENGTH = 4000;
   const DEFAULT_BLOCKED_PAGE_HTML = "<h1>Blocked</h1><p>This page is on your blocklist.</p>";
+  const DEFAULT_SCHEDULE = { type: "always" };
   const ALL_WEBSITES_ORIGIN = "*://*/*";
   const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const URL_ALIASES = [
+    { source: "x.com/home", target: "x.com" },
+    { source: "twitter.com/home", target: "twitter.com" },
+    { source: "ycombinator.com/news", target: "ycombinator.com" }
+  ];
   const KIND_LABELS = {
     url: "URL",
     urlWithSubpaths: "URL and subpaths",
@@ -23,7 +29,7 @@
 
   function emptyState(entries) {
     const result = validateState({
-      schemaVersion: SCHEMA_VERSION,
+      schemaVersion: 4,
       entries,
       blockedPageHtml: DEFAULT_BLOCKED_PAGE_HTML
     });
@@ -50,7 +56,7 @@
       return invalid([{ index: null, message: "Blocklist data must be an object." }]);
     }
 
-    if (rawState.schemaVersion !== 1 && rawState.schemaVersion !== 2 && rawState.schemaVersion !== 3 && rawState.schemaVersion !== SCHEMA_VERSION) {
+    if (rawState.schemaVersion !== 1 && rawState.schemaVersion !== 2 && rawState.schemaVersion !== 3 && rawState.schemaVersion !== 4 && rawState.schemaVersion !== SCHEMA_VERSION) {
       errors.push({ index: null, message: "Unsupported blocklist version. Reset the blocklist to repair it." });
     }
 
@@ -64,11 +70,16 @@
       errors.push({ index: null, message: "Blocked page HTML must be a string." });
     }
 
+    if (rawState.schemaVersion >= 5 && !isPlainObject(rawState.schedule)) {
+      errors.push({ index: null, message: "Schedule must be an object." });
+    }
+
     if (errors.length > 0) {
       return invalid(errors);
     }
 
     let blockedPageHtml = DEFAULT_BLOCKED_PAGE_HTML;
+    let schedule = DEFAULT_SCHEDULE;
 
     try {
       if (rawState.schemaVersion >= 2) {
@@ -76,6 +87,16 @@
       }
     } catch (error) {
       errors.push({ index: null, message: error.message });
+    }
+
+    if (rawState.schemaVersion >= 5) {
+      const result = normalizeSchedule(rawState.schedule);
+
+      if (result.type === "invalid") {
+        errors.push(...result.errors);
+      } else {
+        schedule = result.schedule;
+      }
     }
 
     if (rawState.entries.length > MAX_ENTRIES) {
@@ -96,6 +117,10 @@
       const duplicateKey = `${result.entry.kind}:${result.entry.value.toLowerCase()}`;
 
       if (seen.has(duplicateKey)) {
+        if (rawState.schemaVersion < SCHEMA_VERSION && result.aliased) {
+          return;
+        }
+
         errors.push({ index, message: "Duplicate entry after normalization." });
         return;
       }
@@ -108,7 +133,7 @@
       return invalid(errors);
     }
 
-    return { type: "valid", state: { schemaVersion: SCHEMA_VERSION, entries, blockedPageHtml } };
+    return { type: "valid", state: { schemaVersion: SCHEMA_VERSION, entries, blockedPageHtml, schedule } };
   }
 
   function parseStoredState(rawState) {
@@ -149,13 +174,13 @@
     try {
       switch (entry.kind) {
         case "domain":
-          return validEntry(entry, normalizeDomainEntryValue(entry.value));
+          return validEntry(entry, normalizeDomainEntryValue(entry.value), false);
         case "url":
-          return validEntry(entry, normalizeUrlEntryValue(entry.value));
+          return validUrlEntry(entry);
         case "urlWithSubpaths":
-          return validEntry(entry, normalizeUrlEntryValue(entry.value));
+          return validUrlEntry(entry);
         case "regex":
-          return validEntry(entry, normalizeRegexEntryValue(entry.value));
+          return validEntry(entry, normalizeRegexEntryValue(entry.value), false);
         default:
           throw new Error(`Unknown matcher kind: ${entry.kind}`);
       }
@@ -203,6 +228,10 @@
   }
 
   function normalizeUrlEntryValue(rawValue) {
+    return normalizeUrlEntry(rawValue).value;
+  }
+
+  function normalizeUrlEntry(rawValue) {
     const url = parseUrlEntryValue(rawValue);
     const scheme = url.protocol.toLowerCase();
 
@@ -221,8 +250,66 @@
     const host = stripLeadingWww(url.hostname.toLowerCase());
     const path = stripTrailingSlashes(url.pathname);
     const storedPath = path === "/" ? "" : path;
+    const value = `${host}${storedPath}`;
+    const alias = URL_ALIASES.find((candidate) => candidate.source === value.toLowerCase());
 
-    return `${host}${storedPath}`;
+    if (alias) {
+      return { value: alias.target, aliased: true };
+    }
+
+    return { value, aliased: false };
+  }
+
+  function normalizeSchedule(schedule) {
+    const errors = [];
+
+    if (!isPlainObject(schedule)) {
+      return invalid([{ index: null, message: "Schedule must be an object." }]);
+    }
+
+    if (typeof schedule.type !== "string") {
+      return invalid([{ index: null, message: "Schedule type must be a string." }]);
+    }
+
+    switch (schedule.type) {
+      case "always":
+        pushUnknownKeyErrors(errors, schedule, ["type"], "Schedule");
+
+        if (errors.length > 0) {
+          return invalid(errors);
+        }
+
+        return { type: "valid", schedule: DEFAULT_SCHEDULE };
+      case "dailyWindow":
+        pushUnknownKeyErrors(errors, schedule, ["type", "startMinute", "endMinute"], "Schedule");
+
+        if (!isMinute(schedule.startMinute)) {
+          errors.push({ index: null, message: "Schedule start minute must be between 0 and 1439." });
+        }
+
+        if (!isMinute(schedule.endMinute)) {
+          errors.push({ index: null, message: "Schedule end minute must be between 0 and 1439." });
+        }
+
+        if (errors.length > 0) {
+          return invalid(errors);
+        }
+
+        if (schedule.startMinute === schedule.endMinute) {
+          return invalid([{ index: null, message: "Daily schedule start and end times must be different." }]);
+        }
+
+        return {
+          type: "valid",
+          schedule: {
+            type: "dailyWindow",
+            startMinute: schedule.startMinute,
+            endMinute: schedule.endMinute
+          }
+        };
+      default:
+        return invalid([{ index: null, message: `Unknown schedule type: ${schedule.type}` }]);
+    }
   }
 
   function normalizeBlockedPageHtml(rawValue) {
@@ -287,6 +374,35 @@
     }
 
     return { type: "none" };
+  }
+
+  function findActiveMatchingEntry(state, rawUrl, date = new Date()) {
+    if (!isScheduleActive(state.schedule, date)) {
+      return { type: "none" };
+    }
+
+    return findMatchingEntry(state, rawUrl);
+  }
+
+  function isScheduleActive(schedule, date = new Date()) {
+    switch (schedule.type) {
+      case "always":
+        return true;
+      case "dailyWindow":
+        return isDailyWindowActive(schedule, date);
+      default:
+        throw new Error(`Unknown schedule type: ${schedule.type}`);
+    }
+  }
+
+  function isDailyWindowActive(schedule, date) {
+    const minute = date.getHours() * 60 + date.getMinutes();
+
+    if (schedule.startMinute < schedule.endMinute) {
+      return minute >= schedule.startMinute && minute < schedule.endMinute;
+    }
+
+    return minute >= schedule.startMinute || minute < schedule.endMinute;
   }
 
   function permissionOriginsForState(state) {
@@ -374,7 +490,8 @@
       const host = url.hostname.toLowerCase();
       const base = `${scheme}//${host}${url.port === "" ? "" : `:${url.port}`}`;
       const path = stripTrailingSlashes(url.pathname);
-      const pathMatchUrl = `${base}${path === "/" ? "" : path}`;
+      const aliasedPath = pageAliasPath(host, path);
+      const pathMatchUrl = `${base}${aliasedPath}`;
       const regexMatchUrl = `${base}${url.pathname}${url.search}`;
 
       return {
@@ -390,8 +507,32 @@
     }
   }
 
+  function pageAliasPath(host, path) {
+    const normalizedPath = path === "/" ? "" : path;
+
+    for (const alias of URL_ALIASES) {
+      const source = splitStoredUrl(alias.source);
+
+      if (!domainMatchesHost(source.host, stripLeadingWww(host))) {
+        continue;
+      }
+
+      if (source.path.toLowerCase() !== normalizedPath.toLowerCase()) {
+        continue;
+      }
+
+      return splitStoredUrl(alias.target).path;
+    }
+
+    return normalizedPath;
+  }
+
   function domainMatchesUrl(domain, pageUrl) {
-    return pageUrl.host === domain || pageUrl.host.endsWith(`.${domain}`);
+    return domainMatchesHost(domain, pageUrl.host);
+  }
+
+  function domainMatchesHost(domain, host) {
+    return host === domain || host.endsWith(`.${domain}`);
   }
 
   function splitStoredUrl(value) {
@@ -420,6 +561,10 @@
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
+  function isMinute(value) {
+    return Number.isInteger(value) && value >= 0 && value <= 1439;
+  }
+
   function isIpAddress(host) {
     if (host.includes(":") || host.includes("[") || host.includes("]")) {
       return true;
@@ -444,8 +589,14 @@
     });
   }
 
-  function validEntry(entry, value) {
-    return { type: "valid", entry: { id: entry.id.toLowerCase(), kind: entry.kind, value } };
+  function validUrlEntry(entry) {
+    const result = normalizeUrlEntry(entry.value);
+
+    return validEntry(entry, result.value, result.aliased);
+  }
+
+  function validEntry(entry, value, aliased) {
+    return { type: "valid", entry: { id: entry.id.toLowerCase(), kind: entry.kind, value }, aliased };
   }
 
   function invalid(errors) {
@@ -464,15 +615,18 @@
         return ["schemaVersion", "entries", "blockedPageHtml"];
       case 3:
         return ["schemaVersion", "entries", "blockedPageHtml", "useSafariBlockingApi"];
+      case 4:
+        return ["schemaVersion", "entries", "blockedPageHtml"];
       case SCHEMA_VERSION:
-        return ["schemaVersion", "entries", "blockedPageHtml"];
+        return ["schemaVersion", "entries", "blockedPageHtml", "schedule"];
       default:
-        return ["schemaVersion", "entries", "blockedPageHtml"];
+        return ["schemaVersion", "entries", "blockedPageHtml", "schedule"];
     }
   }
 
   const BlockerCore = {
     DEFAULT_BLOCKED_PAGE_HTML,
+    DEFAULT_SCHEDULE,
     EDITABLE_KIND_LABELS,
     KIND_LABELS,
     MAX_BLOCKED_PAGE_HTML_LENGTH,
@@ -481,7 +635,9 @@
     STATE_KEY,
     emptyState,
     entryMatchesUrl,
+    findActiveMatchingEntry,
     findMatchingEntry,
+    isScheduleActive,
     newEntry,
     normalizeDomainEntryValue,
     normalizeBlockedPageHtml,

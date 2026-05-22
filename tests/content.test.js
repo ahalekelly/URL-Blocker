@@ -27,6 +27,17 @@ test("content script reports changed URLs once", async () => {
   ]);
 });
 
+test("content script periodically rechecks unchanged URLs", async () => {
+  const page = runContentScript("https://x.com/home");
+
+  page.tick();
+
+  assert.deepEqual(page.messages, [
+    { type: "urlChanged", url: "https://x.com/home" },
+    { type: "urlChanged", url: "https://x.com/home" }
+  ]);
+});
+
 function runContentScript(url) {
   const context = {
     browser: {
@@ -40,6 +51,7 @@ function runContentScript(url) {
     },
     console,
     document: { hidden: false },
+    intervals: [],
     listeners: new Map(),
     location: { href: url },
     messages: [],
@@ -47,7 +59,9 @@ function runContentScript(url) {
       context.listeners.set(type, listener);
     },
     clearTimeout() {},
-    setInterval() {},
+    setInterval(listener) {
+      context.intervals.push(listener);
+    },
     setTimeout(listener) {
       listener();
     }
@@ -60,6 +74,10 @@ function runContentScript(url) {
     messages: JSON.parse(JSON.stringify(context.messages)),
     dispatch(type) {
       context.listeners.get(type)();
+      this.messages = JSON.parse(JSON.stringify(context.messages));
+    },
+    tick() {
+      context.intervals.forEach((listener) => listener());
       this.messages = JSON.parse(JSON.stringify(context.messages));
     }
   };

@@ -6,6 +6,7 @@
   const state = {
     draftEntries: [],
     draftBlockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    draftSchedule: core.DEFAULT_SCHEDULE,
     rowErrors: new Map(),
     pageError: "",
     successMessage: "",
@@ -19,6 +20,11 @@
   const saveButton = document.getElementById("saveButton");
   const addRowButton = document.getElementById("addRowButton");
   const blockedPageHtmlInput = document.getElementById("blockedPageHtmlInput");
+  const alwaysScheduleInput = document.getElementById("alwaysScheduleInput");
+  const dailyScheduleInput = document.getElementById("dailyScheduleInput");
+  const scheduleWindowFields = document.getElementById("scheduleWindowFields");
+  const scheduleStartInput = document.getElementById("scheduleStartInput");
+  const scheduleEndInput = document.getElementById("scheduleEndInput");
   const errorSummary = document.getElementById("errorSummary");
   const successMessage = document.getElementById("successMessage");
   const repairPanel = document.getElementById("repairPanel");
@@ -33,6 +39,10 @@
   addRowButton.addEventListener("click", addRow);
   saveButton.addEventListener("click", saveDraft);
   blockedPageHtmlInput.addEventListener("input", updateBlockedPageHtml);
+  alwaysScheduleInput.addEventListener("change", () => updateScheduleType("always"));
+  dailyScheduleInput.addEventListener("change", () => updateScheduleType("dailyWindow"));
+  scheduleStartInput.addEventListener("input", updateScheduleWindow);
+  scheduleEndInput.addEventListener("input", updateScheduleWindow);
   resetButton.addEventListener("click", resetBlocklist);
   grantAccessButton.addEventListener("click", requestMissingWebsiteAccess);
 
@@ -45,6 +55,7 @@
       case "state":
         state.draftEntries = editableEntries(response.state.entries);
         state.draftBlockedPageHtml = response.state.blockedPageHtml;
+        state.draftSchedule = editableSchedule(response.state.schedule);
         await refreshWebsiteAccess(response.state);
         render();
         return;
@@ -67,6 +78,11 @@
     editorPanel.hidden = needsWebsiteAccess;
     rowsElement.replaceChildren(...state.draftEntries.map(renderRow));
     blockedPageHtmlInput.value = state.draftBlockedPageHtml;
+    alwaysScheduleInput.checked = state.draftSchedule.type === "always";
+    dailyScheduleInput.checked = state.draftSchedule.type === "dailyWindow";
+    scheduleWindowFields.hidden = state.draftSchedule.type !== "dailyWindow";
+    scheduleStartInput.value = minuteToTime(state.draftSchedule.startMinute);
+    scheduleEndInput.value = minuteToTime(state.draftSchedule.endMinute);
     saveButton.disabled = state.isSaving;
     grantAccessButton.disabled = state.isRequestingPermissions;
     permissionMessage.textContent = needsWebsiteAccess ? permissionPanelMessage() : "";
@@ -136,6 +152,31 @@
     clearMessages();
   }
 
+  function updateScheduleType(type) {
+    switch (type) {
+      case "always":
+        state.draftSchedule = core.DEFAULT_SCHEDULE;
+        break;
+      case "dailyWindow":
+        state.draftSchedule = existingDailyWindow();
+        break;
+      default:
+        throw new Error(`Unknown schedule type: ${type}`);
+    }
+
+    clearMessages();
+    render();
+  }
+
+  function updateScheduleWindow() {
+    state.draftSchedule = {
+      type: "dailyWindow",
+      startMinute: timeToMinute(scheduleStartInput.value),
+      endMinute: timeToMinute(scheduleEndInput.value)
+    };
+    clearMessages();
+  }
+
   function deleteRow(id) {
     state.draftEntries = state.draftEntries.filter((entry) => entry.id !== id);
     state.draftEntries = ensureDraftEntry(state.draftEntries);
@@ -198,6 +239,7 @@
       case "saved":
         state.draftEntries = editableEntries(response.state.entries);
         state.draftBlockedPageHtml = response.state.blockedPageHtml;
+        state.draftSchedule = editableSchedule(response.state.schedule);
         state.successMessage = "Saved.";
         render();
         return;
@@ -291,18 +333,21 @@
       return core.validateState({
         schemaVersion: core.SCHEMA_VERSION,
         entries: state.draftEntries,
-        blockedPageHtml: state.draftBlockedPageHtml
+        blockedPageHtml: state.draftBlockedPageHtml,
+        schedule: state.draftSchedule
       });
     }
 
     const result = core.validateState({
       schemaVersion: core.SCHEMA_VERSION,
       entries: state.draftEntries,
-      blockedPageHtml: state.draftBlockedPageHtml
+      blockedPageHtml: state.draftBlockedPageHtml,
+      schedule: state.draftSchedule
     });
 
     if (result.type === "valid") {
       state.draftBlockedPageHtml = result.state.blockedPageHtml;
+      state.draftSchedule = editableSchedule(result.state.schedule);
     }
 
     return result;
@@ -320,6 +365,7 @@
 
     state.draftEntries = editableEntries(response.state.entries);
     state.draftBlockedPageHtml = response.state.blockedPageHtml;
+    state.draftSchedule = editableSchedule(response.state.schedule);
     state.successMessage = "Reset.";
     render();
   }
@@ -372,6 +418,50 @@
 
   function editableEntries(entries) {
     return ensureDraftEntry(entries.map((entry) => ({ id: entry.id, kind: entry.kind, value: entry.value })));
+  }
+
+  function editableSchedule(schedule) {
+    switch (schedule.type) {
+      case "always":
+        return core.DEFAULT_SCHEDULE;
+      case "dailyWindow":
+        return {
+          type: "dailyWindow",
+          startMinute: schedule.startMinute,
+          endMinute: schedule.endMinute
+        };
+      default:
+        throw new Error(`Unknown schedule type: ${schedule.type}`);
+    }
+  }
+
+  function existingDailyWindow() {
+    if (state.draftSchedule.type === "dailyWindow") {
+      return state.draftSchedule;
+    }
+
+    return { type: "dailyWindow", startMinute: 540, endMinute: 1020 };
+  }
+
+  function minuteToTime(minute) {
+    if (!Number.isInteger(minute)) {
+      return "";
+    }
+
+    const hours = String(Math.floor(minute / 60)).padStart(2, "0");
+    const minutes = String(minute % 60).padStart(2, "0");
+
+    return `${hours}:${minutes}`;
+  }
+
+  function timeToMinute(value) {
+    if (!/^\d{2}:\d{2}$/.test(value)) {
+      return NaN;
+    }
+
+    const [hours, minutes] = value.split(":").map(Number);
+
+    return hours * 60 + minutes;
   }
 
   function ensureDraftEntry(entries) {

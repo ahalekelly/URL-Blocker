@@ -27,7 +27,7 @@
         return;
       }
 
-      checkCurrentUrl();
+      recheckCurrentUrl();
     }, 1500);
   }
 
@@ -55,9 +55,17 @@
   }
 
   function checkCurrentUrl() {
+    sendCurrentUrl(false);
+  }
+
+  function recheckCurrentUrl() {
+    sendCurrentUrl(true);
+  }
+
+  function sendCurrentUrl(force) {
     const currentUrl = location.href;
 
-    if (currentUrl === lastSentUrl) {
+    if (!force && currentUrl === lastSentUrl) {
       return;
     }
 

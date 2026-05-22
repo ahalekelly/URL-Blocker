@@ -17,9 +17,9 @@ test("saveState validates, writes storage, and syncs content scripts", async () 
   }, {});
 
   assert.equal(response.type, "saved");
-  assert.equal(response.state.entries[0].value, "x.com/home");
+  assert.equal(response.state.entries[0].value, "x.com");
   assert.equal(response.state.blockedPageHtml, "<p>Blocked.</p>");
-  assert.equal(api.storageData[core.STATE_KEY].entries[0].value, "x.com/home");
+  assert.equal(api.storageData[core.STATE_KEY].entries[0].value, "x.com");
   assert.deepEqual(api.registeredScripts[0].js, ["content.js"]);
   assert.deepEqual(api.registeredScripts[0].matches, ["*://*.x.com/*"]);
 });
@@ -29,7 +29,8 @@ test("getState loads default blocked pages when storage is empty", async () => {
   const response = await controller.getState();
 
   assert.equal(response.type, "state");
-  assert.deepEqual(response.state.entries, defaultBlockedPages);
+  assert.deepEqual(response.state.entries, core.emptyState(defaultBlockedPages).entries);
+  assert.deepEqual(response.state.schedule, { type: "always" });
 });
 
 test("saveState migrates the old Safari API setting away", async () => {
@@ -43,7 +44,7 @@ test("saveState migrates the old Safari API setting away", async () => {
   });
 
   assert.equal(response.type, "saved");
-  assert.equal(response.state.schemaVersion, 4);
+  assert.equal(response.state.schemaVersion, 5);
   assert.equal("useSafariBlockingApi" in response.state, false);
   assert.equal("useSafariBlockingApi" in api.storageData[core.STATE_KEY], false);
 });
@@ -78,8 +79,8 @@ test("resetState restores default blocked pages", async () => {
   const response = await controller.handleMessage({ type: "resetState" }, {});
 
   assert.equal(response.type, "saved");
-  assert.deepEqual(response.state.entries, defaultBlockedPages);
-  assert.deepEqual(api.storageData[core.STATE_KEY].entries, defaultBlockedPages);
+  assert.deepEqual(response.state.entries, core.emptyState(defaultBlockedPages).entries);
+  assert.deepEqual(api.storageData[core.STATE_KEY].entries, core.emptyState(defaultBlockedPages).entries);
 });
 
 test("saveState registers all websites when a regex entry exists", async () => {
@@ -148,8 +149,7 @@ test("syncWebsiteAccess registers content scripts for the saved blocklist", asyn
 test("urlChanged redirects matching sender tab to the blocked page", async () => {
   const api = fakeApi();
   api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "https://x.com" },
-    { id: "22222222-2222-4222-8222-222222222222", kind: "url", value: "https://x.com/home" }
+    { id, kind: "url", value: "https://x.com" }
   ]);
   const controller = createBackgroundController(api);
   const response = await controller.handleMessage({ type: "urlChanged", url: "https://x.com/home" }, { tab: { id: 7 } });
@@ -167,10 +167,37 @@ test("urlChanged allows URLs that no longer match saved state", async () => {
     { id, kind: "url", value: "https://x.com" }
   ]);
   const controller = createBackgroundController(api);
-  const response = await controller.handleMessage({ type: "urlChanged", url: "https://x.com/home" }, { tab: { id: 7 } });
+  const response = await controller.handleMessage({ type: "urlChanged", url: "https://x.com/messages" }, { tab: { id: 7 } });
 
   assert.equal(response.type, "allowed");
   assert.deepEqual(api.updatedTabs, []);
+});
+
+test("urlChanged allows matching URLs outside the schedule", async () => {
+  const api = fakeApi();
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "https://x.com" }
+  ], inactiveSchedule());
+  const controller = createBackgroundController(api);
+  const response = await controller.handleMessage({ type: "urlChanged", url: "https://x.com" }, { tab: { id: 7 } });
+
+  assert.equal(response.type, "allowed");
+  assert.deepEqual(api.updatedTabs, []);
+});
+
+test("urlChanged redirects matching URLs inside the schedule", async () => {
+  const api = fakeApi();
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "https://x.com" }
+  ], activeSchedule());
+  const controller = createBackgroundController(api);
+  const response = await controller.handleMessage({ type: "urlChanged", url: "https://x.com" }, { tab: { id: 7 } });
+
+  assert.equal(response.type, "redirected");
+  assert.deepEqual(api.updatedTabs, [{
+    tabId: 7,
+    url: "safari-web-extension://extension/blocked.html#https%3A%2F%2Fx.com"
+  }]);
 });
 
 test("saveState redirects open tabs that match the new state", async () => {
@@ -192,12 +219,39 @@ test("saveState redirects open tabs that match the new state", async () => {
   }]);
 });
 
-function validState(entries) {
+function validState(entries, schedule = core.DEFAULT_SCHEDULE) {
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     entries,
-    blockedPageHtml: "<p>Blocked.</p>"
+    blockedPageHtml: "<p>Blocked.</p>",
+    schedule
   };
+}
+
+function activeSchedule() {
+  const now = currentMinute();
+
+  return {
+    type: "dailyWindow",
+    startMinute: (now + 1439) % 1440,
+    endMinute: (now + 1) % 1440
+  };
+}
+
+function inactiveSchedule() {
+  const now = currentMinute();
+
+  return {
+    type: "dailyWindow",
+    startMinute: (now + 1) % 1440,
+    endMinute: (now + 2) % 1440
+  };
+}
+
+function currentMinute() {
+  const now = new Date();
+
+  return now.getHours() * 60 + now.getMinutes();
 }
 
 function fakeApi(overrides = {}) {

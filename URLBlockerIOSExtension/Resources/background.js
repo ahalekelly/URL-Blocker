@@ -104,7 +104,7 @@
         throw new Error("Blocked URL must be a string.");
       }
 
-      const match = core.findMatchingEntry(await loadState(), rawUrl);
+      const match = core.findActiveMatchingEntry(await loadState(), rawUrl);
 
       return redirectFromMatch(tabId, rawUrl, match);
     }
@@ -117,7 +117,7 @@
           return undefined;
         }
 
-        const match = core.findMatchingEntry(state, tab.url);
+        const match = core.findActiveMatchingEntry(state, tab.url);
 
         return redirectFromMatch(tab.id, tab.url, match);
       }));
