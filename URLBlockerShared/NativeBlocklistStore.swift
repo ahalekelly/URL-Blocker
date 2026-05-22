@@ -3,8 +3,10 @@ import Foundation
 enum NativeBlocklistStore {
     static let stateKey = "blockerState"
 
-    private static let schemaVersion = 5
+    private static let schemaVersion = 6
     private static let maxBlockedPageHtmlLength = 4000
+    private static let defaultLimitMinutes = 30
+    private static let maxLimitMinutes = 960
     private static let defaultBlockedPageHtml = "<h1>Blocked</h1><p>This page is on your blocklist.</p>"
     private static let defaultSchedule: [String: Any] = ["type": "always"]
     private static let appGroupIdentifier = "group.com.akelly.URLBlocker"
@@ -89,7 +91,7 @@ enum NativeBlocklistStore {
         let rawSchemaVersion = state["schemaVersion"] as? Int
         pushUnknownKeyErrors(&errors, state, stateKeys(rawSchemaVersion), "Blocklist", nil)
 
-        guard let rawSchemaVersion, [1, 2, 3, 4, schemaVersion].contains(rawSchemaVersion) else {
+        guard let rawSchemaVersion, rawSchemaVersion == schemaVersion else {
             errors.append(BlocklistError(index: nil, message: "Unsupported blocklist version. Reset the blocklist to repair it."))
             throw BlocklistValidationError(errors)
         }
@@ -99,15 +101,9 @@ enum NativeBlocklistStore {
             throw BlocklistValidationError(errors)
         }
 
-        var blockedPageHtml = defaultBlockedPageHtml
-
-        if rawSchemaVersion >= 2 {
-            guard let rawBlockedPageHtml = state["blockedPageHtml"] as? String else {
-                errors.append(BlocklistError(index: nil, message: "Blocked page HTML must be a string."))
-                throw BlocklistValidationError(errors)
-            }
-
-            blockedPageHtml = rawBlockedPageHtml
+        guard let blockedPageHtml = state["blockedPageHtml"] as? String else {
+            errors.append(BlocklistError(index: nil, message: "Blocked page HTML must be a string."))
+            throw BlocklistValidationError(errors)
         }
 
         let normalizedBlockedPageHtml = blockedPageHtml.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -124,27 +120,32 @@ enum NativeBlocklistStore {
             errors.append(BlocklistError(index: nil, message: "Blocked page HTML cannot include inline scripts."))
         }
 
-        var schedule = defaultSchedule
-
-        if rawSchemaVersion >= 5 && state["schedule"] is [String: Any] {
-            do {
-                schedule = try validateSchedule(state["schedule"])
-            } catch let error as BlocklistValidationError {
-                errors.append(contentsOf: error.errors)
-            }
-        } else if rawSchemaVersion >= 5 {
+        guard state["schedule"] is [String: Any] else {
             errors.append(BlocklistError(index: nil, message: "Schedule must be an object."))
+            throw BlocklistValidationError(errors)
+        }
+
+        let schedule: [String: Any]
+
+        do {
+            schedule = try validateSchedule(state["schedule"])
+        } catch let error as BlocklistValidationError {
+            errors.append(contentsOf: error.errors)
+            throw BlocklistValidationError(errors)
+        }
+
+        guard let rawDomainLimits = state["domainLimits"] as? [[String: Any]] else {
+            errors.append(BlocklistError(index: nil, message: "Domain limits must be an array."))
+            throw BlocklistValidationError(errors)
         }
 
         var normalizedEntries: [[String: Any]] = []
         var seenEntries = Set<String>()
-        let collapseAliasDuplicates = rawSchemaVersion < schemaVersion
 
         entries.enumerated().forEach { index, entry in
             validateEntry(
                 entry,
                 index: index,
-                collapseAliasDuplicates: collapseAliasDuplicates,
                 errors: &errors,
                 normalizedEntries: &normalizedEntries,
                 seenEntries: &seenEntries
@@ -155,18 +156,20 @@ enum NativeBlocklistStore {
             throw BlocklistValidationError(errors)
         }
 
+        let domainLimits = try validateDomainLimits(rawDomainLimits, normalizedEntries)
+
         return [
             "schemaVersion": schemaVersion,
             "entries": normalizedEntries,
             "blockedPageHtml": normalizedBlockedPageHtml,
-            "schedule": schedule
+            "schedule": schedule,
+            "domainLimits": domainLimits
         ]
     }
 
     private static func validateEntry(
         _ entry: [String: Any],
         index: Int,
-        collapseAliasDuplicates: Bool,
         errors: inout [BlocklistError],
         normalizedEntries: inout [[String: Any]],
         seenEntries: inout Set<String>
@@ -189,12 +192,10 @@ enum NativeBlocklistStore {
         }
 
         let normalizedValue: String
-        let aliased: Bool
 
         do {
             let result = try normalizeEntryValue(value, kind: kind)
             normalizedValue = result.value
-            aliased = result.aliased
         } catch {
             errors.append(BlocklistError(index: index, message: error.localizedDescription))
             return
@@ -204,8 +205,6 @@ enum NativeBlocklistStore {
         let duplicateKey = "\(kind):\(normalizedValue.lowercased())"
 
         if seenEntries.contains(duplicateKey) {
-            if collapseAliasDuplicates && aliased { return }
-
             errors.append(BlocklistError(index: index, message: "Duplicate entry after normalization."))
             return
         }
@@ -218,8 +217,12 @@ enum NativeBlocklistStore {
         switch kind {
         case "url", "urlWithSubpaths":
             return try normalizeUrlEntryValue(value)
-        case "domain", "regex":
-            return (value, false)
+        case "domain":
+            return (try normalizeDomainEntryValue(value), false)
+        case "regex":
+            let regex = try normalizeRegexEntryValue(value)
+            _ = try domainForRegexEntryValue(regex)
+            return (regex, false)
         default:
             throw NativeBlocklistError("Unknown matcher kind: \(kind)")
         }
@@ -254,6 +257,87 @@ enum NativeBlocklistStore {
         }
 
         return (storedValue, false)
+    }
+
+    private static func normalizeDomainEntryValue(_ rawValue: String) throws -> String {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if matches(value, #"^[a-z][a-z0-9+.-]*://"#) {
+            throw NativeBlocklistError("Enter a hostname, not a full URL.")
+        }
+
+        if matches(value, #"[/?#@]|:"#) {
+            throw NativeBlocklistError("Domain entries cannot include paths, ports, credentials, queries, or fragments.")
+        }
+
+        guard let components = URLComponents(string: "http://\(value)"),
+              let rawHost = components.host else {
+            throw NativeBlocklistError("Enter a valid hostname.")
+        }
+
+        let host = stripLeadingWww(rawHost.lowercased())
+
+        if host.isEmpty || host.hasPrefix(".") || host.hasSuffix(".") {
+            throw NativeBlocklistError("Enter a valid hostname.")
+        }
+
+        if host.split(separator: ".").contains(where: { $0.isEmpty || $0.hasPrefix("-") || $0.hasSuffix("-") }) {
+            throw NativeBlocklistError("Enter a valid hostname.")
+        }
+
+        if !matches(host, #"^[a-z0-9.-]+$"#) {
+            throw NativeBlocklistError("Domain entries must normalize to lowercase ASCII or punycode.")
+        }
+
+        if isIpAddress(host) {
+            throw NativeBlocklistError("IP address blocking is not supported in this version.")
+        }
+
+        return host
+    }
+
+    private static func normalizeRegexEntryValue(_ rawValue: String) throws -> String {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if value.contains("#") {
+            throw NativeBlocklistError("Regex entries cannot include fragments.")
+        }
+
+        if matches(value, #"\(\?<[=!]|\(\?<!"#) {
+            throw NativeBlocklistError("Regex entries cannot use lookbehind.")
+        }
+
+        if matches(value, #"\\[1-9]"#) {
+            throw NativeBlocklistError("Regex entries cannot use backreferences.")
+        }
+
+        if matches(value, #"^(?:\^)?\.\*(?:\$)?$"#) {
+            throw NativeBlocklistError("Block-everything regexes are not supported in this version.")
+        }
+
+        do {
+            _ = try NSRegularExpression(pattern: value, options: [.caseInsensitive])
+        } catch {
+            throw NativeBlocklistError("Regex is invalid: \(error.localizedDescription)")
+        }
+
+        return value
+    }
+
+    private static func domainForRegexEntryValue(_ value: String) throws -> String {
+        let pattern = #"^\^(?:https\?|https|http)://([a-z0-9-]+(?:\\\.[a-z0-9-]+)+)(?=/|\$)"#
+
+        guard let range = value.range(of: pattern, options: [.regularExpression, .caseInsensitive]) else {
+            throw NativeBlocklistError("Regex entries must start with one literal http or https host.")
+        }
+
+        let prefix = String(value[range])
+        let hostPattern = prefix
+            .replacingOccurrences(of: #"^\^(?:https\?|https|http)://"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"(?=/|\$)$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\\\."#, with: ".", options: .regularExpression)
+
+        return try normalizeDomainEntryValue(hostPattern)
     }
 
     private static func validateSchedule(_ rawSchedule: Any?) throws -> [String: Any] {
@@ -303,6 +387,104 @@ enum NativeBlocklistStore {
         }
     }
 
+    private static func validateDomainLimits(_ rawLimits: [[String: Any]], _ entries: [[String: Any]]) throws -> [[String: Any]] {
+        var errors: [BlocklistError] = []
+        let expectedDomains = Set(try entries.map(associatedDomain))
+        var seenDomains = Set<String>()
+        var domainLimits: [[String: Any]] = []
+
+        rawLimits.forEach { limit in
+            pushUnknownKeyErrors(&errors, limit, ["domain", "limitMinutes"], "Domain limit", nil)
+
+            guard let rawDomain = limit["domain"] as? String else {
+                errors.append(BlocklistError(index: nil, message: "Domain limit domain must be a string."))
+                return
+            }
+
+            let domain: String
+
+            do {
+                domain = try normalizeDomainEntryValue(rawDomain)
+            } catch {
+                errors.append(BlocklistError(index: nil, message: error.localizedDescription))
+                return
+            }
+
+            if domain != rawDomain {
+                errors.append(BlocklistError(index: nil, message: "Domain limit domain must be normalized."))
+                return
+            }
+
+            if seenDomains.contains(domain) {
+                errors.append(BlocklistError(index: nil, message: "Duplicate domain limit: \(domain)."))
+                return
+            }
+
+            guard let limitMinutes = limit["limitMinutes"] as? Int,
+                  limitMinutes >= 1,
+                  limitMinutes <= maxLimitMinutes else {
+                errors.append(BlocklistError(index: nil, message: "Domain limit minutes must be between 1 and \(maxLimitMinutes)."))
+                return
+            }
+
+            seenDomains.insert(domain)
+            domainLimits.append(["domain": domain, "limitMinutes": limitMinutes])
+        }
+
+        expectedDomains.sorted().forEach { domain in
+            if seenDomains.contains(domain) { return }
+
+            errors.append(BlocklistError(index: nil, message: "Missing domain limit: \(domain)."))
+        }
+
+        seenDomains.sorted().forEach { domain in
+            if expectedDomains.contains(domain) { return }
+
+            errors.append(BlocklistError(index: nil, message: "Domain limit does not match a blocklist domain: \(domain)."))
+        }
+
+        if !errors.isEmpty {
+            throw BlocklistValidationError(errors)
+        }
+
+        return domainLimits.sorted { left, right in
+            (left["domain"] as? String ?? "") < (right["domain"] as? String ?? "")
+        }
+    }
+
+    private static func domainLimitsForEntries(_ entries: [[String: Any]]) throws -> [[String: Any]] {
+        let domains = Set(try entries.map(associatedDomain))
+
+        return domains.sorted().map { domain in
+            ["domain": domain, "limitMinutes": defaultLimitMinutes]
+        }
+    }
+
+    private static func associatedDomain(_ entry: [String: Any]) throws -> String {
+        guard let kind = entry["kind"] as? String, let value = entry["value"] as? String else {
+            throw NativeBlocklistError("Entry must include a kind and value.")
+        }
+
+        switch kind {
+        case "domain":
+            return value
+        case "url", "urlWithSubpaths":
+            return try splitStoredUrl(value).host
+        case "regex":
+            return try domainForRegexEntryValue(value)
+        default:
+            throw NativeBlocklistError("Unknown matcher kind: \(kind)")
+        }
+    }
+
+    private static func splitStoredUrl(_ value: String) throws -> (host: String, path: String) {
+        guard let components = URLComponents(string: "https://\(value)"), let host = components.host else {
+            throw NativeBlocklistError("URL entries must use http or https.")
+        }
+
+        return (host, components.path.isEmpty || components.path == "/" ? "" : components.path)
+    }
+
     private static func pushUnknownKeyErrors(
         _ errors: inout [BlocklistError],
         _ object: [String: Any],
@@ -334,10 +516,14 @@ enum NativeBlocklistStore {
     }
 
     private static func emptyState() throws -> [String: Any] {
-        try validateState([
-            "schemaVersion": 4,
-            "entries": try defaultBlockedPageEntries(),
-            "blockedPageHtml": defaultBlockedPageHtml
+        let entries = try defaultBlockedPageEntries()
+
+        return try validateState([
+            "schemaVersion": schemaVersion,
+            "entries": entries,
+            "blockedPageHtml": defaultBlockedPageHtml,
+            "schedule": defaultSchedule,
+            "domainLimits": try domainLimitsForEntries(entries)
         ])
     }
 
@@ -408,21 +594,24 @@ enum NativeBlocklistStore {
         value >= 0 && value <= 1439
     }
 
-    private static func stateKeys(_ schemaVersion: Int?) -> Set<String> {
-        switch schemaVersion {
-        case 1:
-            return ["schemaVersion", "entries"]
-        case 2:
-            return ["schemaVersion", "entries", "blockedPageHtml"]
-        case 3:
-            return ["schemaVersion", "entries", "blockedPageHtml", "useSafariBlockingApi"]
-        case 4:
-            return ["schemaVersion", "entries", "blockedPageHtml"]
-        case 5:
-            return ["schemaVersion", "entries", "blockedPageHtml", "schedule"]
-        default:
-            return ["schemaVersion", "entries", "blockedPageHtml", "schedule"]
+    private static func isIpAddress(_ host: String) -> Bool {
+        if host.contains(":") || host.contains("[") || host.contains("]") {
+            return true
         }
+
+        let parts = host.split(separator: ".")
+
+        return parts.count == 4 && parts.allSatisfy { part in
+            guard let number = Int(part), matches(String(part), #"^\d{1,3}$"#) else {
+                return false
+            }
+
+            return number <= 255
+        }
+    }
+
+    private static func stateKeys(_ schemaVersion: Int?) -> Set<String> {
+        ["schemaVersion", "entries", "blockedPageHtml", "schedule", "domainLimits"]
     }
 
     private static var defaults: UserDefaults {

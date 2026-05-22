@@ -32,9 +32,9 @@
       <div id="successMessage" class="success-message" hidden></div>
 
       <section class="settings-panel screen-time-panel">
-        <h2>Screen Time</h2>
+        <h2>Last 16 Hours</h2>
         <div id="screenTimeRows" class="screen-time-rows"></div>
-        <p id="emptyScreenTime" class="empty-screen-time">No screen time logged yet.</p>
+        <p id="emptyScreenTime" class="empty-screen-time">No usage logged yet.</p>
       </section>
 
       <section class="settings-panel">
@@ -87,6 +87,10 @@
       </div>
       <label>
         <input class="value-input" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="Block rule">
+      </label>
+      <label>
+        Limit minutes
+        <input class="limit-input" type="number" min="1" max="960" step="1" inputmode="numeric" aria-label="Limit minutes">
       </label>
       <p class="row-error" hidden></p>
     </article>

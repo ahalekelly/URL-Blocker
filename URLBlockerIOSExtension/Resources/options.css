@@ -213,6 +213,11 @@ h2 {
   padding-bottom: 0;
 }
 
+.screen-time-row.is-over-limit .screen-time-total {
+  color: var(--danger);
+  font-weight: 700;
+}
+
 .screen-time-domain {
   overflow-wrap: anywhere;
 }

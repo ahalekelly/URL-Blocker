@@ -2,9 +2,11 @@
   "use strict";
 
   const STATE_KEY = "blockerState";
-  const SCHEMA_VERSION = 5;
+  const SCHEMA_VERSION = 6;
   const MAX_ENTRIES = 1000;
   const MAX_BLOCKED_PAGE_HTML_LENGTH = 4000;
+  const DEFAULT_LIMIT_MINUTES = 30;
+  const MAX_LIMIT_MINUTES = 960;
   const DEFAULT_BLOCKED_PAGE_HTML = "<h1>Blocked</h1><p>This page is on your blocklist.</p>";
   const DEFAULT_SCHEDULE = { type: "always" };
   const ALL_WEBSITES_ORIGIN = "*://*/*";
@@ -29,9 +31,11 @@
 
   function emptyState(entries) {
     const result = validateState({
-      schemaVersion: 4,
+      schemaVersion: SCHEMA_VERSION,
       entries,
-      blockedPageHtml: DEFAULT_BLOCKED_PAGE_HTML
+      blockedPageHtml: DEFAULT_BLOCKED_PAGE_HTML,
+      schedule: DEFAULT_SCHEDULE,
+      domainLimits: domainLimitsForEntries(entries, [])
     });
 
     if (result.type === "invalid") {
@@ -56,7 +60,7 @@
       return invalid([{ index: null, message: "Blocklist data must be an object." }]);
     }
 
-    if (rawState.schemaVersion !== 1 && rawState.schemaVersion !== 2 && rawState.schemaVersion !== 3 && rawState.schemaVersion !== 4 && rawState.schemaVersion !== SCHEMA_VERSION) {
+    if (rawState.schemaVersion !== SCHEMA_VERSION) {
       errors.push({ index: null, message: "Unsupported blocklist version. Reset the blocklist to repair it." });
     }
 
@@ -66,37 +70,37 @@
       errors.push({ index: null, message: "Blocklist entries must be an array." });
     }
 
-    if (rawState.schemaVersion >= 2 && typeof rawState.blockedPageHtml !== "string") {
+    if (typeof rawState.blockedPageHtml !== "string") {
       errors.push({ index: null, message: "Blocked page HTML must be a string." });
     }
 
-    if (rawState.schemaVersion >= 5 && !isPlainObject(rawState.schedule)) {
+    if (!isPlainObject(rawState.schedule)) {
       errors.push({ index: null, message: "Schedule must be an object." });
+    }
+
+    if (!Array.isArray(rawState.domainLimits)) {
+      errors.push({ index: null, message: "Domain limits must be an array." });
     }
 
     if (errors.length > 0) {
       return invalid(errors);
     }
 
-    let blockedPageHtml = DEFAULT_BLOCKED_PAGE_HTML;
+    let blockedPageHtml = "";
     let schedule = DEFAULT_SCHEDULE;
 
     try {
-      if (rawState.schemaVersion >= 2) {
-        blockedPageHtml = normalizeBlockedPageHtml(rawState.blockedPageHtml);
-      }
+      blockedPageHtml = normalizeBlockedPageHtml(rawState.blockedPageHtml);
     } catch (error) {
       errors.push({ index: null, message: error.message });
     }
 
-    if (rawState.schemaVersion >= 5) {
-      const result = normalizeSchedule(rawState.schedule);
+    const scheduleResult = normalizeSchedule(rawState.schedule);
 
-      if (result.type === "invalid") {
-        errors.push(...result.errors);
-      } else {
-        schedule = result.schedule;
-      }
+    if (scheduleResult.type === "invalid") {
+      errors.push(...scheduleResult.errors);
+    } else {
+      schedule = scheduleResult.schedule;
     }
 
     if (rawState.entries.length > MAX_ENTRIES) {
@@ -133,7 +137,26 @@
       return invalid(errors);
     }
 
-    return { type: "valid", state: { schemaVersion: SCHEMA_VERSION, entries, blockedPageHtml, schedule } };
+    const limitsResult = normalizeDomainLimits(rawState.domainLimits, entries);
+
+    if (limitsResult.type === "invalid") {
+      errors.push(...limitsResult.errors);
+    }
+
+    if (errors.length > 0) {
+      return invalid(errors);
+    }
+
+    return {
+      type: "valid",
+      state: {
+        schemaVersion: SCHEMA_VERSION,
+        entries,
+        blockedPageHtml,
+        schedule,
+        domainLimits: limitsResult.domainLimits
+      }
+    };
   }
 
   function parseStoredState(rawState) {
@@ -179,8 +202,13 @@
           return validUrlEntry(entry);
         case "urlWithSubpaths":
           return validUrlEntry(entry);
-        case "regex":
-          return validEntry(entry, normalizeRegexEntryValue(entry.value), false);
+        case "regex": {
+          const value = normalizeRegexEntryValue(entry.value);
+
+          domainForRegexEntryValue(value);
+
+          return validEntry(entry, value, false);
+        }
         default:
           throw new Error(`Unknown matcher kind: ${entry.kind}`);
       }
@@ -312,6 +340,89 @@
     }
   }
 
+  function normalizeDomainLimits(rawDomainLimits, entries) {
+    const errors = [];
+
+    if (!Array.isArray(rawDomainLimits)) {
+      return invalid([{ index: null, message: "Domain limits must be an array." }]);
+    }
+
+    const expectedDomains = entryDomains(entries);
+    const seen = new Set();
+    const domainLimits = [];
+
+    rawDomainLimits.forEach((limit, index) => {
+      if (!isPlainObject(limit)) {
+        errors.push({ index: null, message: "Domain limit must be an object." });
+        return;
+      }
+
+      pushUnknownKeyErrors(errors, limit, ["domain", "limitMinutes"], "Domain limit");
+
+      if (typeof limit.domain !== "string") {
+        errors.push({ index: null, message: "Domain limit domain must be a string." });
+        return;
+      }
+
+      let domain = "";
+
+      try {
+        domain = normalizeDomainEntryValue(limit.domain);
+      } catch (error) {
+        errors.push({ index: null, message: error.message });
+        return;
+      }
+
+      if (domain !== limit.domain) {
+        errors.push({ index: null, message: "Domain limit domain must be normalized." });
+        return;
+      }
+
+      if (seen.has(domain)) {
+        errors.push({ index: null, message: `Duplicate domain limit: ${domain}.` });
+        return;
+      }
+
+      if (!Number.isInteger(limit.limitMinutes) || limit.limitMinutes < 1 || limit.limitMinutes > MAX_LIMIT_MINUTES) {
+        errors.push({ index: null, message: `Domain limit minutes must be between 1 and ${MAX_LIMIT_MINUTES}.` });
+        return;
+      }
+
+      seen.add(domain);
+      domainLimits.push({ domain, limitMinutes: limit.limitMinutes });
+    });
+
+    expectedDomains.forEach((domain) => {
+      if (!seen.has(domain)) {
+        errors.push({ index: null, message: `Missing domain limit: ${domain}.` });
+      }
+    });
+
+    seen.forEach((domain) => {
+      if (!expectedDomains.includes(domain)) {
+        errors.push({ index: null, message: `Domain limit does not match a blocklist domain: ${domain}.` });
+      }
+    });
+
+    if (errors.length > 0) {
+      return invalid(errors);
+    }
+
+    return {
+      type: "valid",
+      domainLimits: domainLimits.sort((left, right) => left.domain.localeCompare(right.domain))
+    };
+  }
+
+  function domainLimitsForEntries(entries, existingDomainLimits) {
+    const existing = new Map(existingDomainLimits.map((limit) => [limit.domain, limit.limitMinutes]));
+
+    return rawEntryDomains(entries).map((domain) => ({
+      domain,
+      limitMinutes: existing.has(domain) ? existing.get(domain) : DEFAULT_LIMIT_MINUTES
+    }));
+  }
+
   function normalizeBlockedPageHtml(rawValue) {
     const value = rawValue.trim();
 
@@ -360,6 +471,16 @@
     return value;
   }
 
+  function domainForRegexEntryValue(value) {
+    const match = value.match(/^\^(?:https\?|https|http):\/\/([a-z0-9-]+(?:\\\.[a-z0-9-]+)+)(?=\/|\$)/i);
+
+    if (!match) {
+      throw new Error("Regex entries must start with one literal http or https host.");
+    }
+
+    return normalizeDomainEntryValue(match[1].replace(/\\\./g, "."));
+  }
+
   function findMatchingEntry(state, rawUrl) {
     const result = normalizePageUrl(rawUrl);
 
@@ -384,6 +505,27 @@
     return findMatchingEntry(state, rawUrl);
   }
 
+  function findBlockedMatchingEntry(state, rawUrl, overLimitDomains, date = new Date()) {
+    const match = findMatchingEntry(state, rawUrl);
+
+    switch (match.type) {
+      case "none":
+        return { type: "none" };
+      case "match":
+        if (isScheduleActive(state.schedule, date)) {
+          return match;
+        }
+
+        if (overLimitDomains.has(associatedDomainForEntry(match.entry))) {
+          return match;
+        }
+
+        return { type: "none" };
+      default:
+        throw new Error(`Unknown match type: ${match.type}`);
+    }
+  }
+
   function screenTimeDomainForUrl(state, rawUrl) {
     const result = normalizePageUrl(rawUrl);
 
@@ -391,30 +533,57 @@
       return { type: "none" };
     }
 
-    for (const entry of state.entries) {
-      switch (entry.kind) {
-        case "domain":
-          if (domainMatchesHost(entry.value, result.url.host)) {
-            return { type: "match", domain: entry.value };
-          }
-          break;
-        case "url":
-        case "urlWithSubpaths": {
-          const domain = splitStoredUrl(entry.value).host;
+    const limits = [...state.domainLimits].sort((left, right) => right.domain.length - left.domain.length);
 
-          if (domainMatchesHost(domain, result.url.host)) {
-            return { type: "match", domain };
-          }
-          break;
-        }
-        case "regex":
-          break;
-        default:
-          throw new Error(`Unknown matcher kind: ${entry.kind}`);
+    for (const limit of limits) {
+      if (domainMatchesHost(limit.domain, result.url.host)) {
+        return { type: "match", domain: limit.domain };
       }
     }
 
     return { type: "none" };
+  }
+
+  function entryDomains(entries) {
+    return [...new Set(entries.map(associatedDomainForEntry))].sort();
+  }
+
+  function rawEntryDomains(entries) {
+    const domains = [];
+
+    entries.forEach((entry, index) => {
+      const result = normalizeEntry(entry, index);
+
+      if (result.type === "valid") {
+        domains.push(associatedDomainForEntry(result.entry));
+      }
+    });
+
+    return [...new Set(domains)].sort();
+  }
+
+  function domainForEntry(entry) {
+    const result = normalizeEntry(entry, null);
+
+    if (result.type === "invalid") {
+      throw new Error(result.errors[0].message);
+    }
+
+    return associatedDomainForEntry(result.entry);
+  }
+
+  function associatedDomainForEntry(entry) {
+    switch (entry.kind) {
+      case "domain":
+        return entry.value;
+      case "url":
+      case "urlWithSubpaths":
+        return splitStoredUrl(entry.value).host;
+      case "regex":
+        return domainForRegexEntryValue(entry.value);
+      default:
+        throw new Error(`Unknown matcher kind: ${entry.kind}`);
+    }
   }
 
   function isScheduleActive(schedule, date = new Date()) {
@@ -642,33 +811,32 @@
 
   function stateKeys(schemaVersion) {
     switch (schemaVersion) {
-      case 1:
-        return ["schemaVersion", "entries"];
-      case 2:
-        return ["schemaVersion", "entries", "blockedPageHtml"];
-      case 3:
-        return ["schemaVersion", "entries", "blockedPageHtml", "useSafariBlockingApi"];
-      case 4:
-        return ["schemaVersion", "entries", "blockedPageHtml"];
       case SCHEMA_VERSION:
-        return ["schemaVersion", "entries", "blockedPageHtml", "schedule"];
+        return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "domainLimits"];
       default:
-        return ["schemaVersion", "entries", "blockedPageHtml", "schedule"];
+        return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "domainLimits"];
     }
   }
 
   const BlockerCore = {
+    DEFAULT_LIMIT_MINUTES,
     DEFAULT_BLOCKED_PAGE_HTML,
     DEFAULT_SCHEDULE,
     EDITABLE_KIND_LABELS,
     KIND_LABELS,
+    MAX_LIMIT_MINUTES,
     MAX_BLOCKED_PAGE_HTML_LENGTH,
     MAX_ENTRIES,
     SCHEMA_VERSION,
     STATE_KEY,
+    associatedDomainForEntry,
+    domainForEntry,
+    domainForRegexEntryValue,
+    domainLimitsForEntries,
     emptyState,
     entryMatchesUrl,
     findActiveMatchingEntry,
+    findBlockedMatchingEntry,
     findMatchingEntry,
     isScheduleActive,
     newEntry,

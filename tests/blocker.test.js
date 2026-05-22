@@ -40,6 +40,13 @@ test("loads default blocked pages for new installs", () => {
     { kind: "url", value: "ycombinator.com" }
   ]);
   assert.deepEqual(state.schedule, { type: "always" });
+  assert.deepEqual(state.domainLimits, [
+    { domain: "reddit.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
+    { domain: "twitter.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
+    { domain: "x.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
+    { domain: "ycombinator.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
+    { domain: "youtube.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES }
+  ]);
 });
 
 test("keeps install-time permissions aligned with default blocked pages", () => {
@@ -73,79 +80,79 @@ test("normalizes domain entries and rejects unsupported hosts", () => {
 
 test("validates state strictly", () => {
   const valid = core.validateState({
-    schemaVersion: 1,
-    entries: [{ id: ids[0], kind: "domain", value: "example.com" }]
+    schemaVersion: 6,
+    entries: [{ id: ids[0], kind: "domain", value: "example.com" }],
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: { type: "always" },
+    domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
   });
 
   assert.equal(valid.type, "valid");
   assert.deepEqual(valid.state.entries[0], { id: ids[0], kind: "domain", value: "example.com" });
 
   const unknownKey = core.validateState({
-    schemaVersion: 1,
-    entries: [{ id: ids[0], kind: "domain", value: "example.com", enabled: true }]
+    schemaVersion: 6,
+    entries: [{ id: ids[0], kind: "domain", value: "example.com", enabled: true }],
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: { type: "always" },
+    domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
   });
 
   assert.equal(unknownKey.type, "invalid");
   assert.match(unknownKey.errors[0].message, /unknown key/);
 
   const unknownKind = core.validateState({
-    schemaVersion: 1,
-    entries: [{ id: ids[0], kind: "wildcard", value: "example.com" }]
+    schemaVersion: 6,
+    entries: [{ id: ids[0], kind: "wildcard", value: "example.com" }],
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: { type: "always" },
+    domainLimits: []
   });
 
   assert.equal(unknownKind.type, "invalid");
   assert.match(unknownKind.errors[0].message, /known matcher/);
 
   const duplicate = core.validateState({
-    schemaVersion: 1,
+    schemaVersion: 6,
     entries: [
       { id: ids[0], kind: "domain", value: "www.example.com" },
       { id: ids[1], kind: "domain", value: "example.com" }
-    ]
+    ],
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: { type: "always" },
+    domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
   });
 
   assert.equal(duplicate.type, "invalid");
   assert.match(duplicate.errors[0].message, /Duplicate/);
 });
 
-test("validates blocked page HTML and migrates old state", () => {
-  const migrated = core.validateState({
+test("validates blocked page HTML and rejects old state", () => {
+  const oldState = core.validateState({
     schemaVersion: 1,
     entries: [{ id: ids[0], kind: "url", value: "https://example.com/path?x=1" }]
   });
 
-  assert.equal(migrated.type, "valid");
-  assert.equal(migrated.state.schemaVersion, 5);
-  assert.equal(migrated.state.entries[0].value, "example.com/path");
-  assert.equal(migrated.state.blockedPageHtml, core.DEFAULT_BLOCKED_PAGE_HTML);
-  assert.deepEqual(migrated.state.schedule, { type: "always" });
-
-  const legacyApiSetting = core.validateState({
-    schemaVersion: 3,
-    entries: [{ id: ids[0], kind: "domain", value: "example.com" }],
-    blockedPageHtml: "<p>Blocked.</p>",
-    useSafariBlockingApi: true
-  });
-
-  assert.equal(legacyApiSetting.type, "valid");
-  assert.equal(legacyApiSetting.state.schemaVersion, 5);
-  assert.equal("useSafariBlockingApi" in legacyApiSetting.state, false);
+  assert.equal(oldState.type, "invalid");
+  assert.match(oldState.errors[0].message, /Unsupported/);
 
   const custom = core.validateState({
-    schemaVersion: 5,
+    schemaVersion: 6,
     entries: [],
     blockedPageHtml: " <p><strong>Nope.</strong></p> ",
-    schedule: { type: "always" }
+    schedule: { type: "always" },
+    domainLimits: []
   });
 
   assert.equal(custom.type, "valid");
   assert.equal(custom.state.blockedPageHtml, "<p><strong>Nope.</strong></p>");
 
   const script = core.validateState({
-    schemaVersion: 5,
+    schemaVersion: 6,
     entries: [],
     blockedPageHtml: "<img src=x onerror=alert(1)>",
-    schedule: { type: "always" }
+    schedule: { type: "always" },
+    domainLimits: []
   });
 
   assert.equal(script.type, "invalid");
@@ -161,10 +168,11 @@ test("validates schedules and detects active windows", () => {
   assert.equal(core.isScheduleActive({ type: "dailyWindow", startMinute: 1320, endMinute: 420 }, new Date(2026, 0, 1, 12, 0)), false);
 
   const equalTimes = core.validateState({
-    schemaVersion: 5,
+    schemaVersion: 6,
     entries: [],
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
-    schedule: { type: "dailyWindow", startMinute: 540, endMinute: 540 }
+    schedule: { type: "dailyWindow", startMinute: 540, endMinute: 540 },
+    domainLimits: []
   });
 
   assert.equal(equalTimes.type, "invalid");
@@ -179,6 +187,18 @@ test("matches only when the schedule is active", () => {
 
   assert.equal(core.findActiveMatchingEntry(state, "https://example.com", new Date(2026, 0, 1, 9, 30)).type, "match");
   assert.equal(core.findActiveMatchingEntry(state, "https://example.com", new Date(2026, 0, 1, 17, 0)).type, "none");
+});
+
+test("matches when the schedule is active or the domain is over limit", () => {
+  const state = validState(
+    [{ id: ids[0], kind: "url", value: "example.com/focus" }],
+    { type: "dailyWindow", startMinute: 540, endMinute: 1020 }
+  );
+
+  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/focus", new Set(), new Date(2026, 0, 1, 9, 30)).type, "match");
+  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/focus", new Set(), new Date(2026, 0, 1, 17, 0)).type, "none");
+  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/focus", new Set(["example.com"]), new Date(2026, 0, 1, 17, 0)).type, "match");
+  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/other", new Set(["example.com"]), new Date(2026, 0, 1, 17, 0)).type, "none");
 });
 
 test("finds screen time domains by host only", () => {
@@ -201,32 +221,74 @@ test("finds screen time domains by host only", () => {
     type: "match",
     domain: "example.net"
   });
-  assert.deepEqual(core.screenTimeDomainForUrl(state, "https://ignored.example/"), { type: "none" });
+  assert.deepEqual(core.screenTimeDomainForUrl(state, "https://ignored.example/other"), {
+    type: "match",
+    domain: "ignored.example"
+  });
   assert.deepEqual(core.screenTimeDomainForUrl(state, "safari-web-extension://extension/options.html"), { type: "none" });
 });
 
-test("collapses alias-created duplicates during migration", () => {
-  const migrated = core.validateState({
-    schemaVersion: 4,
-    entries: [
-      { id: ids[0], kind: "url", value: "x.com" },
-      { id: ids[1], kind: "url", value: "x.com/home" },
-      { id: ids[2], kind: "url", value: "twitter.com/home" }
-    ],
-    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML
+test("validates domain limits against associated domains", () => {
+  const state = validState([
+    { id: ids[0], kind: "url", value: "https://example.com/focus" },
+    { id: ids[1], kind: "urlWithSubpaths", value: "https://example.com/other" },
+    { id: ids[2], kind: "domain", value: "news.example.com" }
+  ], core.DEFAULT_SCHEDULE, [
+    { domain: "example.com", limitMinutes: 45 },
+    { domain: "news.example.com", limitMinutes: 10 }
+  ]);
+
+  assert.deepEqual(state.domainLimits, [
+    { domain: "example.com", limitMinutes: 45 },
+    { domain: "news.example.com", limitMinutes: 10 }
+  ]);
+
+  const missing = core.validateState({
+    schemaVersion: 6,
+    entries: [{ id: ids[0], kind: "domain", value: "example.com" }],
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: { type: "always" },
+    domainLimits: []
   });
 
-  assert.equal(migrated.type, "valid");
-  assert.deepEqual(migrated.state.entries.map(({ value }) => value), ["x.com", "twitter.com"]);
+  assert.equal(missing.type, "invalid");
+  assert.match(missing.errors[0].message, /Missing domain limit/);
 
+  const extra = core.validateState({
+    schemaVersion: 6,
+    entries: [],
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: { type: "always" },
+    domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
+  });
+
+  assert.equal(extra.type, "invalid");
+  assert.match(extra.errors[0].message, /does not match/);
+});
+
+test("infers literal regex hosts for limits", () => {
+  assert.equal(core.domainForRegexEntryValue("^https://x\\.com/(home|explore)/?$"), "x.com");
+  assert.equal(core.domainForRegexEntryValue("^https?://www\\.example\\.com/.*$"), "example.com");
+  assert.throws(() => core.domainForRegexEntryValue("^https://(?:www\\.)?example\\.com/"), /literal/);
+  assert.throws(() => core.domainForRegexEntryValue("^https://(x|twitter)\\.com/"), /literal/);
+
+  const valid = validState([
+    { id: ids[0], kind: "regex", value: "^https://x\\.com/(home|explore)/?$" }
+  ]);
+
+  assert.deepEqual(valid.domainLimits, [{ domain: "x.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES }]);
+});
+
+test("rejects duplicate entries after normalization", () => {
   const duplicate = core.validateState({
-    schemaVersion: 5,
+    schemaVersion: 6,
     entries: [
       { id: ids[0], kind: "url", value: "x.com" },
       { id: ids[1], kind: "url", value: "x.com/home" }
     ],
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
-    schedule: { type: "always" }
+    schedule: { type: "always" },
+    domainLimits: [{ domain: "x.com", limitMinutes: 30 }]
   });
 
   assert.equal(duplicate.type, "invalid");
@@ -334,12 +396,13 @@ test("matches regex entries case-insensitively without fragments", () => {
   assert.equal(core.findMatchingEntry(state, "https://x.com/messages").type, "none");
 });
 
-function validState(entries, schedule = core.DEFAULT_SCHEDULE) {
+function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits = core.domainLimitsForEntries(entries, [])) {
   const result = core.validateState({
-    schemaVersion: 5,
+    schemaVersion: 6,
     entries,
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
-    schedule
+    schedule,
+    domainLimits
   });
 
   assert.equal(result.type, "valid");

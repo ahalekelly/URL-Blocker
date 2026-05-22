@@ -56,7 +56,7 @@
 
     switch (response.type) {
       case "state":
-        state.draftEntries = editableEntries(response.state.entries);
+    state.draftEntries = editableEntries(response.state.entries, response.state.domainLimits);
         state.draftBlockedPageHtml = response.state.blockedPageHtml;
         state.draftSchedule = editableSchedule(response.state.schedule);
         await refreshWebsiteAccess(response.state);
@@ -104,6 +104,7 @@
     const row = fragment.querySelector(".block-row");
     const segments = fragment.querySelector(".segments");
     const input = fragment.querySelector(".value-input");
+    const limitInput = fragment.querySelector(".limit-input");
     const deleteButton = fragment.querySelector(".delete-button");
     const rowError = fragment.querySelector(".row-error");
     const error = state.rowErrors.get(entry.id) || "";
@@ -121,6 +122,8 @@
     input.placeholder = placeholderFor(entry.kind);
     input.addEventListener("input", () => updateValue(entry.id, input.value));
     input.addEventListener("blur", () => normalizeUrlInput(entry.id));
+    limitInput.value = String(entry.limitMinutes);
+    limitInput.addEventListener("input", () => updateLimit(entry.id, limitInput.value));
     deleteButton.disabled = state.draftEntries.length === 1;
     deleteButton.addEventListener("click", () => deleteRow(entry.id));
     rowError.hidden = error === "";
@@ -140,11 +143,11 @@
     const domain = document.createElement("strong");
     const total = document.createElement("span");
 
-    row.className = "screen-time-row";
+    row.className = entry.isOverLimit ? "screen-time-row is-over-limit" : "screen-time-row";
     domain.className = "screen-time-domain";
     total.className = "screen-time-total";
     domain.textContent = entry.domain;
-    total.textContent = formatDuration(entry.totalMs);
+    total.textContent = `${formatDuration(entry.totalMs)} / ${entry.limitMinutes}m`;
     row.append(domain, total);
 
     return row;
@@ -152,14 +155,16 @@
 
   function addRow() {
     state.draftEntries.push(core.newEntry("url"));
+    state.draftEntries[state.draftEntries.length - 1].limitMinutes = core.DEFAULT_LIMIT_MINUTES;
     clearMessages();
     render();
   }
 
   function updateKind(id, kind) {
     state.draftEntries = state.draftEntries.map((entry) => (
-      entry.id === id ? { id: entry.id, kind, value: entry.value } : entry
+      entry.id === id ? { id: entry.id, kind, value: entry.value, limitMinutes: entry.limitMinutes } : entry
     ));
+    syncLimitForEntry(findDraftEntry(id));
     state.rowErrors.delete(id);
     clearMessages();
     render();
@@ -167,9 +172,67 @@
 
   function updateValue(id, value) {
     const entry = findDraftEntry(id);
+
     entry.value = value;
+    syncLimitForEntry(entry);
     state.rowErrors.delete(id);
     clearMessages();
+  }
+
+  function syncLimitForEntry(entry) {
+    let domain = "";
+
+    try {
+      domain = core.domainForEntry(entry);
+    } catch {
+      return;
+    }
+
+    const matchingEntry = state.draftEntries.find((candidate) => {
+      if (candidate.id === entry.id) {
+        return false;
+      }
+
+      try {
+        return core.domainForEntry(candidate) === domain;
+      } catch {
+        return false;
+      }
+    });
+
+    if (matchingEntry) {
+      entry.limitMinutes = matchingEntry.limitMinutes;
+    }
+  }
+
+  function updateLimit(id, rawValue) {
+    const entry = findDraftEntry(id);
+    const limitMinutes = Number(rawValue);
+    let domain = "";
+
+    entry.limitMinutes = limitMinutes;
+
+    try {
+      domain = core.domainForEntry(entry);
+    } catch {
+      state.rowErrors.delete(id);
+      clearMessages();
+      return;
+    }
+
+    state.draftEntries.forEach((candidate) => {
+      try {
+        if (core.domainForEntry(candidate) === domain) {
+          candidate.limitMinutes = limitMinutes;
+        }
+      } catch {
+        return;
+      }
+    });
+
+    state.rowErrors.delete(id);
+    clearMessages();
+    render();
   }
 
   function updateBlockedPageHtml() {
@@ -262,7 +325,7 @@
 
     switch (response.type) {
       case "saved":
-        state.draftEntries = editableEntries(response.state.entries);
+        state.draftEntries = editableEntries(response.state.entries, response.state.domainLimits);
         state.draftBlockedPageHtml = response.state.blockedPageHtml;
         state.draftSchedule = editableSchedule(response.state.schedule);
         state.successMessage = "Saved.";
@@ -366,30 +429,51 @@
           return entry;
         }
 
-        return { id: entry.id, kind: entry.kind, value: core.normalizeUrlEntryValue(entry.value) };
+        return { id: entry.id, kind: entry.kind, value: core.normalizeUrlEntryValue(entry.value), limitMinutes: entry.limitMinutes };
       });
     } catch {
       return core.validateState({
         schemaVersion: core.SCHEMA_VERSION,
-        entries: state.draftEntries,
+        entries: storedEntries(state.draftEntries),
         blockedPageHtml: state.draftBlockedPageHtml,
-        schedule: state.draftSchedule
+        schedule: state.draftSchedule,
+        domainLimits: domainLimitsForDraft()
       });
     }
 
     const result = core.validateState({
       schemaVersion: core.SCHEMA_VERSION,
-      entries: state.draftEntries,
+      entries: storedEntries(state.draftEntries),
       blockedPageHtml: state.draftBlockedPageHtml,
-      schedule: state.draftSchedule
+      schedule: state.draftSchedule,
+      domainLimits: domainLimitsForDraft()
     });
 
     if (result.type === "valid") {
+      state.draftEntries = editableEntries(result.state.entries, result.state.domainLimits);
       state.draftBlockedPageHtml = result.state.blockedPageHtml;
       state.draftSchedule = editableSchedule(result.state.schedule);
     }
 
     return result;
+  }
+
+  function storedEntries(entries) {
+    return entries.map((entry) => ({ id: entry.id, kind: entry.kind, value: entry.value }));
+  }
+
+  function domainLimitsForDraft() {
+    const hints = [];
+
+    state.draftEntries.forEach((entry) => {
+      try {
+        hints.push({ domain: core.domainForEntry(entry), limitMinutes: entry.limitMinutes });
+      } catch {
+        return;
+      }
+    });
+
+    return core.domainLimitsForEntries(storedEntries(state.draftEntries), hints);
   }
 
   async function resetBlocklist() {
@@ -402,7 +486,7 @@
       return;
     }
 
-    state.draftEntries = editableEntries(response.state.entries);
+        state.draftEntries = editableEntries(response.state.entries, response.state.domainLimits);
     state.draftBlockedPageHtml = response.state.blockedPageHtml;
     state.draftSchedule = editableSchedule(response.state.schedule);
     state.successMessage = "Reset.";
@@ -455,8 +539,15 @@
     return entry;
   }
 
-  function editableEntries(entries) {
-    return ensureDraftEntry(entries.map((entry) => ({ id: entry.id, kind: entry.kind, value: entry.value })));
+  function editableEntries(entries, domainLimits) {
+    const limits = new Map(domainLimits.map((limit) => [limit.domain, limit.limitMinutes]));
+
+    return ensureDraftEntry(entries.map((entry) => ({
+      id: entry.id,
+      kind: entry.kind,
+      value: entry.value,
+      limitMinutes: limits.get(core.associatedDomainForEntry(entry))
+    })));
   }
 
   function editableSchedule(schedule) {
@@ -521,7 +612,15 @@
   }
 
   function ensureDraftEntry(entries) {
-    return entries.length === 0 ? [core.newEntry("url")] : entries;
+    if (entries.length > 0) {
+      return entries;
+    }
+
+    const entry = core.newEntry("url");
+
+    entry.limitMinutes = core.DEFAULT_LIMIT_MINUTES;
+
+    return [entry];
   }
 
   function placeholderFor(kind) {
@@ -549,7 +648,7 @@
         throw new Error("Screen time entry must be an object.");
       }
 
-      requireKeys(entry, ["domain", "totalMs"], "Screen time entry");
+      requireKeys(entry, ["domain", "totalMs", "limitMinutes", "isOverLimit"], "Screen time entry");
 
       if (typeof entry.domain !== "string" || entry.domain.trim() === "") {
         throw new Error("Screen time entry domain must be a string.");
@@ -559,7 +658,20 @@
         throw new Error("Screen time entry total must be a non-negative integer.");
       }
 
-      return { domain: entry.domain, totalMs: entry.totalMs };
+      if (!Number.isInteger(entry.limitMinutes) || entry.limitMinutes < 1 || entry.limitMinutes > core.MAX_LIMIT_MINUTES) {
+        throw new Error("Screen time entry limit must be a valid integer.");
+      }
+
+      if (typeof entry.isOverLimit !== "boolean") {
+        throw new Error("Screen time entry over-limit value must be a boolean.");
+      }
+
+      return {
+        domain: entry.domain,
+        totalMs: entry.totalMs,
+        limitMinutes: entry.limitMinutes,
+        isOverLimit: entry.isOverLimit
+      };
     });
   }
 

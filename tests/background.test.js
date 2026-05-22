@@ -31,9 +31,10 @@ test("getState loads default blocked pages when storage is empty", async () => {
   assert.equal(response.type, "state");
   assert.deepEqual(response.state.entries, core.emptyState(defaultBlockedPages).entries);
   assert.deepEqual(response.state.schedule, { type: "always" });
+  assert.deepEqual(response.state.domainLimits, core.emptyState(defaultBlockedPages).domainLimits);
 });
 
-test("saveState migrates the old Safari API setting away", async () => {
+test("saveState rejects unsupported old state", async () => {
   const api = fakeApi();
   const controller = createBackgroundController(api);
   const response = await controller.saveState({
@@ -43,10 +44,9 @@ test("saveState migrates the old Safari API setting away", async () => {
     useSafariBlockingApi: true
   });
 
-  assert.equal(response.type, "saved");
-  assert.equal(response.state.schemaVersion, 5);
-  assert.equal("useSafariBlockingApi" in response.state, false);
-  assert.equal("useSafariBlockingApi" in api.storageData[core.STATE_KEY], false);
+  assert.equal(response.type, "validationError");
+  assert.match(response.errors[0].message, /Unsupported/);
+  assert.equal(api.storageData[core.STATE_KEY], undefined);
 });
 
 test("saveState removes access for sites no longer blocked", async () => {
@@ -200,8 +200,8 @@ test("urlChanged redirects matching URLs inside the schedule", async () => {
   }]);
 });
 
-test("screenTimeElapsed logs time when the page host matches a blocklist domain", async () => {
-  const api = fakeApi();
+test("screenTimeElapsed logs time into the current hour bucket", async () => {
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
   api.storageData[core.STATE_KEY] = validState([
     { id, kind: "url", value: "https://reddit.com/popular" },
     { id: "22222222-2222-4222-8222-222222222222", kind: "domain", value: "example.com" },
@@ -213,24 +213,33 @@ test("screenTimeElapsed logs time when the page host matches a blocklist domain"
     type: "screenTimeElapsed",
     url: "https://old.reddit.com/r/safari",
     elapsedMs: 1500
-  }, {}), { type: "logged", domain: "reddit.com", totalMs: 1500 });
+  }, {}), { type: "logged", domain: "reddit.com", totalMs: 1500, limitMinutes: 30, isOverLimit: false });
   assert.deepEqual(await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://www.example.com/path",
     elapsedMs: 2500
-  }, {}), { type: "logged", domain: "example.com", totalMs: 2500 });
+  }, {}), { type: "logged", domain: "example.com", totalMs: 2500, limitMinutes: 30, isOverLimit: false });
   assert.deepEqual(await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://ignored.example/",
     elapsedMs: 1000
-  }, {}), { type: "ignored" });
+  }, {}), { type: "logged", domain: "ignored.example", totalMs: 1000, limitMinutes: 30, isOverLimit: false });
 
   assert.deepEqual(await controller.handleMessage({ type: "getScreenTimeLog" }, {}), {
     type: "screenTimeLog",
     entries: [
-      { domain: "example.com", totalMs: 2500 },
-      { domain: "reddit.com", totalMs: 1500 }
+      { domain: "example.com", totalMs: 2500, limitMinutes: 30, isOverLimit: false },
+      { domain: "reddit.com", totalMs: 1500, limitMinutes: 30, isOverLimit: false },
+      { domain: "ignored.example", totalMs: 1000, limitMinutes: 30, isOverLimit: false }
     ]
+  });
+  assert.deepEqual(api.storageData.screenTimeUsage, {
+    schemaVersion: 1,
+    totalsByDomain: {
+      "example.com": { 20: 2500 },
+      "ignored.example": { 20: 1000 },
+      "reddit.com": { 20: 1500 }
+    }
   });
 });
 
@@ -242,6 +251,109 @@ test("screenTimeElapsed validates elapsed time", async () => {
     url: "https://reddit.com",
     elapsedMs: 0
   }, {}), /positive integer/);
+});
+
+test("getScreenTimeLog sums and prunes the last 16 hour buckets", async () => {
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "domain", value: "example.com" }
+  ], core.DEFAULT_SCHEDULE, [
+    { domain: "example.com", limitMinutes: 1 }
+  ]);
+  api.storageData.screenTimeUsage = {
+    schemaVersion: 1,
+    totalsByDomain: {
+      "example.com": {
+        4: 1000,
+        5: 2000,
+        19: 3000,
+        20: 4000,
+        21: 5000
+      }
+    }
+  };
+  const controller = createBackgroundController(api);
+
+  assert.deepEqual(await controller.handleMessage({ type: "getScreenTimeLog" }, {}), {
+    type: "screenTimeLog",
+    entries: [
+      { domain: "example.com", totalMs: 9000, limitMinutes: 1, isOverLimit: false }
+    ]
+  });
+  assert.deepEqual(api.storageData.screenTimeUsage, {
+    schemaVersion: 1,
+    totalsByDomain: {
+      "example.com": {
+        5: 2000,
+        19: 3000,
+        20: 4000
+      }
+    }
+  });
+});
+
+test("urlChanged redirects matching URLs when rolling usage is over limit", async () => {
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "https://x.com/home" }
+  ], inactiveSchedule(), [
+    { domain: "x.com", limitMinutes: 1 }
+  ]);
+  api.storageData.screenTimeUsage = {
+    schemaVersion: 1,
+    totalsByDomain: {
+      "x.com": { 20: 60000 }
+    }
+  };
+  const controller = createBackgroundController(api);
+  const blocked = await controller.handleMessage({ type: "urlChanged", url: "https://x.com/home" }, { tab: { id: 7 } });
+  const allowed = await controller.handleMessage({ type: "urlChanged", url: "https://x.com/messages" }, { tab: { id: 8 } });
+
+  assert.equal(blocked.type, "redirected");
+  assert.equal(allowed.type, "allowed");
+  assert.deepEqual(api.updatedTabs, [{
+    tabId: 7,
+    url: "safari-web-extension://extension/blocked.html#https%3A%2F%2Fx.com%2Fhome"
+  }]);
+});
+
+test("screenTimeElapsed redirects matching URLs after crossing the limit", async () => {
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "https://x.com/home" }
+  ], inactiveSchedule(), [
+    { domain: "x.com", limitMinutes: 1 }
+  ]);
+  const controller = createBackgroundController(api);
+  const response = await controller.handleMessage({
+    type: "screenTimeElapsed",
+    url: "https://x.com/home",
+    elapsedMs: 60000
+  }, { tab: { id: 7 } });
+
+  assert.deepEqual(response, { type: "logged", domain: "x.com", totalMs: 60000, limitMinutes: 1, isOverLimit: true });
+  assert.deepEqual(api.updatedTabs, [{
+    tabId: 7,
+    url: "safari-web-extension://extension/blocked.html#https%3A%2F%2Fx.com%2Fhome"
+  }]);
+});
+
+test("whole-domain usage counts on non-matching URLs without redirecting them", async () => {
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "https://x.com/home" }
+  ], inactiveSchedule(), [
+    { domain: "x.com", limitMinutes: 1 }
+  ]);
+  const controller = createBackgroundController(api);
+  const response = await controller.handleMessage({
+    type: "screenTimeElapsed",
+    url: "https://x.com/messages",
+    elapsedMs: 60000
+  }, { tab: { id: 7 } });
+
+  assert.deepEqual(response, { type: "logged", domain: "x.com", totalMs: 60000, limitMinutes: 1, isOverLimit: true });
+  assert.deepEqual(api.updatedTabs, []);
 });
 
 test("saveState redirects open tabs that match the new state", async () => {
@@ -263,12 +375,13 @@ test("saveState redirects open tabs that match the new state", async () => {
   }]);
 });
 
-function validState(entries, schedule = core.DEFAULT_SCHEDULE) {
+function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits = core.domainLimitsForEntries(entries, [])) {
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     entries,
     blockedPageHtml: "<p>Blocked.</p>",
-    schedule
+    schedule,
+    domainLimits
   };
 }
 
@@ -306,6 +419,7 @@ function fakeApi(overrides = {}) {
     registeredScripts: [],
     removedOrigins: [],
     updatedTabs: [],
+    now: overrides.now === undefined ? undefined : () => overrides.now,
     runtime: {
       getURL(path) {
         if (path === "default-blocked-pages.json") {

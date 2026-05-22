@@ -7,7 +7,10 @@
 
   const core = root.BlockerCore || require("./blocker.js");
   const CONTENT_SCRIPT_ID = "url-blocker-content";
-  const SCREEN_TIME_KEY = "screenTimeByDomain";
+  const HOUR_MS = 60 * 60 * 1000;
+  const SCREEN_TIME_USAGE_KEY = "screenTimeUsage";
+  const SCREEN_TIME_USAGE_SCHEMA_VERSION = 1;
+  const SCREEN_TIME_WINDOW_HOURS = 16;
 
   function createBackgroundController(api) {
     const stateStorage = createStateStorage(api);
@@ -38,7 +41,7 @@
           return urlChanged(message.url, sender);
         case "screenTimeElapsed":
           requireKeys(message, ["type", "url", "elapsedMs"], "screenTimeElapsed message");
-          return logScreenTime(message.url, message.elapsedMs);
+          return logScreenTime(message.url, message.elapsedMs, sender);
         case "getScreenTimeLog":
           requireKeys(message, ["type"], "getScreenTimeLog message");
           return getScreenTimeLog();
@@ -102,7 +105,7 @@
       return redirectBlockedUrl(sender.tab.id, rawUrl);
     }
 
-    async function logScreenTime(rawUrl, elapsedMs) {
+    async function logScreenTime(rawUrl, elapsedMs, sender = {}) {
       if (typeof rawUrl !== "string" || rawUrl.trim() === "") {
         throw new Error("Screen time URL must be a string.");
       }
@@ -111,22 +114,26 @@
         throw new Error("Screen time elapsed time must be a positive integer.");
       }
 
-      const match = core.screenTimeDomainForUrl(await loadState(), rawUrl);
+      const state = await loadState();
+      const match = core.screenTimeDomainForUrl(state, rawUrl);
 
       switch (match.type) {
         case "none":
           return { type: "ignored" };
         case "match":
-          return saveScreenTime(match.domain, elapsedMs);
+          return saveScreenTimeAndRedirect(state, match.domain, rawUrl, elapsedMs, sender);
         default:
           throw new Error(`Unknown screen time match type: ${match.type}`);
       }
     }
 
     async function getScreenTimeLog() {
+      const state = await loadState();
+      const hour = currentHour();
+
       return {
         type: "screenTimeLog",
-        entries: screenTimeEntries(await loadScreenTimeLog())
+        entries: screenTimeEntries(state, await loadScreenTimeUsage(hour), hour)
       };
     }
 
@@ -139,20 +146,26 @@
         throw new Error("Blocked URL must be a string.");
       }
 
-      const match = core.findActiveMatchingEntry(await loadState(), rawUrl);
+      const state = await loadState();
+      const hour = currentHour();
+      const usage = await loadScreenTimeUsage(hour);
+      const match = core.findBlockedMatchingEntry(state, rawUrl, overLimitDomains(state, usage, hour));
 
       return redirectFromMatch(tabId, rawUrl, match);
     }
 
     async function redirectOpenBlockedTabs(state) {
       const tabs = await api.tabs.query({});
+      const hour = currentHour();
+      const usage = await loadScreenTimeUsage(hour);
+      const limitedDomains = overLimitDomains(state, usage, hour);
 
       await Promise.all(tabs.map((tab) => {
         if (typeof tab.id !== "number" || typeof tab.url !== "string") {
           return undefined;
         }
 
-        const match = core.findActiveMatchingEntry(state, tab.url);
+        const match = core.findBlockedMatchingEntry(state, tab.url, limitedDomains);
 
         return redirectFromMatch(tab.id, tab.url, match);
       }));
@@ -184,20 +197,43 @@
       return core.parseStoredState(stored);
     }
 
-    async function saveScreenTime(domain, elapsedMs) {
-      const log = await loadScreenTimeLog();
-      const totalMs = (log[domain] || 0) + elapsedMs;
+    async function saveScreenTimeAndRedirect(state, domain, rawUrl, elapsedMs, sender) {
+      const hour = currentHour();
+      const usage = await saveScreenTime(domain, elapsedMs, hour);
+      const totalMs = screenTimeTotalMs(usage, domain, hour);
+      const limit = domainLimit(state, domain);
+      const isOverLimit = totalMs >= limit.limitMinutes * 60 * 1000;
 
-      log[domain] = totalMs;
-      await api.storage.local.set({ [SCREEN_TIME_KEY]: log });
+      if (isOverLimit && sender.tab && typeof sender.tab.id === "number") {
+        const match = core.findBlockedMatchingEntry(state, rawUrl, new Set([domain]));
 
-      return { type: "logged", domain, totalMs };
+        await redirectFromMatch(sender.tab.id, rawUrl, match);
+      }
+
+      return { type: "logged", domain, totalMs, limitMinutes: limit.limitMinutes, isOverLimit };
     }
 
-    async function loadScreenTimeLog() {
-      const stored = await api.storage.local.get(SCREEN_TIME_KEY);
+    async function saveScreenTime(domain, elapsedMs, hour) {
+      const usage = await loadScreenTimeUsage(hour);
+      const bucket = String(hour);
 
-      return parseScreenTimeLog(stored[SCREEN_TIME_KEY]);
+      usage.totalsByDomain[domain] = usage.totalsByDomain[domain] || {};
+      usage.totalsByDomain[domain][bucket] = (usage.totalsByDomain[domain][bucket] || 0) + elapsedMs;
+      const pruned = pruneScreenTimeUsage(usage, hour);
+
+      await api.storage.local.set({ [SCREEN_TIME_USAGE_KEY]: pruned });
+
+      return pruned;
+    }
+
+    async function loadScreenTimeUsage(hour) {
+      const stored = await api.storage.local.get(SCREEN_TIME_USAGE_KEY);
+      const usage = parseScreenTimeUsage(stored[SCREEN_TIME_USAGE_KEY]);
+      const pruned = pruneScreenTimeUsage(usage, hour);
+
+      await api.storage.local.set({ [SCREEN_TIME_USAGE_KEY]: pruned });
+
+      return pruned;
     }
 
     async function loadDefaultState() {
@@ -257,6 +293,12 @@
       }
     }
 
+    function currentHour() {
+      const now = typeof api.now === "function" ? api.now() : Date.now();
+
+      return Math.floor(now / HOUR_MS);
+    }
+
     return {
       getScreenTimeLog,
       getState,
@@ -272,36 +314,125 @@
     };
   }
 
-  function parseScreenTimeLog(rawLog) {
-    if (rawLog === undefined) {
-      return {};
+  function parseScreenTimeUsage(rawUsage) {
+    if (rawUsage === undefined) {
+      return emptyScreenTimeUsage();
     }
 
-    if (!isPlainObject(rawLog)) {
-      throw new Error("Screen time log must be an object.");
+    if (!isPlainObject(rawUsage)) {
+      throw new Error("Screen time usage must be an object.");
     }
 
-    const log = {};
+    requireKeys(rawUsage, ["schemaVersion", "totalsByDomain"], "Screen time usage");
 
-    Object.entries(rawLog).forEach(([domain, totalMs]) => {
+    if (rawUsage.schemaVersion !== SCREEN_TIME_USAGE_SCHEMA_VERSION) {
+      throw new Error("Unsupported screen time usage version.");
+    }
+
+    if (!isPlainObject(rawUsage.totalsByDomain)) {
+      throw new Error("Screen time usage totals must be an object.");
+    }
+
+    const totalsByDomain = {};
+
+    Object.entries(rawUsage.totalsByDomain).forEach(([domain, buckets]) => {
       if (core.normalizeDomainEntryValue(domain) !== domain) {
         throw new Error("Screen time domain must be normalized.");
       }
 
-      if (!Number.isInteger(totalMs) || totalMs < 0) {
-        throw new Error("Screen time total must be a non-negative integer.");
+      if (!isPlainObject(buckets)) {
+        throw new Error("Screen time buckets must be an object.");
       }
 
-      log[domain] = totalMs;
+      totalsByDomain[domain] = {};
+
+      Object.entries(buckets).forEach(([bucket, totalMs]) => {
+        if (!/^\d+$/.test(bucket)) {
+          throw new Error("Screen time bucket must be an hour number.");
+        }
+
+        if (!Number.isInteger(totalMs) || totalMs < 0) {
+          throw new Error("Screen time total must be a non-negative integer.");
+        }
+
+        totalsByDomain[domain][bucket] = totalMs;
+      });
     });
 
-    return log;
+    return { schemaVersion: SCREEN_TIME_USAGE_SCHEMA_VERSION, totalsByDomain };
   }
 
-  function screenTimeEntries(log) {
-    return Object.entries(log)
-      .map(([domain, totalMs]) => ({ domain, totalMs }))
+  function pruneScreenTimeUsage(usage, hour) {
+    const minHour = hour - SCREEN_TIME_WINDOW_HOURS + 1;
+    const totalsByDomain = {};
+
+    Object.entries(usage.totalsByDomain).forEach(([domain, buckets]) => {
+      Object.entries(buckets).forEach(([bucket, totalMs]) => {
+        const bucketHour = Number(bucket);
+
+        if (bucketHour < minHour || bucketHour > hour) {
+          return;
+        }
+
+        totalsByDomain[domain] = totalsByDomain[domain] || {};
+        totalsByDomain[domain][bucket] = totalMs;
+      });
+    });
+
+    return { schemaVersion: SCREEN_TIME_USAGE_SCHEMA_VERSION, totalsByDomain };
+  }
+
+  function screenTimeEntries(state, usage, hour) {
+    return state.domainLimits
+      .map((limit) => {
+        const totalMs = screenTimeTotalMs(usage, limit.domain, hour);
+
+        return {
+          domain: limit.domain,
+          totalMs,
+          limitMinutes: limit.limitMinutes,
+          isOverLimit: totalMs >= limit.limitMinutes * 60 * 1000
+        };
+      })
       .sort((left, right) => right.totalMs - left.totalMs || left.domain.localeCompare(right.domain));
+  }
+
+  function overLimitDomains(state, usage, hour) {
+    return new Set(screenTimeEntries(state, usage, hour)
+      .filter((entry) => entry.isOverLimit)
+      .map((entry) => entry.domain));
+  }
+
+  function screenTimeTotalMs(usage, domain, hour) {
+    const minHour = hour - SCREEN_TIME_WINDOW_HOURS + 1;
+    const buckets = usage.totalsByDomain[domain] || {};
+
+    return Object.entries(buckets).reduce((total, [bucket, totalMs]) => {
+      const bucketHour = Number(bucket);
+
+      if (bucketHour < minHour || bucketHour > hour) {
+        return total;
+      }
+
+      return total + totalMs;
+    }, 0);
+  }
+
+  function domainLimit(state, domain) {
+    const limit = state.domainLimits.find((candidate) => candidate.domain === domain);
+
+    if (!limit) {
+      throw new Error(`Missing domain limit: ${domain}.`);
+    }
+
+    return limit;
+  }
+
+  function emptyScreenTimeUsage() {
+    return {
+      schemaVersion: SCREEN_TIME_USAGE_SCHEMA_VERSION,
+      totalsByDomain: {}
+    };
   }
 
   function createStateStorage(api) {
