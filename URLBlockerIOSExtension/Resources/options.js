@@ -12,7 +12,8 @@
     successMessage: "",
     isSaving: false,
     isRequestingPermissions: false,
-    missingOrigins: []
+    missingOrigins: [],
+    screenTimeEntries: []
   };
 
   const rowsElement = document.getElementById("rows");
@@ -27,6 +28,8 @@
   const scheduleEndInput = document.getElementById("scheduleEndInput");
   const errorSummary = document.getElementById("errorSummary");
   const successMessage = document.getElementById("successMessage");
+  const screenTimeRows = document.getElementById("screenTimeRows");
+  const emptyScreenTime = document.getElementById("emptyScreenTime");
   const repairPanel = document.getElementById("repairPanel");
   const repairMessage = document.getElementById("repairMessage");
   const resetButton = document.getElementById("resetButton");
@@ -57,6 +60,7 @@
         state.draftBlockedPageHtml = response.state.blockedPageHtml;
         state.draftSchedule = editableSchedule(response.state.schedule);
         await refreshWebsiteAccess(response.state);
+        await loadScreenTimeLog();
         render();
         return;
       case "stateError":
@@ -92,6 +96,7 @@
     errorSummary.textContent = state.pageError;
     successMessage.hidden = state.successMessage === "";
     successMessage.textContent = state.successMessage;
+    renderScreenTimeLog();
   }
 
   function renderRow(entry) {
@@ -123,6 +128,26 @@
     row.dataset.entryId = entry.id;
 
     return fragment;
+  }
+
+  function renderScreenTimeLog() {
+    screenTimeRows.replaceChildren(...state.screenTimeEntries.map(renderScreenTimeRow));
+    emptyScreenTime.hidden = state.screenTimeEntries.length !== 0;
+  }
+
+  function renderScreenTimeRow(entry) {
+    const row = document.createElement("div");
+    const domain = document.createElement("strong");
+    const total = document.createElement("span");
+
+    row.className = "screen-time-row";
+    domain.className = "screen-time-domain";
+    total.className = "screen-time-total";
+    domain.textContent = entry.domain;
+    total.textContent = formatDuration(entry.totalMs);
+    row.append(domain, total);
+
+    return row;
   }
 
   function addRow() {
@@ -312,6 +337,20 @@
     state.missingOrigins = origins;
   }
 
+  async function loadScreenTimeLog() {
+    const response = await api.runtime.sendMessage({ type: "getScreenTimeLog" });
+
+    switch (response.type) {
+      case "screenTimeLog":
+        state.screenTimeEntries = normalizeScreenTimeEntries(response.entries);
+        return;
+      case "error":
+        throw new Error(response.error);
+      default:
+        throw new Error(`Unknown getScreenTimeLog response: ${response.type}`);
+    }
+  }
+
   function permissionPanelMessage() {
     if (state.missingOrigins.length === 1) {
       return "URL Blocker needs access to this website before blocking can run.";
@@ -454,6 +493,23 @@
     return `${hours}:${minutes}`;
   }
 
+  function formatDuration(totalMs) {
+    const totalSeconds = Math.round(totalMs / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    if (hours > 0) {
+      return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+    }
+
+    if (minutes > 0) {
+      return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+    }
+
+    return `${seconds}s`;
+  }
+
   function timeToMinute(value) {
     if (!/^\d{2}:\d{2}$/.test(value)) {
       return NaN;
@@ -481,5 +537,42 @@
       default:
         throw new Error(`Unknown matcher kind: ${kind}`);
     }
+  }
+
+  function normalizeScreenTimeEntries(entries) {
+    if (!Array.isArray(entries)) {
+      throw new Error("Screen time entries must be an array.");
+    }
+
+    return entries.map((entry) => {
+      if (!isPlainObject(entry)) {
+        throw new Error("Screen time entry must be an object.");
+      }
+
+      requireKeys(entry, ["domain", "totalMs"], "Screen time entry");
+
+      if (typeof entry.domain !== "string" || entry.domain.trim() === "") {
+        throw new Error("Screen time entry domain must be a string.");
+      }
+
+      if (!Number.isInteger(entry.totalMs) || entry.totalMs < 0) {
+        throw new Error("Screen time entry total must be a non-negative integer.");
+      }
+
+      return { domain: entry.domain, totalMs: entry.totalMs };
+    });
+  }
+
+  function requireKeys(object, allowedKeys, label) {
+    const allowed = new Set(allowedKeys);
+    const unknownKeys = Object.keys(object).filter((key) => !allowed.has(key));
+
+    if (unknownKeys.length > 0) {
+      throw new Error(`${label} has unknown key: ${unknownKeys[0]}.`);
+    }
+  }
+
+  function isPlainObject(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 })(globalThis);

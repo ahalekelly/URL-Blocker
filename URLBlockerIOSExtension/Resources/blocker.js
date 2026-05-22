@@ -384,6 +384,39 @@
     return findMatchingEntry(state, rawUrl);
   }
 
+  function screenTimeDomainForUrl(state, rawUrl) {
+    const result = normalizePageUrl(rawUrl);
+
+    if (result.type === "invalid") {
+      return { type: "none" };
+    }
+
+    for (const entry of state.entries) {
+      switch (entry.kind) {
+        case "domain":
+          if (domainMatchesHost(entry.value, result.url.host)) {
+            return { type: "match", domain: entry.value };
+          }
+          break;
+        case "url":
+        case "urlWithSubpaths": {
+          const domain = splitStoredUrl(entry.value).host;
+
+          if (domainMatchesHost(domain, result.url.host)) {
+            return { type: "match", domain };
+          }
+          break;
+        }
+        case "regex":
+          break;
+        default:
+          throw new Error(`Unknown matcher kind: ${entry.kind}`);
+      }
+    }
+
+    return { type: "none" };
+  }
+
   function isScheduleActive(schedule, date = new Date()) {
     switch (schedule.type) {
       case "always":
@@ -646,6 +679,7 @@
     permissionOriginsForState,
     normalizeUrlEntryValue,
     parseStoredState,
+    screenTimeDomainForUrl,
     validateState
   };
 

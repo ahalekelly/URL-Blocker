@@ -27,6 +27,19 @@ test("content script reports changed URLs once", async () => {
   ]);
 });
 
+test("content script logs elapsed time before changed URLs", async () => {
+  const page = runContentScript("https://x.com");
+
+  page.location.href = "https://x.com/home";
+  page.dispatch("popstate", 700);
+
+  assert.deepEqual(page.messages, [
+    { type: "urlChanged", url: "https://x.com" },
+    { type: "screenTimeElapsed", url: "https://x.com", elapsedMs: 700 },
+    { type: "urlChanged", url: "https://x.com/home" }
+  ]);
+});
+
 test("content script periodically rechecks unchanged URLs", async () => {
   const page = runContentScript("https://x.com/home");
 
@@ -34,7 +47,20 @@ test("content script periodically rechecks unchanged URLs", async () => {
 
   assert.deepEqual(page.messages, [
     { type: "urlChanged", url: "https://x.com/home" },
+    { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 1500 },
     { type: "urlChanged", url: "https://x.com/home" }
+  ]);
+});
+
+test("content script logs elapsed time when the page hides", async () => {
+  const page = runContentScript("https://x.com/home");
+
+  page.setHidden(true, 900);
+  page.tick();
+
+  assert.deepEqual(page.messages, [
+    { type: "urlChanged", url: "https://x.com/home" },
+    { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 900 }
   ]);
 });
 
@@ -55,6 +81,12 @@ function runContentScript(url) {
     listeners: new Map(),
     location: { href: url },
     messages: [],
+    now: 0,
+    Date: {
+      now() {
+        return context.now;
+      }
+    },
     addEventListener(type, listener) {
       context.listeners.set(type, listener);
     },
@@ -72,11 +104,17 @@ function runContentScript(url) {
   return {
     location: context.location,
     messages: JSON.parse(JSON.stringify(context.messages)),
-    dispatch(type) {
+    dispatch(type, elapsedMs = 0) {
+      context.now += elapsedMs;
       context.listeners.get(type)();
       this.messages = JSON.parse(JSON.stringify(context.messages));
     },
-    tick() {
+    setHidden(hidden, elapsedMs = 0) {
+      context.document.hidden = hidden;
+      this.dispatch("visibilitychange", elapsedMs);
+    },
+    tick(elapsedMs = 1500) {
+      context.now += elapsedMs;
       context.intervals.forEach((listener) => listener());
       this.messages = JSON.parse(JSON.stringify(context.messages));
     }

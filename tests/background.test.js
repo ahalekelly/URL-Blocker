@@ -200,6 +200,50 @@ test("urlChanged redirects matching URLs inside the schedule", async () => {
   }]);
 });
 
+test("screenTimeElapsed logs time when the page host matches a blocklist domain", async () => {
+  const api = fakeApi();
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "https://reddit.com/popular" },
+    { id: "22222222-2222-4222-8222-222222222222", kind: "domain", value: "example.com" },
+    { id: "33333333-3333-4333-8333-333333333333", kind: "regex", value: "^https://ignored\\.example/" }
+  ]);
+  const controller = createBackgroundController(api);
+
+  assert.deepEqual(await controller.handleMessage({
+    type: "screenTimeElapsed",
+    url: "https://old.reddit.com/r/safari",
+    elapsedMs: 1500
+  }, {}), { type: "logged", domain: "reddit.com", totalMs: 1500 });
+  assert.deepEqual(await controller.handleMessage({
+    type: "screenTimeElapsed",
+    url: "https://www.example.com/path",
+    elapsedMs: 2500
+  }, {}), { type: "logged", domain: "example.com", totalMs: 2500 });
+  assert.deepEqual(await controller.handleMessage({
+    type: "screenTimeElapsed",
+    url: "https://ignored.example/",
+    elapsedMs: 1000
+  }, {}), { type: "ignored" });
+
+  assert.deepEqual(await controller.handleMessage({ type: "getScreenTimeLog" }, {}), {
+    type: "screenTimeLog",
+    entries: [
+      { domain: "example.com", totalMs: 2500 },
+      { domain: "reddit.com", totalMs: 1500 }
+    ]
+  });
+});
+
+test("screenTimeElapsed validates elapsed time", async () => {
+  const controller = createBackgroundController(fakeApi());
+
+  await assert.rejects(() => controller.handleMessage({
+    type: "screenTimeElapsed",
+    url: "https://reddit.com",
+    elapsedMs: 0
+  }, {}), /positive integer/);
+});
+
 test("saveState redirects open tabs that match the new state", async () => {
   const api = fakeApi({
     tabs: [

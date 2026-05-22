@@ -179,7 +179,8 @@ h2 {
 }
 
 .schedule-options,
-.schedule-window-fields {
+.schedule-window-fields,
+.screen-time-row {
   display: flex;
   gap: 12px;
 }
@@ -192,6 +193,41 @@ h2 {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.screen-time-rows {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.screen-time-row {
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+
+.screen-time-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.screen-time-domain {
+  overflow-wrap: anywhere;
+}
+
+.screen-time-total,
+.empty-screen-time {
+  color: var(--muted);
+}
+
+.screen-time-total {
+  white-space: nowrap;
+}
+
+.empty-screen-time {
+  margin-top: 8px;
 }
 
 .segments button {

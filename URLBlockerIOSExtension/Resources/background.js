@@ -7,6 +7,7 @@
 
   const core = root.BlockerCore || require("./blocker.js");
   const CONTENT_SCRIPT_ID = "url-blocker-content";
+  const SCREEN_TIME_KEY = "screenTimeByDomain";
 
   function createBackgroundController(api) {
     const stateStorage = createStateStorage(api);
@@ -35,6 +36,12 @@
         case "urlChanged":
           requireKeys(message, ["type", "url"], "urlChanged message");
           return urlChanged(message.url, sender);
+        case "screenTimeElapsed":
+          requireKeys(message, ["type", "url", "elapsedMs"], "screenTimeElapsed message");
+          return logScreenTime(message.url, message.elapsedMs);
+        case "getScreenTimeLog":
+          requireKeys(message, ["type"], "getScreenTimeLog message");
+          return getScreenTimeLog();
         default:
           throw new Error(`Unknown message type: ${message.type}`);
       }
@@ -95,6 +102,34 @@
       return redirectBlockedUrl(sender.tab.id, rawUrl);
     }
 
+    async function logScreenTime(rawUrl, elapsedMs) {
+      if (typeof rawUrl !== "string" || rawUrl.trim() === "") {
+        throw new Error("Screen time URL must be a string.");
+      }
+
+      if (!Number.isInteger(elapsedMs) || elapsedMs <= 0) {
+        throw new Error("Screen time elapsed time must be a positive integer.");
+      }
+
+      const match = core.screenTimeDomainForUrl(await loadState(), rawUrl);
+
+      switch (match.type) {
+        case "none":
+          return { type: "ignored" };
+        case "match":
+          return saveScreenTime(match.domain, elapsedMs);
+        default:
+          throw new Error(`Unknown screen time match type: ${match.type}`);
+      }
+    }
+
+    async function getScreenTimeLog() {
+      return {
+        type: "screenTimeLog",
+        entries: screenTimeEntries(await loadScreenTimeLog())
+      };
+    }
+
     async function redirectBlockedUrl(tabId, rawUrl) {
       if (typeof tabId !== "number") {
         throw new Error("Blocked tab ID must be a number.");
@@ -147,6 +182,22 @@
       }
 
       return core.parseStoredState(stored);
+    }
+
+    async function saveScreenTime(domain, elapsedMs) {
+      const log = await loadScreenTimeLog();
+      const totalMs = (log[domain] || 0) + elapsedMs;
+
+      log[domain] = totalMs;
+      await api.storage.local.set({ [SCREEN_TIME_KEY]: log });
+
+      return { type: "logged", domain, totalMs };
+    }
+
+    async function loadScreenTimeLog() {
+      const stored = await api.storage.local.get(SCREEN_TIME_KEY);
+
+      return parseScreenTimeLog(stored[SCREEN_TIME_KEY]);
     }
 
     async function loadDefaultState() {
@@ -207,9 +258,11 @@
     }
 
     return {
+      getScreenTimeLog,
       getState,
       handleMessage,
       loadState,
+      logScreenTime,
       openOptions,
       redirectBlockedUrl,
       resetState,
@@ -217,6 +270,38 @@
       syncContentScripts,
       syncWebsiteAccess
     };
+  }
+
+  function parseScreenTimeLog(rawLog) {
+    if (rawLog === undefined) {
+      return {};
+    }
+
+    if (!isPlainObject(rawLog)) {
+      throw new Error("Screen time log must be an object.");
+    }
+
+    const log = {};
+
+    Object.entries(rawLog).forEach(([domain, totalMs]) => {
+      if (core.normalizeDomainEntryValue(domain) !== domain) {
+        throw new Error("Screen time domain must be normalized.");
+      }
+
+      if (!Number.isInteger(totalMs) || totalMs < 0) {
+        throw new Error("Screen time total must be a non-negative integer.");
+      }
+
+      log[domain] = totalMs;
+    });
+
+    return log;
+  }
+
+  function screenTimeEntries(log) {
+    return Object.entries(log)
+      .map(([domain, totalMs]) => ({ domain, totalMs }))
+      .sort((left, right) => right.totalMs - left.totalMs || left.domain.localeCompare(right.domain));
   }
 
   function createStateStorage(api) {

@@ -181,6 +181,30 @@ test("matches only when the schedule is active", () => {
   assert.equal(core.findActiveMatchingEntry(state, "https://example.com", new Date(2026, 0, 1, 17, 0)).type, "none");
 });
 
+test("finds screen time domains by host only", () => {
+  const state = validState([
+    { id: ids[0], kind: "url", value: "https://example.com/focus" },
+    { id: ids[1], kind: "urlWithSubpaths", value: "https://news.example.org/latest" },
+    { id: ids[2], kind: "domain", value: "example.net" },
+    { id: ids[3], kind: "regex", value: "^https://ignored\\.example/" }
+  ]);
+
+  assert.deepEqual(core.screenTimeDomainForUrl(state, "https://www.example.com/anything"), {
+    type: "match",
+    domain: "example.com"
+  });
+  assert.deepEqual(core.screenTimeDomainForUrl(state, "https://updates.news.example.org/archive"), {
+    type: "match",
+    domain: "news.example.org"
+  });
+  assert.deepEqual(core.screenTimeDomainForUrl(state, "https://deep.example.net/path"), {
+    type: "match",
+    domain: "example.net"
+  });
+  assert.deepEqual(core.screenTimeDomainForUrl(state, "https://ignored.example/"), { type: "none" });
+  assert.deepEqual(core.screenTimeDomainForUrl(state, "safari-web-extension://extension/options.html"), { type: "none" });
+});
+
 test("collapses alias-created duplicates during migration", () => {
   const migrated = core.validateState({
     schemaVersion: 4,

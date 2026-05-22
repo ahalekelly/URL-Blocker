@@ -4,6 +4,8 @@
   const api = root.browser || root.chrome;
   let lastSentUrl = "";
   let queuedCheck = 0;
+  let screenTimeUrl = "";
+  let screenTimeStartedAt = 0;
 
   start();
 
@@ -14,9 +16,10 @@
 
   function watchPage() {
     root.addEventListener("pageshow", checkCurrentUrl);
+    root.addEventListener("pagehide", stopScreenTime);
     root.addEventListener("popstate", checkCurrentUrl);
     root.addEventListener("hashchange", checkCurrentUrl);
-    root.addEventListener("visibilitychange", checkWhenVisible);
+    root.addEventListener("visibilitychange", syncVisibility);
     root.addEventListener("focus", checkCurrentUrl);
     root.addEventListener("click", queueCheck, true);
     root.addEventListener("submit", queueCheck, true);
@@ -31,8 +34,10 @@
     }, 1500);
   }
 
-  function checkWhenVisible() {
-    if (!document.hidden) {
+  function syncVisibility() {
+    if (document.hidden) {
+      stopScreenTime();
+    } else {
       checkCurrentUrl();
     }
   }
@@ -55,11 +60,61 @@
   }
 
   function checkCurrentUrl() {
+    updateScreenTimeUrl(Date.now());
     sendCurrentUrl(false);
   }
 
   function recheckCurrentUrl() {
+    const now = Date.now();
+
+    updateScreenTimeUrl(now);
+    sendScreenTime(now);
     sendCurrentUrl(true);
+  }
+
+  function updateScreenTimeUrl(now) {
+    if (document.hidden) {
+      return;
+    }
+
+    const currentUrl = location.href;
+
+    if (screenTimeUrl === "") {
+      screenTimeUrl = currentUrl;
+      screenTimeStartedAt = now;
+      return;
+    }
+
+    if (screenTimeUrl === currentUrl) {
+      return;
+    }
+
+    sendScreenTime(now);
+    screenTimeUrl = currentUrl;
+    screenTimeStartedAt = now;
+  }
+
+  function stopScreenTime() {
+    sendScreenTime(Date.now());
+    screenTimeUrl = "";
+    screenTimeStartedAt = 0;
+  }
+
+  function sendScreenTime(now) {
+    if (screenTimeUrl === "") {
+      return;
+    }
+
+    const elapsedMs = now - screenTimeStartedAt;
+
+    if (elapsedMs <= 0) {
+      return;
+    }
+
+    const url = screenTimeUrl;
+    screenTimeStartedAt = now;
+    api.runtime.sendMessage({ type: "screenTimeElapsed", url, elapsedMs })
+      .catch((error) => console.error("URL Blocker could not log screen time.", error));
   }
 
   function sendCurrentUrl(force) {
