@@ -402,14 +402,52 @@ test("saveState redirects open tabs that match the new state", async () => {
   }]);
 });
 
-function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits = core.domainLimitsForEntries(entries, [])) {
+function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits) {
+  const stateEntries = stateEntriesWithDefaults(entries);
+
   return {
-    schemaVersion: 6,
-    entries,
+    schemaVersion: core.SCHEMA_VERSION,
+    entries: stateEntries,
     blockedPageHtml: "<p>Blocked.</p>",
     schedule,
-    domainLimits
+    domainLimits: core.domainLimitsForEntries(stateEntries, domainLimits === undefined ? [] : domainLimits)
   };
+}
+
+function stateEntriesWithDefaults(entries) {
+  const defaultIdsByMatcher = new Map(defaultBlockedPages.map((entry) => [matcherKey(entry), entry.id]));
+  const enabledDefaultIds = new Set();
+  const customEntries = [];
+
+  entries.forEach((entry) => {
+    const defaultId = defaultIdsByMatcher.get(matcherKey(entry));
+
+    if (defaultId) {
+      enabledDefaultIds.add(defaultId);
+      return;
+    }
+
+    customEntries.push({ type: "custom", ...entry });
+  });
+
+  return [
+    ...defaultBlockedPages.map((entry) => ({ ...entry, enabled: enabledDefaultIds.has(entry.id) })),
+    ...customEntries
+  ];
+}
+
+function matcherKey(entry) {
+  switch (entry.kind) {
+    case "domain":
+      return `${entry.kind}:${core.normalizeDomainEntryValue(entry.value)}`;
+    case "url":
+    case "urlWithSubpaths":
+      return `${entry.kind}:${core.normalizeUrlEntryValue(entry.value)}`;
+    case "regex":
+      return `${entry.kind}:${core.normalizeRegexEntryValue(entry.value)}`;
+    default:
+      throw new Error(`Unknown matcher kind: ${entry.kind}`);
+  }
 }
 
 function activeSchedule() {

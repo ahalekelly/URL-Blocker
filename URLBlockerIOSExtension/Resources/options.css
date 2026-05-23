@@ -178,6 +178,25 @@ h2 {
   gap: 6px;
 }
 
+.default-kind {
+  align-items: center;
+  min-height: 34px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.enabled-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 0;
+}
+
+.enabled-label[hidden] {
+  display: none;
+}
+
 .schedule-options,
 .schedule-window-fields,
 .screen-time-row {
@@ -269,6 +288,11 @@ input[type="radio"] {
   min-height: 0;
 }
 
+input[type="checkbox"] {
+  width: auto;
+  min-height: 0;
+}
+
 input {
   min-height: 44px;
   padding: 0 12px;
@@ -278,6 +302,10 @@ textarea {
   min-height: 160px;
   padding: 10px 12px;
   resize: vertical;
+}
+
+input[readonly] {
+  color: var(--muted);
 }
 
 .delete-button {

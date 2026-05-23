@@ -2,7 +2,8 @@
   "use strict";
 
   const STATE_KEY = "blockerState";
-  const SCHEMA_VERSION = 6;
+  const SCHEMA_VERSION = 7;
+  const LEGACY_SCHEMA_VERSION = 6;
   const MAX_ENTRIES = 1000;
   const MAX_BLOCKED_PAGE_HTML_LENGTH = 4000;
   const DEFAULT_LIMIT_MINUTES = 30;
@@ -35,14 +36,15 @@
     regex: "Custom regex"
   };
 
-  function emptyState(entries) {
+  function emptyState(defaultEntries) {
+    const entries = normalizeDefaultEntries(defaultEntries);
     const result = validateState({
       schemaVersion: SCHEMA_VERSION,
       entries,
       blockedPageHtml: DEFAULT_BLOCKED_PAGE_HTML,
       schedule: DEFAULT_SCHEDULE,
       domainLimits: domainLimitsForEntries(entries, [])
-    });
+    }, entries);
 
     if (result.type === "invalid") {
       throw new Error(result.errors.map((error) => error.message).join("\n"));
@@ -56,10 +58,11 @@
       throw new Error(`Unknown matcher kind: ${kind}`);
     }
 
-    return { id: crypto.randomUUID(), kind, value: "" };
+    return { type: "custom", id: crypto.randomUUID(), kind, value: "" };
   }
 
-  function validateState(rawState) {
+  function validateState(rawState, defaultEntries) {
+    const defaultCatalog = defaultEntryCatalog(defaultEntries);
     const errors = [];
 
     if (!isPlainObject(rawState)) {
@@ -115,13 +118,23 @@
 
     const entries = [];
     const seen = new Set();
+    const seenDefaultIds = new Set();
 
     rawState.entries.forEach((entry, index) => {
-      const result = normalizeEntry(entry, index);
+      const result = normalizeEntry(entry, index, defaultCatalog);
 
       if (result.type === "invalid") {
         errors.push(...result.errors);
         return;
+      }
+
+      if (result.entry.type === "default") {
+        if (seenDefaultIds.has(result.entry.id)) {
+          errors.push({ index, message: "Duplicate default entry." });
+          return;
+        }
+
+        seenDefaultIds.add(result.entry.id);
       }
 
       const duplicateKey = `${result.entry.kind}:${result.entry.value.toLowerCase()}`;
@@ -137,6 +150,14 @@
 
       seen.add(duplicateKey);
       entries.push(result.entry);
+    });
+
+    defaultCatalog.entries.forEach((entry) => {
+      if (seenDefaultIds.has(entry.id)) {
+        return;
+      }
+
+      errors.push({ index: null, message: `Missing default entry: ${entry.value}.` });
     });
 
     if (errors.length > 0) {
@@ -165,8 +186,8 @@
     };
   }
 
-  function parseStoredState(rawState) {
-    const result = validateState(rawState);
+  function parseStoredState(rawState, defaultEntries) {
+    const result = validateState(migrateStoredState(rawState, defaultEntries), defaultEntries);
 
     if (result.type === "invalid") {
       throw new Error(result.errors.map((error) => error.message).join("\n"));
@@ -175,14 +196,132 @@
     return result.state;
   }
 
-  function normalizeEntry(entry, index) {
+  function migrateStoredState(rawState, defaultEntries) {
+    if (!isPlainObject(rawState) || rawState.schemaVersion !== LEGACY_SCHEMA_VERSION || !Array.isArray(rawState.entries)) {
+      return rawState;
+    }
+
+    const defaultCatalog = defaultEntryCatalog(defaultEntries);
+    const seenDefaultIds = new Set();
+    const entries = rawState.entries.map((entry) => {
+      if (!isPlainObject(entry) || typeof entry.id !== "string") {
+        return entry;
+      }
+
+      const defaultEntry = defaultCatalog.byId.get(entry.id.toLowerCase());
+
+      if (!defaultEntry) {
+        return { type: "custom", id: entry.id, kind: entry.kind, value: entry.value };
+      }
+
+      seenDefaultIds.add(defaultEntry.id);
+
+      return { ...defaultEntry, enabled: true };
+    });
+
+    defaultCatalog.entries.forEach((entry) => {
+      if (seenDefaultIds.has(entry.id)) {
+        return;
+      }
+
+      entries.push({ ...entry, enabled: false });
+    });
+
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      entries,
+      blockedPageHtml: rawState.blockedPageHtml,
+      schedule: rawState.schedule,
+      domainLimits: domainLimitsForEntries(entries, Array.isArray(rawState.domainLimits) ? rawState.domainLimits : [])
+    };
+  }
+
+  function normalizeDefaultEntries(defaultEntries) {
+    if (!Array.isArray(defaultEntries)) {
+      throw new Error("Default entries must be an array.");
+    }
+
+    const seen = new Set();
+
+    return defaultEntries.map((entry, index) => {
+      if (!isPlainObject(entry)) {
+        throw new Error("Default entry must be an object.");
+      }
+
+      const errors = [];
+
+      pushUnknownKeyErrors(errors, entry, ["type", "id", "kind", "value", "enabled"], "Default entry", index);
+
+      if (entry.type !== "default") {
+        errors.push({ index, message: "Default entry type must be default." });
+      }
+
+      if (typeof entry.id !== "string" || !UUID_PATTERN.test(entry.id)) {
+        errors.push({ index, message: "Default entry ID must be a valid UUID." });
+      }
+
+      if (entry.kind !== "url") {
+        errors.push({ index, message: "Default entries must be URL entries." });
+      }
+
+      if (typeof entry.value !== "string" || entry.value.trim() === "") {
+        errors.push({ index, message: "Default entry value must be a string." });
+      }
+
+      if (entry.enabled !== true) {
+        errors.push({ index, message: "Default entries must start enabled." });
+      }
+
+      if (errors.length > 0) {
+        throw new Error(errors[0].message);
+      }
+
+      const id = entry.id.toLowerCase();
+
+      if (seen.has(id)) {
+        throw new Error("Duplicate default entry ID.");
+      }
+
+      seen.add(id);
+
+      return { type: "default", id, kind: "url", value: normalizeUrlEntryValue(entry.value), enabled: true };
+    });
+  }
+
+  function defaultEntryCatalog(defaultEntries) {
+    const entries = normalizeDefaultEntries(defaultEntries);
+
+    return {
+      entries,
+      byId: new Map(entries.map((entry) => [entry.id, entry]))
+    };
+  }
+
+  function normalizeEntry(entry, index, defaultCatalog) {
     const errors = [];
 
     if (!isPlainObject(entry)) {
       return invalid([{ index, message: "Entry must be an object." }]);
     }
 
-    pushUnknownKeyErrors(errors, entry, ["id", "kind", "value"], "Entry", index);
+    if (typeof entry.type !== "string") {
+      return invalid([{ index, message: "Entry type must be a string." }]);
+    }
+
+    switch (entry.type) {
+      case "custom":
+        return normalizeCustomEntry(entry, index);
+      case "default":
+        return normalizeDefaultEntry(entry, index, defaultCatalog);
+      default:
+        return invalid([{ index, message: `Unknown entry type: ${entry.type}` }]);
+    }
+  }
+
+  function normalizeCustomEntry(entry, index) {
+    const errors = [];
+
+    pushUnknownKeyErrors(errors, entry, ["type", "id", "kind", "value"], "Entry", index);
 
     if (typeof entry.id !== "string" || !UUID_PATTERN.test(entry.id)) {
       errors.push({ index, message: "Entry ID must be a valid UUID." });
@@ -201,25 +340,72 @@
     }
 
     try {
-      switch (entry.kind) {
-        case "domain":
-          return validEntry(entry, normalizeDomainEntryValue(entry.value), false);
-        case "url":
-          return validUrlEntry(entry);
-        case "urlWithSubpaths":
-          return validUrlEntry(entry);
-        case "regex": {
-          const value = normalizeRegexEntryValue(entry.value);
-
-          domainForRegexEntryValue(value);
-
-          return validEntry(entry, value, false);
-        }
-        default:
-          throw new Error(`Unknown matcher kind: ${entry.kind}`);
-      }
+      return validEntry(entry, normalizeEntryValue(entry.kind, entry.value));
     } catch (error) {
       return invalid([{ index, message: error.message }]);
+    }
+  }
+
+  function normalizeDefaultEntry(entry, index, defaultCatalog) {
+    const errors = [];
+
+    pushUnknownKeyErrors(errors, entry, ["type", "id", "kind", "value", "enabled"], "Entry", index);
+
+    if (typeof entry.id !== "string" || !UUID_PATTERN.test(entry.id)) {
+      errors.push({ index, message: "Entry ID must be a valid UUID." });
+    }
+
+    if (entry.kind !== "url") {
+      errors.push({ index, message: "Default entries must be URL entries." });
+    }
+
+    if (typeof entry.value !== "string" || entry.value.trim() === "") {
+      errors.push({ index, message: "Enter a value." });
+    }
+
+    if (typeof entry.enabled !== "boolean") {
+      errors.push({ index, message: "Default entry enabled value must be a boolean." });
+    }
+
+    if (errors.length > 0) {
+      return invalid(errors);
+    }
+
+    const defaultEntry = defaultCatalog.byId.get(entry.id.toLowerCase());
+
+    if (!defaultEntry) {
+      return invalid([{ index, message: "Unknown default entry." }]);
+    }
+
+    try {
+      const result = normalizeEntryValue(entry.kind, entry.value);
+
+      if (defaultEntry.kind !== entry.kind || defaultEntry.value !== result.value) {
+        return invalid([{ index, message: "Default entry does not match its default URL." }]);
+      }
+
+      return validEntry(entry, result);
+    } catch (error) {
+      return invalid([{ index, message: error.message }]);
+    }
+  }
+
+  function normalizeEntryValue(kind, value) {
+    switch (kind) {
+      case "domain":
+        return { value: normalizeDomainEntryValue(value), aliased: false };
+      case "url":
+      case "urlWithSubpaths":
+        return normalizeUrlEntry(value);
+      case "regex": {
+        const normalizedValue = normalizeRegexEntryValue(value);
+
+        domainForRegexEntryValue(normalizedValue);
+
+        return { value: normalizedValue, aliased: false };
+      }
+      default:
+        throw new Error(`Unknown matcher kind: ${kind}`);
     }
   }
 
@@ -495,6 +681,10 @@
     }
 
     for (const entry of state.entries) {
+      if (!entryIsEnabled(entry)) {
+        continue;
+      }
+
       if (entryMatchesUrl(entry, result.url)) {
         return { type: "match", entry };
       }
@@ -539,7 +729,7 @@
       return { type: "none" };
     }
 
-    const limits = [...state.domainLimits].sort((left, right) => right.domain.length - left.domain.length);
+    const limits = activeDomainLimits(state).sort((left, right) => right.domain.length - left.domain.length);
 
     for (const limit of limits) {
       if (domainMatchesHost(limit.domain, result.url.limitHost)) {
@@ -554,14 +744,31 @@
     return [...new Set(entries.map(associatedDomainForEntry))].sort();
   }
 
+  function activeDomainLimits(state) {
+    const activeDomains = new Set(entryDomains(state.entries.filter(entryIsEnabled)));
+
+    return state.domainLimits.filter((limit) => activeDomains.has(limit.domain));
+  }
+
+  function entryIsEnabled(entry) {
+    switch (entry.type) {
+      case "custom":
+        return true;
+      case "default":
+        return entry.enabled;
+      default:
+        throw new Error(`Unknown entry type: ${entry.type}`);
+    }
+  }
+
   function rawEntryDomains(entries) {
     const domains = [];
 
-    entries.forEach((entry, index) => {
-      const result = normalizeEntry(entry, index);
-
-      if (result.type === "valid") {
-        domains.push(associatedDomainForEntry(result.entry));
+    entries.forEach((entry) => {
+      try {
+        domains.push(domainForEntry(entry));
+      } catch {
+        return;
       }
     });
 
@@ -569,13 +776,13 @@
   }
 
   function domainForEntry(entry) {
-    const result = normalizeEntry(entry, null);
-
-    if (result.type === "invalid") {
-      throw new Error(result.errors[0].message);
+    if (!isPlainObject(entry) || typeof entry.kind !== "string" || typeof entry.value !== "string") {
+      throw new Error("Entry must include a kind and value.");
     }
 
-    return associatedDomainForEntry(result.entry);
+    const result = normalizeEntryValue(entry.kind, entry.value);
+
+    return associatedDomainForEntry({ kind: entry.kind, value: result.value });
   }
 
   function associatedDomainForEntry(entry) {
@@ -614,7 +821,7 @@
   }
 
   function permissionOriginsForState(state) {
-    return permissionOriginsForEntries(state.entries);
+    return permissionOriginsForEntries(state.entries.filter(entryIsEnabled));
   }
 
   function permissionOriginsForEntries(entries) {
@@ -641,6 +848,10 @@
   }
 
   function entryMatchesUrl(entry, pageUrl) {
+    if (!entryIsEnabled(entry)) {
+      return false;
+    }
+
     switch (entry.kind) {
       case "domain":
         return domainMatchesUrl(entry.value, pageUrl);
@@ -887,14 +1098,23 @@
     });
   }
 
-  function validUrlEntry(entry) {
-    const result = normalizeUrlEntry(entry.value);
-
-    return validEntry(entry, result.value, result.aliased);
-  }
-
-  function validEntry(entry, value, aliased) {
-    return { type: "valid", entry: { id: entry.id.toLowerCase(), kind: entry.kind, value }, aliased };
+  function validEntry(entry, result) {
+    switch (entry.type) {
+      case "custom":
+        return {
+          type: "valid",
+          entry: { type: "custom", id: entry.id.toLowerCase(), kind: entry.kind, value: result.value },
+          aliased: result.aliased
+        };
+      case "default":
+        return {
+          type: "valid",
+          entry: { type: "default", id: entry.id.toLowerCase(), kind: entry.kind, value: result.value, enabled: entry.enabled },
+          aliased: result.aliased
+        };
+      default:
+        throw new Error(`Unknown entry type: ${entry.type}`);
+    }
   }
 
   function invalid(errors) {

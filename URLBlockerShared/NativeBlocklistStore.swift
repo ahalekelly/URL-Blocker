@@ -8,7 +8,8 @@ enum NativeBlocklistStore {
 
     static let stateKey = "blockerState"
 
-    private static let schemaVersion = 6
+    private static let schemaVersion = 7
+    private static let legacySchemaVersion = 6
     private static let screenTimeUsageKey = "screenTimeUsage"
     private static let screenTimeUsageSchemaVersion = 1
     private static let screenTimeWindowHours = 16
@@ -19,6 +20,7 @@ enum NativeBlocklistStore {
     private static let defaultSchedule: [String: Any] = ["type": "always"]
     private static let appGroupIdentifier = "group.com.akelly.URLBlocker"
     private static let entryKinds = Set(["domain", "url", "urlWithSubpaths", "regex"])
+    private static let entryTypes = Set(["custom", "default"])
     private static let entryIdPattern = #"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"#
     private static let urlAliases: [UrlAlias] = [
         .exact(source: "x.com/home", target: "x.com"),
@@ -75,7 +77,7 @@ enum NativeBlocklistStore {
 
     private static func saveState(_ rawState: Any?) -> [String: Any] {
         do {
-            let state = try validateState(rawState)
+            let state = try validateState(rawState, try normalizedDefaultEntries())
             defaults.set(state, forKey: stateKey)
             return ["type": "saved", "state": state]
         } catch let error as BlocklistValidationError {
@@ -135,10 +137,24 @@ enum NativeBlocklistStore {
             return try emptyState()
         }
 
-        return try validateState(storedState)
+        return try validateStoredState(storedState)
     }
 
-    private static func validateState(_ rawState: Any?) throws -> [String: Any] {
+    private static func validateStoredState(_ rawState: Any?) throws -> [String: Any] {
+        guard let state = rawState as? [String: Any] else {
+            return try validateState(rawState, try normalizedDefaultEntries())
+        }
+
+        let defaultEntries = try normalizedDefaultEntries()
+
+        if state["schemaVersion"] as? Int == legacySchemaVersion {
+            return try validateState(migrateLegacyState(state, defaultEntries), defaultEntries)
+        }
+
+        return try validateState(rawState, defaultEntries)
+    }
+
+    private static func validateState(_ rawState: Any?, _ defaultEntries: [[String: Any]]) throws -> [String: Any] {
         guard let state = rawState as? [String: Any] else {
             throw BlocklistValidationError([BlocklistError(index: nil, message: "Blocklist data must be an object.")])
         }
@@ -197,15 +213,27 @@ enum NativeBlocklistStore {
 
         var normalizedEntries: [[String: Any]] = []
         var seenEntries = Set<String>()
+        var seenDefaultIds = Set<String>()
+        let defaultEntriesById = Dictionary(uniqueKeysWithValues: defaultEntries.map { ($0["id"] as! String, $0) })
 
         entries.enumerated().forEach { index, entry in
             validateEntry(
                 entry,
                 index: index,
+                defaultEntriesById: defaultEntriesById,
                 errors: &errors,
                 normalizedEntries: &normalizedEntries,
-                seenEntries: &seenEntries
+                seenEntries: &seenEntries,
+                seenDefaultIds: &seenDefaultIds
             )
+        }
+
+        defaultEntries.forEach { entry in
+            let id = entry["id"] as! String
+
+            if seenDefaultIds.contains(id) { return }
+
+            errors.append(BlocklistError(index: nil, message: "Missing default entry: \(entry["value"] as! String)."))
         }
 
         if !errors.isEmpty {
@@ -226,11 +254,26 @@ enum NativeBlocklistStore {
     private static func validateEntry(
         _ entry: [String: Any],
         index: Int,
+        defaultEntriesById: [String: [String: Any]],
         errors: inout [BlocklistError],
         normalizedEntries: inout [[String: Any]],
-        seenEntries: inout Set<String>
+        seenEntries: inout Set<String>,
+        seenDefaultIds: inout Set<String>
     ) {
-        pushUnknownKeyErrors(&errors, entry, ["id", "kind", "value"], "Entry", index)
+        guard let type = entry["type"] as? String, entryTypes.contains(type) else {
+            errors.append(BlocklistError(index: index, message: "Choose a known entry type."))
+            return
+        }
+
+        switch type {
+        case "custom":
+            pushUnknownKeyErrors(&errors, entry, ["type", "id", "kind", "value"], "Entry", index)
+        case "default":
+            pushUnknownKeyErrors(&errors, entry, ["type", "id", "kind", "value", "enabled"], "Entry", index)
+        default:
+            errors.append(BlocklistError(index: index, message: "Unknown entry type: \(type)"))
+            return
+        }
 
         guard let id = entry["id"] as? String, matches(id, entryIdPattern) else {
             errors.append(BlocklistError(index: index, message: "Entry ID must be a valid UUID."))
@@ -242,9 +285,27 @@ enum NativeBlocklistStore {
             return
         }
 
+        if type == "default", kind != "url" {
+            errors.append(BlocklistError(index: index, message: "Default entries must be URL entries."))
+            return
+        }
+
         guard let value = entry["value"] as? String, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             errors.append(BlocklistError(index: index, message: "Enter a value."))
             return
+        }
+
+        let enabled: Bool
+
+        if type == "default" {
+            guard let defaultEnabled = entry["enabled"] as? Bool else {
+                errors.append(BlocklistError(index: index, message: "Default entry enabled value must be a boolean."))
+                return
+            }
+
+            enabled = defaultEnabled
+        } else {
+            enabled = true
         }
 
         let normalizedValue: String
@@ -257,7 +318,33 @@ enum NativeBlocklistStore {
             return
         }
 
-        let normalizedEntry = ["id": id.lowercased(), "kind": kind, "value": normalizedValue]
+        let normalizedId = id.lowercased()
+
+        if type == "default" {
+            guard let defaultEntry = defaultEntriesById[normalizedId] else {
+                errors.append(BlocklistError(index: index, message: "Unknown default entry."))
+                return
+            }
+
+            if defaultEntry["kind"] as? String != kind || defaultEntry["value"] as? String != normalizedValue {
+                errors.append(BlocklistError(index: index, message: "Default entry does not match its default URL."))
+                return
+            }
+
+            if seenDefaultIds.contains(normalizedId) {
+                errors.append(BlocklistError(index: index, message: "Duplicate default entry."))
+                return
+            }
+
+            seenDefaultIds.insert(normalizedId)
+        }
+
+        var normalizedEntry: [String: Any] = ["type": type, "id": normalizedId, "kind": kind, "value": normalizedValue]
+
+        if type == "default" {
+            normalizedEntry["enabled"] = enabled
+        }
+
         let duplicateKey = "\(kind):\(normalizedValue.lowercased())"
 
         if seenEntries.contains(duplicateKey) {
@@ -509,10 +596,22 @@ enum NativeBlocklistStore {
     }
 
     private static func domainLimitsForEntries(_ entries: [[String: Any]]) throws -> [[String: Any]] {
+        try domainLimitsForEntries(entries, [])
+    }
+
+    private static func domainLimitsForEntries(_ entries: [[String: Any]], _ existingDomainLimits: [[String: Any]]) throws -> [[String: Any]] {
         let domains = Set(try entries.map(associatedDomain))
+        var existingLimits: [String: Int] = [:]
+
+        existingDomainLimits.forEach { limit in
+            guard let domain = limit["domain"] as? String,
+                  let limitMinutes = limit["limitMinutes"] as? Int else { return }
+
+            existingLimits[domain] = limitMinutes
+        }
 
         return domains.sorted().map { domain in
-            ["domain": domain, "limitMinutes": defaultLimitMinutes]
+            ["domain": domain, "limitMinutes": existingLimits[domain] ?? defaultLimitMinutes]
         }
     }
 
@@ -627,11 +726,7 @@ enum NativeBlocklistStore {
         _ usage: [String: [String: Int]],
         _ hour: Int
     ) throws -> [[String: Any]] {
-        guard let domainLimits = state["domainLimits"] as? [[String: Any]] else {
-            throw NativeBlocklistError("Domain limits must be an array.")
-        }
-
-        return try domainLimits.map { limit in
+        try activeDomainLimits(state).map { limit in
             guard let domain = limit["domain"] as? String,
                   let limitMinutes = limit["limitMinutes"] as? Int else {
                 throw NativeBlocklistError("Domain limit is invalid.")
@@ -654,6 +749,40 @@ enum NativeBlocklistStore {
             }
 
             return (left["domain"] as! String) < (right["domain"] as! String)
+        }
+    }
+
+    private static func activeDomainLimits(_ state: [String: Any]) throws -> [[String: Any]] {
+        guard let entries = state["entries"] as? [[String: Any]],
+              let domainLimits = state["domainLimits"] as? [[String: Any]] else {
+            throw NativeBlocklistError("Blocklist entries and domain limits are invalid.")
+        }
+
+        let activeDomains = Set(try entries.filter(entryIsEnabled).map(associatedDomain))
+
+        return domainLimits.filter { limit in
+            guard let domain = limit["domain"] as? String else { return false }
+
+            return activeDomains.contains(domain)
+        }
+    }
+
+    private static func entryIsEnabled(_ entry: [String: Any]) throws -> Bool {
+        guard let type = entry["type"] as? String else {
+            throw NativeBlocklistError("Entry type must be a string.")
+        }
+
+        switch type {
+        case "custom":
+            return true
+        case "default":
+            guard let enabled = entry["enabled"] as? Bool else {
+                throw NativeBlocklistError("Default entry enabled value must be a boolean.")
+            }
+
+            return enabled
+        default:
+            throw NativeBlocklistError("Unknown entry type: \(type)")
         }
     }
 
@@ -706,7 +835,7 @@ enum NativeBlocklistStore {
     }
 
     private static func emptyState() throws -> [String: Any] {
-        let entries = try defaultBlockedPageEntries()
+        let entries = try normalizedDefaultEntries()
 
         return try validateState([
             "schemaVersion": schemaVersion,
@@ -714,7 +843,89 @@ enum NativeBlocklistStore {
             "blockedPageHtml": defaultBlockedPageHtml,
             "schedule": defaultSchedule,
             "domainLimits": try domainLimitsForEntries(entries)
-        ])
+        ], entries)
+    }
+
+    private static func migrateLegacyState(_ state: [String: Any], _ defaultEntries: [[String: Any]]) throws -> [String: Any] {
+        guard let oldEntries = state["entries"] as? [[String: Any]] else {
+            return state
+        }
+
+        let defaultEntriesById = Dictionary(uniqueKeysWithValues: defaultEntries.map { ($0["id"] as! String, $0) })
+        var seenDefaultIds = Set<String>()
+        var entries: [[String: Any]] = oldEntries.map { entry in
+            guard let id = entry["id"] as? String else {
+                return entry
+            }
+
+            guard let defaultEntry = defaultEntriesById[id.lowercased()] else {
+                return ["type": "custom", "id": id, "kind": entry["kind"] as Any, "value": entry["value"] as Any]
+            }
+
+            seenDefaultIds.insert(defaultEntry["id"] as! String)
+
+            return defaultEntry
+        }
+
+        defaultEntries.forEach { entry in
+            let id = entry["id"] as! String
+
+            if seenDefaultIds.contains(id) { return }
+
+            var disabledEntry = entry
+            disabledEntry["enabled"] = false
+            entries.append(disabledEntry)
+        }
+
+        return [
+            "schemaVersion": schemaVersion,
+            "entries": entries,
+            "blockedPageHtml": state["blockedPageHtml"] as Any,
+            "schedule": state["schedule"] as Any,
+            "domainLimits": try domainLimitsForEntries(entries, state["domainLimits"] as? [[String: Any]] ?? [])
+        ]
+    }
+
+    private static func normalizedDefaultEntries() throws -> [[String: Any]] {
+        var seenIds = Set<String>()
+
+        return try defaultBlockedPageEntries().map { entry in
+            try requireKeys(entry, ["type", "id", "kind", "value", "enabled"], "Default entry")
+
+            guard entry["type"] as? String == "default" else {
+                throw NativeBlocklistError("Default entry type must be default.")
+            }
+
+            guard let id = entry["id"] as? String, matches(id, entryIdPattern) else {
+                throw NativeBlocklistError("Default entry ID must be a valid UUID.")
+            }
+
+            if seenIds.contains(id.lowercased()) {
+                throw NativeBlocklistError("Duplicate default entry ID.")
+            }
+
+            seenIds.insert(id.lowercased())
+
+            guard entry["kind"] as? String == "url" else {
+                throw NativeBlocklistError("Default entries must be URL entries.")
+            }
+
+            guard let value = entry["value"] as? String, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw NativeBlocklistError("Default entry value must be a string.")
+            }
+
+            guard entry["enabled"] as? Bool == true else {
+                throw NativeBlocklistError("Default entries must start enabled.")
+            }
+
+            return [
+                "type": "default",
+                "id": id.lowercased(),
+                "kind": "url",
+                "value": try normalizeUrlEntryValue(value).value,
+                "enabled": true
+            ]
+        }
     }
 
     private static func defaultBlockedPageEntries() throws -> [[String: Any]] {

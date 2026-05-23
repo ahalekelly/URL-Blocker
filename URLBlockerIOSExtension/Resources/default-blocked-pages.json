@@ -1,127 +1,177 @@
 [
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000001",
     "kind": "url",
-    "value": "x.com"
+    "value": "x.com",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000008",
     "kind": "url",
-    "value": "instagram.com"
+    "value": "instagram.com",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000009",
     "kind": "url",
-    "value": "instagram.com/explore"
+    "value": "instagram.com/explore",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000010",
     "kind": "url",
-    "value": "instagram.com/reels"
+    "value": "instagram.com/reels",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000011",
     "kind": "url",
-    "value": "tiktok.com"
+    "value": "tiktok.com",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000012",
     "kind": "url",
-    "value": "tiktok.com/foryou"
+    "value": "tiktok.com/foryou",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000013",
     "kind": "url",
-    "value": "tiktok.com/following"
+    "value": "tiktok.com/following",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000014",
     "kind": "url",
-    "value": "tiktok.com/explore"
+    "value": "tiktok.com/explore",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000015",
     "kind": "url",
-    "value": "facebook.com"
+    "value": "facebook.com",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000016",
     "kind": "url",
-    "value": "facebook.com/home.php"
+    "value": "facebook.com/home.php",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000017",
     "kind": "url",
-    "value": "facebook.com/watch"
+    "value": "facebook.com/watch",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000018",
     "kind": "url",
-    "value": "facebook.com/reel"
+    "value": "facebook.com/reel",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000019",
     "kind": "url",
-    "value": "facebook.com/reels"
+    "value": "facebook.com/reels",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000020",
     "kind": "url",
-    "value": "facebook.com/groups/feed"
+    "value": "facebook.com/groups/feed",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000021",
     "kind": "url",
-    "value": "threads.com"
+    "value": "threads.com",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000022",
     "kind": "url",
-    "value": "threads.com/following"
+    "value": "threads.com/following",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000023",
     "kind": "url",
-    "value": "bsky.app"
+    "value": "bsky.app",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000024",
     "kind": "url",
-    "value": "bsky.app/profile/bsky.app/feed/whats-hot"
+    "value": "bsky.app/profile/bsky.app/feed/whats-hot",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000025",
     "kind": "url",
-    "value": "pinterest.com"
+    "value": "pinterest.com",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000026",
     "kind": "url",
-    "value": "pinterest.com/today"
+    "value": "pinterest.com/today",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000027",
     "kind": "url",
-    "value": "pinterest.com/ideas"
+    "value": "pinterest.com/ideas",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000028",
     "kind": "url",
-    "value": "linkedin.com/feed"
+    "value": "linkedin.com/feed",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000005",
     "kind": "url",
-    "value": "youtube.com"
+    "value": "youtube.com",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000006",
     "kind": "url",
-    "value": "reddit.com"
+    "value": "reddit.com",
+    "enabled": true
   },
   {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000007",
     "kind": "url",
-    "value": "ycombinator.com"
+    "value": "ycombinator.com",
+    "enabled": true
   }
 ]

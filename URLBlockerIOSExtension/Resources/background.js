@@ -60,7 +60,8 @@
     }
 
     async function saveState(rawState) {
-      const result = core.validateState(rawState);
+      const defaultEntries = await loadDefaultEntries();
+      const result = core.validateState(rawState, defaultEntries);
 
       if (result.type === "invalid") {
         return { type: "validationError", errors: result.errors };
@@ -195,7 +196,7 @@
         return loadDefaultState();
       }
 
-      return core.parseStoredState(stored);
+      return core.parseStoredState(stored, await loadDefaultEntries());
     }
 
     async function saveScreenTimeAndRedirect(state, domain, rawUrl, elapsedMs, sender) {
@@ -237,13 +238,17 @@
     }
 
     async function loadDefaultState() {
+      return core.emptyState(await loadDefaultEntries());
+    }
+
+    async function loadDefaultEntries() {
       const response = await fetch(api.runtime.getURL("default-blocked-pages.json"));
 
       if (!response.ok) {
         throw new Error("Default blocked pages could not be loaded.");
       }
 
-      return core.emptyState(await response.json());
+      return response.json();
     }
 
     async function requireWebsiteAccess(state) {
@@ -383,7 +388,7 @@
   }
 
   function screenTimeEntries(state, usage, hour) {
-    return state.domainLimits
+    return activeDomainLimits(state)
       .map((limit) => {
         const totalMs = screenTimeTotalMs(usage, limit.domain, hour);
 
@@ -395,6 +400,25 @@
         };
       })
       .sort((left, right) => right.totalMs - left.totalMs || left.domain.localeCompare(right.domain));
+  }
+
+  function activeDomainLimits(state) {
+    const activeDomains = new Set(state.entries
+      .filter(entryIsEnabled)
+      .map(core.associatedDomainForEntry));
+
+    return state.domainLimits.filter((limit) => activeDomains.has(limit.domain));
+  }
+
+  function entryIsEnabled(entry) {
+    switch (entry.type) {
+      case "custom":
+        return true;
+      case "default":
+        return entry.enabled;
+      default:
+        throw new Error(`Unknown entry type: ${entry.type}`);
+    }
   }
 
   function overLimitDomains(state, usage, hour) {

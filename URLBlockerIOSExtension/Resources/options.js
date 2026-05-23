@@ -4,6 +4,7 @@
   const api = root.browser || root.chrome;
   const core = root.BlockerCore;
   const state = {
+    defaultEntries: [],
     draftEntries: [],
     draftBlockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     draftSchedule: core.DEFAULT_SCHEDULE,
@@ -52,7 +53,12 @@
   loadState().catch(showFatalError);
 
   async function loadState() {
-    const response = await api.runtime.sendMessage({ type: "getState" });
+    const [defaultEntries, response] = await Promise.all([
+      loadDefaultEntries(),
+      api.runtime.sendMessage({ type: "getState" })
+    ]);
+
+    state.defaultEntries = defaultEntries;
 
     switch (response.type) {
       case "state":
@@ -72,6 +78,16 @@
       default:
         throw new Error(`Unknown getState response: ${response.type}`);
     }
+  }
+
+  async function loadDefaultEntries() {
+    const response = await fetch(api.runtime.getURL("default-blocked-pages.json"));
+
+    if (!response.ok) {
+      throw new Error("Default blocked pages could not be loaded.");
+    }
+
+    return core.emptyState(await response.json()).entries;
   }
 
   function render() {
@@ -103,34 +119,64 @@
     const fragment = rowTemplate.content.cloneNode(true);
     const row = fragment.querySelector(".block-row");
     const segments = fragment.querySelector(".segments");
+    const enabledInput = fragment.querySelector(".enabled-input");
+    const enabledLabel = fragment.querySelector(".enabled-label");
     const input = fragment.querySelector(".value-input");
     const limitInput = fragment.querySelector(".limit-input");
     const deleteButton = fragment.querySelector(".delete-button");
     const rowError = fragment.querySelector(".row-error");
     const error = state.rowErrors.get(entry.id) || "";
 
+    renderEntryControls(entry, segments, enabledInput, enabledLabel, deleteButton);
+
+    input.value = entry.value;
+    input.placeholder = placeholderFor(entry.kind);
+    input.readOnly = entry.type === "default";
+
+    if (entry.type === "custom") {
+      input.addEventListener("input", () => updateValue(entry.id, input.value));
+      input.addEventListener("blur", () => normalizeUrlInput(entry.id));
+    }
+
+    limitInput.value = String(entry.limitMinutes);
+    limitInput.addEventListener("input", () => updateLimit(entry.id, limitInput.value));
+    rowError.hidden = error === "";
+    rowError.textContent = error;
+    row.dataset.entryId = entry.id;
+
+    return fragment;
+  }
+
+  function renderEntryControls(entry, segments, enabledInput, enabledLabel, deleteButton) {
+    switch (entry.type) {
+      case "custom":
+        enabledLabel.hidden = true;
+        deleteButton.disabled = state.defaultEntries.length === 0 && customEntryCount() === 1;
+        deleteButton.addEventListener("click", () => deleteRow(entry.id));
+        renderKindButtons(entry, segments);
+        return;
+      case "default":
+        segments.classList.add("default-kind");
+        segments.textContent = "Default URL";
+        enabledInput.checked = entry.enabled;
+        enabledInput.addEventListener("change", () => updateEnabled(entry.id, enabledInput.checked));
+        deleteButton.hidden = true;
+        return;
+      default:
+        throw new Error(`Unknown entry type: ${entry.type}`);
+    }
+  }
+
+  function renderKindButtons(entry, segments) {
     Object.entries(core.EDITABLE_KIND_LABELS).forEach(([kind, label]) => {
       const button = document.createElement("button");
+
       button.type = "button";
       button.textContent = label;
       button.setAttribute("aria-pressed", String(entry.kind === kind));
       button.addEventListener("click", () => updateKind(entry.id, kind));
       segments.append(button);
     });
-
-    input.value = entry.value;
-    input.placeholder = placeholderFor(entry.kind);
-    input.addEventListener("input", () => updateValue(entry.id, input.value));
-    input.addEventListener("blur", () => normalizeUrlInput(entry.id));
-    limitInput.value = String(entry.limitMinutes);
-    limitInput.addEventListener("input", () => updateLimit(entry.id, limitInput.value));
-    deleteButton.disabled = state.draftEntries.length === 1;
-    deleteButton.addEventListener("click", () => deleteRow(entry.id));
-    rowError.hidden = error === "";
-    rowError.textContent = error;
-    row.dataset.entryId = entry.id;
-
-    return fragment;
   }
 
   function renderScreenTimeLog() {
@@ -161,8 +207,14 @@
   }
 
   function updateKind(id, kind) {
+    const entry = findDraftEntry(id);
+
+    if (entry.type !== "custom") {
+      throw new Error("Default entries cannot change matcher type.");
+    }
+
     state.draftEntries = state.draftEntries.map((entry) => (
-      entry.id === id ? { id: entry.id, kind, value: entry.value, limitMinutes: entry.limitMinutes } : entry
+      entry.id === id ? { type: "custom", id: entry.id, kind, value: entry.value, limitMinutes: entry.limitMinutes } : entry
     ));
     syncLimitForEntry(findDraftEntry(id));
     state.rowErrors.delete(id);
@@ -170,8 +222,24 @@
     render();
   }
 
+  function updateEnabled(id, enabled) {
+    const entry = findDraftEntry(id);
+
+    if (entry.type !== "default") {
+      throw new Error("Only default entries can be enabled or disabled.");
+    }
+
+    entry.enabled = enabled;
+    clearMessages();
+    render();
+  }
+
   function updateValue(id, value) {
     const entry = findDraftEntry(id);
+
+    if (entry.type !== "custom") {
+      throw new Error("Default entries cannot change URL.");
+    }
 
     entry.value = value;
     syncLimitForEntry(entry);
@@ -266,6 +334,12 @@
   }
 
   function deleteRow(id) {
+    const entry = findDraftEntry(id);
+
+    if (entry.type !== "custom") {
+      throw new Error("Default entries cannot be deleted.");
+    }
+
     state.draftEntries = state.draftEntries.filter((entry) => entry.id !== id);
     state.draftEntries = ensureDraftEntry(state.draftEntries);
     state.rowErrors.delete(id);
@@ -275,6 +349,10 @@
 
   function normalizeUrlInput(id) {
     const entry = findDraftEntry(id);
+
+    if (entry.type !== "custom") {
+      return;
+    }
 
     if (entry.kind !== "url" && entry.kind !== "urlWithSubpaths") {
       return;
@@ -424,13 +502,7 @@
 
   function normalizeAndValidateDraft() {
     try {
-      state.draftEntries = state.draftEntries.map((entry) => {
-        if (entry.kind !== "url" && entry.kind !== "urlWithSubpaths") {
-          return entry;
-        }
-
-        return { id: entry.id, kind: entry.kind, value: core.normalizeUrlEntryValue(entry.value), limitMinutes: entry.limitMinutes };
-      });
+      state.draftEntries = state.draftEntries.map(normalizeDraftEntry);
     } catch {
       return core.validateState({
         schemaVersion: core.SCHEMA_VERSION,
@@ -438,7 +510,7 @@
         blockedPageHtml: state.draftBlockedPageHtml,
         schedule: state.draftSchedule,
         domainLimits: domainLimitsForDraft()
-      });
+      }, state.defaultEntries);
     }
 
     const result = core.validateState({
@@ -447,7 +519,7 @@
       blockedPageHtml: state.draftBlockedPageHtml,
       schedule: state.draftSchedule,
       domainLimits: domainLimitsForDraft()
-    });
+    }, state.defaultEntries);
 
     if (result.type === "valid") {
       state.draftEntries = editableEntries(result.state.entries, result.state.domainLimits);
@@ -458,8 +530,32 @@
     return result;
   }
 
+  function normalizeDraftEntry(entry) {
+    if (entry.kind !== "url" && entry.kind !== "urlWithSubpaths") {
+      return entry;
+    }
+
+    switch (entry.type) {
+      case "custom":
+        return { ...entry, value: core.normalizeUrlEntryValue(entry.value) };
+      case "default":
+        return entry;
+      default:
+        throw new Error(`Unknown entry type: ${entry.type}`);
+    }
+  }
+
   function storedEntries(entries) {
-    return entries.map((entry) => ({ id: entry.id, kind: entry.kind, value: entry.value }));
+    return entries.map((entry) => {
+      switch (entry.type) {
+        case "custom":
+          return { type: "custom", id: entry.id, kind: entry.kind, value: entry.value };
+        case "default":
+          return { type: "default", id: entry.id, kind: entry.kind, value: entry.value, enabled: entry.enabled };
+        default:
+          throw new Error(`Unknown entry type: ${entry.type}`);
+      }
+    });
   }
 
   function domainLimitsForDraft() {
@@ -486,7 +582,7 @@
       return;
     }
 
-        state.draftEntries = editableEntries(response.state.entries, response.state.domainLimits);
+    state.draftEntries = editableEntries(response.state.entries, response.state.domainLimits);
     state.draftBlockedPageHtml = response.state.blockedPageHtml;
     state.draftSchedule = editableSchedule(response.state.schedule);
     state.successMessage = "Reset.";
@@ -542,12 +638,18 @@
   function editableEntries(entries, domainLimits) {
     const limits = new Map(domainLimits.map((limit) => [limit.domain, limit.limitMinutes]));
 
-    return ensureDraftEntry(entries.map((entry) => ({
-      id: entry.id,
-      kind: entry.kind,
-      value: entry.value,
-      limitMinutes: limits.get(core.associatedDomainForEntry(entry))
-    })));
+    return ensureDraftEntry(entries.map((entry) => {
+      const limitMinutes = limits.get(core.associatedDomainForEntry(entry));
+
+      switch (entry.type) {
+        case "custom":
+          return { type: "custom", id: entry.id, kind: entry.kind, value: entry.value, limitMinutes };
+        case "default":
+          return { type: "default", id: entry.id, kind: entry.kind, value: entry.value, enabled: entry.enabled, limitMinutes };
+        default:
+          throw new Error(`Unknown entry type: ${entry.type}`);
+      }
+    }));
   }
 
   function editableSchedule(schedule) {
@@ -621,6 +723,10 @@
     entry.limitMinutes = core.DEFAULT_LIMIT_MINUTES;
 
     return [entry];
+  }
+
+  function customEntryCount() {
+    return state.draftEntries.filter((entry) => entry.type === "custom").length;
   }
 
   function placeholderFor(kind) {

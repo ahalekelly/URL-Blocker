@@ -32,32 +32,32 @@ test("labels matcher options in display order", () => {
 test("loads default blocked pages for new installs", () => {
   const state = core.emptyState(defaultBlockedPages);
 
-  assert.deepEqual(state.entries.map(({ kind, value }) => ({ kind, value })), [
-    { kind: "url", value: "x.com" },
-    { kind: "url", value: "instagram.com" },
-    { kind: "url", value: "instagram.com/explore" },
-    { kind: "url", value: "instagram.com/reels" },
-    { kind: "url", value: "tiktok.com" },
-    { kind: "url", value: "tiktok.com/foryou" },
-    { kind: "url", value: "tiktok.com/following" },
-    { kind: "url", value: "tiktok.com/explore" },
-    { kind: "url", value: "facebook.com" },
-    { kind: "url", value: "facebook.com/home.php" },
-    { kind: "url", value: "facebook.com/watch" },
-    { kind: "url", value: "facebook.com/reel" },
-    { kind: "url", value: "facebook.com/reels" },
-    { kind: "url", value: "facebook.com/groups/feed" },
-    { kind: "url", value: "threads.com" },
-    { kind: "url", value: "threads.com/following" },
-    { kind: "url", value: "bsky.app" },
-    { kind: "url", value: "bsky.app/profile/bsky.app/feed/whats-hot" },
-    { kind: "url", value: "pinterest.com" },
-    { kind: "url", value: "pinterest.com/today" },
-    { kind: "url", value: "pinterest.com/ideas" },
-    { kind: "url", value: "linkedin.com/feed" },
-    { kind: "url", value: "youtube.com" },
-    { kind: "url", value: "reddit.com" },
-    { kind: "url", value: "ycombinator.com" }
+  assert.deepEqual(state.entries.map(({ type, kind, value, enabled }) => ({ type, kind, value, enabled })), [
+    { type: "default", kind: "url", value: "x.com", enabled: true },
+    { type: "default", kind: "url", value: "instagram.com", enabled: true },
+    { type: "default", kind: "url", value: "instagram.com/explore", enabled: true },
+    { type: "default", kind: "url", value: "instagram.com/reels", enabled: true },
+    { type: "default", kind: "url", value: "tiktok.com", enabled: true },
+    { type: "default", kind: "url", value: "tiktok.com/foryou", enabled: true },
+    { type: "default", kind: "url", value: "tiktok.com/following", enabled: true },
+    { type: "default", kind: "url", value: "tiktok.com/explore", enabled: true },
+    { type: "default", kind: "url", value: "facebook.com", enabled: true },
+    { type: "default", kind: "url", value: "facebook.com/home.php", enabled: true },
+    { type: "default", kind: "url", value: "facebook.com/watch", enabled: true },
+    { type: "default", kind: "url", value: "facebook.com/reel", enabled: true },
+    { type: "default", kind: "url", value: "facebook.com/reels", enabled: true },
+    { type: "default", kind: "url", value: "facebook.com/groups/feed", enabled: true },
+    { type: "default", kind: "url", value: "threads.com", enabled: true },
+    { type: "default", kind: "url", value: "threads.com/following", enabled: true },
+    { type: "default", kind: "url", value: "bsky.app", enabled: true },
+    { type: "default", kind: "url", value: "bsky.app/profile/bsky.app/feed/whats-hot", enabled: true },
+    { type: "default", kind: "url", value: "pinterest.com", enabled: true },
+    { type: "default", kind: "url", value: "pinterest.com/today", enabled: true },
+    { type: "default", kind: "url", value: "pinterest.com/ideas", enabled: true },
+    { type: "default", kind: "url", value: "linkedin.com/feed", enabled: true },
+    { type: "default", kind: "url", value: "youtube.com", enabled: true },
+    { type: "default", kind: "url", value: "reddit.com", enabled: true },
+    { type: "default", kind: "url", value: "ycombinator.com", enabled: true }
   ]);
   assert.deepEqual(state.schedule, { type: "always" });
   assert.deepEqual(state.domainLimits, [
@@ -77,6 +77,73 @@ test("loads default blocked pages for new installs", () => {
 
 test("keeps install-time permissions aligned with default blocked pages", () => {
   assert.deepEqual(core.permissionOriginsForState(core.emptyState(defaultBlockedPages)), manifest.host_permissions);
+});
+
+test("keeps default entries locked but configurable", () => {
+  const defaultEntry = core.emptyState(defaultBlockedPages.slice(0, 1)).entries[0];
+  const disabledState = core.validateState({
+    schemaVersion: core.SCHEMA_VERSION,
+    entries: [{ ...defaultEntry, enabled: false }],
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: core.DEFAULT_SCHEDULE,
+    domainLimits: [{ domain: "x.com", limitMinutes: 12 }]
+  }, defaultBlockedPages.slice(0, 1));
+
+  assert.equal(disabledState.type, "valid");
+  assert.deepEqual(core.permissionOriginsForState(disabledState.state), []);
+  assert.deepEqual(core.findMatchingEntry(disabledState.state, "https://x.com"), { type: "none" });
+  assert.deepEqual(core.screenTimeDomainForUrl(disabledState.state, "https://x.com"), { type: "none" });
+  assert.deepEqual(disabledState.state.domainLimits, [{ domain: "x.com", limitMinutes: 12 }]);
+
+  const editedDefault = core.validateState({
+    schemaVersion: core.SCHEMA_VERSION,
+    entries: [{ ...defaultEntry, value: "example.com" }],
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: core.DEFAULT_SCHEDULE,
+    domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
+  }, defaultBlockedPages.slice(0, 1));
+
+  assert.equal(editedDefault.type, "invalid");
+  assert.match(editedDefault.errors[0].message, /default URL/);
+
+  const missingDefault = core.validateState({
+    schemaVersion: core.SCHEMA_VERSION,
+    entries: [],
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: core.DEFAULT_SCHEDULE,
+    domainLimits: []
+  }, defaultBlockedPages.slice(0, 1));
+
+  assert.equal(missingDefault.type, "invalid");
+  assert.match(missingDefault.errors[0].message, /Missing default entry/);
+});
+
+test("migrates legacy default entries and deleted defaults", () => {
+  const defaults = defaultBlockedPages.slice(0, 2);
+  const state = core.parseStoredState({
+    schemaVersion: 6,
+    entries: [
+      { id: defaults[0].id, kind: defaults[0].kind, value: defaults[0].value },
+      { id: ids[0], kind: "domain", value: "example.com" }
+    ],
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: core.DEFAULT_SCHEDULE,
+    domainLimits: [
+      { domain: defaults[0].value, limitMinutes: 9 },
+      { domain: "example.com", limitMinutes: 20 }
+    ]
+  }, defaults);
+
+  assert.deepEqual(state.entries, [
+    { type: "default", id: defaults[0].id, kind: "url", value: defaults[0].value, enabled: true },
+    { type: "custom", id: ids[0], kind: "domain", value: "example.com" },
+    { type: "default", id: defaults[1].id, kind: "url", value: defaults[1].value, enabled: false }
+  ]);
+  assert.deepEqual(state.domainLimits, [
+    { domain: "example.com", limitMinutes: 20 },
+    { domain: "instagram.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
+    { domain: "x.com", limitMinutes: 9 }
+  ]);
 });
 
 test("maps URL alias source hosts to permissions", () => {
@@ -116,48 +183,48 @@ test("normalizes domain entries and rejects unsupported hosts", () => {
 
 test("validates state strictly", () => {
   const valid = core.validateState({
-    schemaVersion: 6,
-    entries: [{ id: ids[0], kind: "domain", value: "example.com" }],
+    schemaVersion: core.SCHEMA_VERSION,
+    entries: customEntries([{ id: ids[0], kind: "domain", value: "example.com" }]),
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "always" },
     domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
-  });
+  }, []);
 
   assert.equal(valid.type, "valid");
-  assert.deepEqual(valid.state.entries[0], { id: ids[0], kind: "domain", value: "example.com" });
+  assert.deepEqual(valid.state.entries[0], { type: "custom", id: ids[0], kind: "domain", value: "example.com" });
 
   const unknownKey = core.validateState({
-    schemaVersion: 6,
-    entries: [{ id: ids[0], kind: "domain", value: "example.com", enabled: true }],
+    schemaVersion: core.SCHEMA_VERSION,
+    entries: [{ type: "custom", id: ids[0], kind: "domain", value: "example.com", enabled: true }],
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "always" },
     domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
-  });
+  }, []);
 
   assert.equal(unknownKey.type, "invalid");
   assert.match(unknownKey.errors[0].message, /unknown key/);
 
   const unknownKind = core.validateState({
-    schemaVersion: 6,
-    entries: [{ id: ids[0], kind: "wildcard", value: "example.com" }],
+    schemaVersion: core.SCHEMA_VERSION,
+    entries: [{ type: "custom", id: ids[0], kind: "wildcard", value: "example.com" }],
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "always" },
     domainLimits: []
-  });
+  }, []);
 
   assert.equal(unknownKind.type, "invalid");
   assert.match(unknownKind.errors[0].message, /known matcher/);
 
   const duplicate = core.validateState({
-    schemaVersion: 6,
-    entries: [
+    schemaVersion: core.SCHEMA_VERSION,
+    entries: customEntries([
       { id: ids[0], kind: "domain", value: "www.example.com" },
       { id: ids[1], kind: "domain", value: "example.com" }
-    ],
+    ]),
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "always" },
     domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
-  });
+  }, []);
 
   assert.equal(duplicate.type, "invalid");
   assert.match(duplicate.errors[0].message, /Duplicate/);
@@ -167,29 +234,29 @@ test("validates blocked page HTML and rejects old state", () => {
   const oldState = core.validateState({
     schemaVersion: 1,
     entries: [{ id: ids[0], kind: "url", value: "https://example.com/path?x=1" }]
-  });
+  }, []);
 
   assert.equal(oldState.type, "invalid");
   assert.match(oldState.errors[0].message, /Unsupported/);
 
   const custom = core.validateState({
-    schemaVersion: 6,
+    schemaVersion: core.SCHEMA_VERSION,
     entries: [],
     blockedPageHtml: " <p><strong>Nope.</strong></p> ",
     schedule: { type: "always" },
     domainLimits: []
-  });
+  }, []);
 
   assert.equal(custom.type, "valid");
   assert.equal(custom.state.blockedPageHtml, "<p><strong>Nope.</strong></p>");
 
   const script = core.validateState({
-    schemaVersion: 6,
+    schemaVersion: core.SCHEMA_VERSION,
     entries: [],
     blockedPageHtml: "<img src=x onerror=alert(1)>",
     schedule: { type: "always" },
     domainLimits: []
-  });
+  }, []);
 
   assert.equal(script.type, "invalid");
   assert.match(script.errors[0].message, /inline scripts/);
@@ -204,12 +271,12 @@ test("validates schedules and detects active windows", () => {
   assert.equal(core.isScheduleActive({ type: "dailyWindow", startMinute: 1320, endMinute: 420 }, new Date(2026, 0, 1, 12, 0)), false);
 
   const equalTimes = core.validateState({
-    schemaVersion: 6,
+    schemaVersion: core.SCHEMA_VERSION,
     entries: [],
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "dailyWindow", startMinute: 540, endMinute: 540 },
     domainLimits: []
-  });
+  }, []);
 
   assert.equal(equalTimes.type, "invalid");
   assert.match(equalTimes.errors[0].message, /different/);
@@ -291,23 +358,23 @@ test("validates domain limits against associated domains", () => {
   ]);
 
   const missing = core.validateState({
-    schemaVersion: 6,
-    entries: [{ id: ids[0], kind: "domain", value: "example.com" }],
+    schemaVersion: core.SCHEMA_VERSION,
+    entries: customEntries([{ id: ids[0], kind: "domain", value: "example.com" }]),
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "always" },
     domainLimits: []
-  });
+  }, []);
 
   assert.equal(missing.type, "invalid");
   assert.match(missing.errors[0].message, /Missing domain limit/);
 
   const extra = core.validateState({
-    schemaVersion: 6,
+    schemaVersion: core.SCHEMA_VERSION,
     entries: [],
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "always" },
     domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
-  });
+  }, []);
 
   assert.equal(extra.type, "invalid");
   assert.match(extra.errors[0].message, /does not match/);
@@ -328,15 +395,15 @@ test("infers literal regex hosts for limits", () => {
 
 test("rejects duplicate entries after normalization", () => {
   const duplicate = core.validateState({
-    schemaVersion: 6,
-    entries: [
+    schemaVersion: core.SCHEMA_VERSION,
+    entries: customEntries([
       { id: ids[0], kind: "url", value: "x.com" },
       { id: ids[1], kind: "url", value: "x.com/home" }
-    ],
+    ]),
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "always" },
     domainLimits: [{ domain: "x.com", limitMinutes: 30 }]
-  });
+  }, []);
 
   assert.equal(duplicate.type, "invalid");
   assert.match(duplicate.errors[0].message, /Duplicate/);
@@ -447,16 +514,21 @@ test("matches regex entries case-insensitively without fragments", () => {
   assert.equal(core.findMatchingEntry(state, "https://not-x.com/home").type, "none");
 });
 
-function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits = core.domainLimitsForEntries(entries, [])) {
+function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits) {
+  const typedEntries = customEntries(entries);
   const result = core.validateState({
-    schemaVersion: 6,
-    entries,
+    schemaVersion: core.SCHEMA_VERSION,
+    entries: typedEntries,
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule,
-    domainLimits
-  });
+    domainLimits: domainLimits === undefined ? core.domainLimitsForEntries(typedEntries, []) : domainLimits
+  }, []);
 
   assert.equal(result.type, "valid");
 
   return result.state;
+}
+
+function customEntries(entries) {
+  return entries.map((entry) => ({ type: "custom", ...entry }));
 }
