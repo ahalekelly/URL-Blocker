@@ -19,8 +19,10 @@ MACOS_DERIVED_DATA ?= /tmp/urlblocker_macos_build
 MACOS_CODE_SIGN_IDENTITY ?= Apple Development
 
 IOS_BUILD_APP := $(IOS_DERIVED_DATA)/Build/Products/Release-iphoneos/URLBlockerIOS.app
+IOS_BUILD_BINARY := $(IOS_BUILD_APP)/URLBlockerIOS
 IOS_BUILD_STAMP := $(IOS_DERIVED_DATA)/Build/Products/Release-iphoneos/.URLBlockerIOS.build.stamp
 MACOS_BUILD_APP := $(MACOS_DERIVED_DATA)/Build/Products/Release/URLBlockerMac.app
+MACOS_BUILD_BINARY := $(MACOS_BUILD_APP)/Contents/MacOS/URLBlockerMac
 MACOS_BUILD_STAMP := $(MACOS_DERIVED_DATA)/Build/Products/Release/.URLBlockerMac.build.stamp
 MACOS_BUILD_EXTENSION := $(MACOS_BUILD_APP)/Contents/PlugIns/URLBlockerMacExtension.appex
 MACOS_INSTALLED_APP := /Applications/URLBlockerMac.app
@@ -76,6 +78,10 @@ build: ios-build macos-build
 check: test build
 
 ios-build: $(IOS_BUILD_STAMP)
+	@if [[ ! -x "$(IOS_BUILD_BINARY)" ]]; then \
+	  rm -f "$(IOS_BUILD_STAMP)"; \
+	  $(MAKE) "$(IOS_BUILD_STAMP)"; \
+	fi
 
 $(IOS_BUILD_STAMP): $(IOS_BUILD_INPUTS)
 	xcodebuild \
@@ -88,8 +94,8 @@ $(IOS_BUILD_STAMP): $(IOS_BUILD_INPUTS)
 	  CODE_SIGNING_ALLOWED=NO \
 	  COMPILATION_CACHE_ENABLE_CACHING=NO \
 	  build
-	@if [[ ! -d "$(IOS_BUILD_APP)" ]]; then \
-	  printf "Missing built app: %s\n" "$(IOS_BUILD_APP)" >&2; \
+	@if [[ ! -x "$(IOS_BUILD_BINARY)" ]]; then \
+	  printf "Missing built app executable: %s\n" "$(IOS_BUILD_BINARY)" >&2; \
 	  exit 1; \
 	fi
 	@touch "$@"
@@ -134,6 +140,10 @@ ios-install: $(IOS_SIGNED_IPA)
 	xcrun devicectl device install app --device "$$device" "$$install_dir/Payload/URLBlockerIOS.app"
 
 macos-build: $(MACOS_BUILD_STAMP)
+	@if [[ ! -x "$(MACOS_BUILD_BINARY)" ]]; then \
+	  rm -f "$(MACOS_BUILD_STAMP)"; \
+	  $(MAKE) "$(MACOS_BUILD_STAMP)"; \
+	fi
 	$(MAKE) macos-clean-registration
 
 $(MACOS_BUILD_STAMP): $(MACOS_BUILD_INPUTS)
@@ -147,8 +157,8 @@ $(MACOS_BUILD_STAMP): $(MACOS_BUILD_INPUTS)
 	  COMPILATION_CACHE_ENABLE_CACHING=NO \
 	  CODE_SIGN_IDENTITY="$(MACOS_CODE_SIGN_IDENTITY)" \
 	  build
-	@if [[ ! -d "$(MACOS_BUILD_APP)" ]]; then \
-	  printf "Missing built app: %s\n" "$(MACOS_BUILD_APP)" >&2; \
+	@if [[ ! -x "$(MACOS_BUILD_BINARY)" ]]; then \
+	  printf "Missing built app executable: %s\n" "$(MACOS_BUILD_BINARY)" >&2; \
 	  exit 1; \
 	fi
 	@touch "$@"
