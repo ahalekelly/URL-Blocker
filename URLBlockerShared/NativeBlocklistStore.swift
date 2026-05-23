@@ -104,7 +104,7 @@ enum NativeBlocklistStore {
 
     private static func getScreenTimeUsage() -> [String: Any] {
         do {
-            return ["type": "screenTimeUsage", "usage": screenTimeUsagePayload(try loadScreenTimeUsage(currentHour()))]
+            return ["type": "screenTimeUsage", "usage": screenTimeUsagePayload(try loadScreenTimeUsage())]
         } catch {
             return self.error(error.localizedDescription)
         }
@@ -112,7 +112,7 @@ enum NativeBlocklistStore {
 
     private static func saveScreenTimeUsage(_ rawUsage: Any?) -> [String: Any] {
         do {
-            let usage = pruneScreenTimeUsage(try parseScreenTimeUsage(rawUsage), currentHour())
+            let usage = try parseScreenTimeUsage(rawUsage)
             let payload = screenTimeUsagePayload(usage)
             defaults.set(payload, forKey: screenTimeUsageKey)
             return ["type": "savedScreenTimeUsage", "usage": payload]
@@ -125,7 +125,7 @@ enum NativeBlocklistStore {
         do {
             let hour = currentHour()
             let state = try loadState()
-            let usage = try loadScreenTimeUsage(hour)
+            let usage = try loadScreenTimeUsage()
 
             return ["type": "screenTimeLog", "entries": try screenTimeEntries(state, usage, hour)]
         } catch let error as BlocklistValidationError {
@@ -644,15 +644,12 @@ enum NativeBlocklistStore {
         return (host, components.path.isEmpty || components.path == "/" ? "" : components.path)
     }
 
-    private static func loadScreenTimeUsage(_ hour: Int) throws -> [String: [String: Int]] {
+    private static func loadScreenTimeUsage() throws -> [String: [String: Int]] {
         guard let storedUsage = defaults.object(forKey: screenTimeUsageKey) else {
             return [:]
         }
 
-        let usage = pruneScreenTimeUsage(try parseScreenTimeUsage(storedUsage), hour)
-        defaults.set(screenTimeUsagePayload(usage), forKey: screenTimeUsageKey)
-
-        return usage
+        return try parseScreenTimeUsage(storedUsage)
     }
 
     private static func parseScreenTimeUsage(_ rawUsage: Any?) throws -> [String: [String: Int]] {
@@ -704,25 +701,6 @@ enum NativeBlocklistStore {
         }
 
         return parsed
-    }
-
-    private static func pruneScreenTimeUsage(_ usage: [String: [String: Int]], _ hour: Int) -> [String: [String: Int]] {
-        let minHour = hour - screenTimeWindowHours + 1
-        var totalsByDomain: [String: [String: Int]] = [:]
-
-        usage.forEach { domain, buckets in
-            buckets.forEach { bucket, totalMs in
-                let bucketHour = Int(bucket)!
-
-                if bucketHour < minHour || bucketHour > hour {
-                    return
-                }
-
-                totalsByDomain[domain, default: [:]][bucket] = totalMs
-            }
-        }
-
-        return totalsByDomain
     }
 
     private static func screenTimeEntries(

@@ -317,7 +317,7 @@ test("screenTimeElapsed validates elapsed time", async () => {
   }, {}), /positive integer/);
 });
 
-test("getScreenTimeLog sums and prunes the last 16 hour buckets", async () => {
+test("getScreenTimeLog sums the last 16 hour buckets without pruning storage", async () => {
   const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
   api.storageData[core.STATE_KEY] = validState([
     { id, kind: "domain", value: "example.com" }
@@ -348,9 +348,49 @@ test("getScreenTimeLog sums and prunes the last 16 hour buckets", async () => {
     schemaVersion: 1,
     totalsByDomain: {
       "example.com": {
+        4: 1000,
         5: 2000,
         19: 3000,
-        20: 4000
+        20: 4000,
+        21: 5000
+      }
+    }
+  });
+});
+
+test("screenTimeElapsed keeps historical buckets when saving", async () => {
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "domain", value: "example.com" }
+  ]);
+  api.storageData.screenTimeUsage = {
+    schemaVersion: 1,
+    totalsByDomain: {
+      "example.com": {
+        4: 1000,
+        5: 2000,
+        19: 3000,
+        20: 4000,
+        21: 5000
+      }
+    }
+  };
+  const controller = createBackgroundController(api);
+
+  assert.deepEqual(await controller.handleMessage({
+    type: "screenTimeElapsed",
+    url: "https://www.example.com/path",
+    elapsedMs: 6000
+  }, {}), { type: "logged", domain: "example.com", totalMs: 15000, limitMinutes: 30, isOverLimit: false });
+  assert.deepEqual(api.storageData.screenTimeUsage, {
+    schemaVersion: 1,
+    totalsByDomain: {
+      "example.com": {
+        4: 1000,
+        5: 2000,
+        19: 3000,
+        20: 10000,
+        21: 5000
       }
     }
   });

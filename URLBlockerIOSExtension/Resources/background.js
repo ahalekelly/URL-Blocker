@@ -135,7 +135,7 @@
 
       return {
         type: "screenTimeLog",
-        entries: screenTimeEntries(state, await loadScreenTimeUsage(hour), hour)
+        entries: screenTimeEntries(state, await loadScreenTimeUsage(), hour)
       };
     }
 
@@ -150,7 +150,7 @@
 
       const state = await loadState();
       const hour = currentHour();
-      const usage = await loadScreenTimeUsage(hour);
+      const usage = await loadScreenTimeUsage();
       const match = core.findBlockedMatchingEntry(state, rawUrl, overLimitDomains(state, usage, hour));
 
       return redirectFromMatch(tabId, rawUrl, match);
@@ -159,7 +159,7 @@
     async function redirectOpenBlockedTabs(state) {
       const tabs = await api.tabs.query({});
       const hour = currentHour();
-      const usage = await loadScreenTimeUsage(hour);
+      const usage = await loadScreenTimeUsage();
       const limitedDomains = overLimitDomains(state, usage, hour);
 
       await Promise.all(tabs.map((tab) => {
@@ -216,25 +216,19 @@
     }
 
     async function saveScreenTime(domain, elapsedMs, hour) {
-      const usage = await loadScreenTimeUsage(hour);
+      const usage = await loadScreenTimeUsage();
       const bucket = String(hour);
 
       usage.totalsByDomain[domain] = usage.totalsByDomain[domain] || {};
       usage.totalsByDomain[domain][bucket] = (usage.totalsByDomain[domain][bucket] || 0) + elapsedMs;
-      const pruned = pruneScreenTimeUsage(usage, hour);
 
-      await screenTimeStorage.saveUsage(pruned);
+      await screenTimeStorage.saveUsage(usage);
 
-      return pruned;
+      return usage;
     }
 
-    async function loadScreenTimeUsage(hour) {
-      const usage = parseScreenTimeUsage(await screenTimeStorage.loadUsage());
-      const pruned = pruneScreenTimeUsage(usage, hour);
-
-      await screenTimeStorage.saveUsage(pruned);
-
-      return pruned;
+    async function loadScreenTimeUsage() {
+      return parseScreenTimeUsage(await screenTimeStorage.loadUsage());
     }
 
     async function loadDefaultState() {
@@ -368,26 +362,6 @@
           throw new Error("Screen time total must be a non-negative integer.");
         }
 
-        totalsByDomain[domain][bucket] = totalMs;
-      });
-    });
-
-    return { schemaVersion: SCREEN_TIME_USAGE_SCHEMA_VERSION, totalsByDomain };
-  }
-
-  function pruneScreenTimeUsage(usage, hour) {
-    const minHour = hour - SCREEN_TIME_WINDOW_HOURS + 1;
-    const totalsByDomain = {};
-
-    Object.entries(usage.totalsByDomain).forEach(([domain, buckets]) => {
-      Object.entries(buckets).forEach(([bucket, totalMs]) => {
-        const bucketHour = Number(bucket);
-
-        if (bucketHour < minHour || bucketHour > hour) {
-          return;
-        }
-
-        totalsByDomain[domain] = totalsByDomain[domain] || {};
         totalsByDomain[domain][bucket] = totalMs;
       });
     });
