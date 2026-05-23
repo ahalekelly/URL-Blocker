@@ -17,6 +17,9 @@ IOS_APP_GROUP ?= group.d944b664533a4c2f.1
 P12_PASSWORD_FILE ?= $(IOS_SIGNING_ASSETS)/Development.p12.password
 MACOS_DERIVED_DATA ?= /tmp/urlblocker_macos_build
 MACOS_CODE_SIGN_IDENTITY ?= Apple Development
+CHROME_APP ?= Google Chrome
+CHROME_EXTENSION_DIR := $(CURDIR)/build/chrome-extension
+CHROME_PROFILE_DIR ?= $(CURDIR)/build/chrome-profile
 
 MACOS_BUILD_APP := $(MACOS_DERIVED_DATA)/Build/Products/Release/URLBlockerMac.app
 MACOS_BUILD_EXTENSION := $(MACOS_BUILD_APP)/Contents/PlugIns/URLBlockerMacExtension.appex
@@ -26,12 +29,13 @@ SAFARI_EXTENSION_ID := com.akelly.URLBlockerMac.Extension
 SAFARI_EXTENSION_SDK := com.apple.Safari.web-extension
 LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister
 
-.PHONY: help test all build check chrome-extension ios-build ios-build-unsigned ios-signed-ipa ios-devices ios-install macos-build macos-install macos-clean-registration macos-verify macos-plugin-check
+.PHONY: help test all build check chrome-extension chrome-install ios-build ios-build-unsigned ios-signed-ipa ios-devices ios-install macos-build macos-install macos-clean-registration macos-verify macos-plugin-check
 
 help:
 	@printf "Targets:\n"
 	@printf "  make test                    Run JavaScript tests.\n"
 	@printf "  make chrome-extension        Build the unpacked Chrome extension in build/chrome-extension.\n"
+	@printf "  make chrome-install          Build and launch Chrome with the extension loaded.\n"
 	@printf "  make ios-build               Build build/URLBlockerIOS-signed.ipa with UDID Registrations signing.\n"
 	@printf "  make ios-build-unsigned      Build the unsigned iOS device app.\n"
 	@printf "  make ios-signed-ipa          Alias for make ios-build.\n"
@@ -56,6 +60,13 @@ check: test build
 
 chrome-extension:
 	npm run build-chrome-extension
+
+chrome-install: chrome-extension
+	@mkdir -p "$(CHROME_PROFILE_DIR)"
+	@printf "Opening %s with URL Blocker loaded from %s\n" "$(CHROME_APP)" "$(CHROME_EXTENSION_DIR)"
+	open -na "$(CHROME_APP)" --args \
+	  --user-data-dir="$(CHROME_PROFILE_DIR)" \
+	  --load-extension="$(CHROME_EXTENSION_DIR)"
 
 ios-build:
 	IOS_APP_GROUP="$(IOS_APP_GROUP)" \

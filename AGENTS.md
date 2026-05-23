@@ -38,6 +38,12 @@ Build the unpacked Chrome extension:
 make chrome-extension
 ```
 
+Build and launch Chrome with the unpacked extension loaded in a repo-local profile:
+
+```sh
+make chrome-install
+```
+
 Build the signed iOS IPA, signed macOS app, and unpacked Chrome extension:
 
 ```sh
