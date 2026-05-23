@@ -140,12 +140,6 @@
       groups.set(domain, [...(groups.get(domain) || []), entry]);
     });
 
-    groups.forEach((entries, domain) => {
-      if (entries.length === 1) {
-        groups.delete(domain);
-      }
-    });
-
     return groups;
   }
 
