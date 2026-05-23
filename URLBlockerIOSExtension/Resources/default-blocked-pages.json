@@ -5,6 +5,111 @@
     "value": "x.com"
   },
   {
+    "id": "10000000-0000-4000-8000-000000000008",
+    "kind": "url",
+    "value": "instagram.com"
+  },
+  {
+    "id": "10000000-0000-4000-8000-000000000009",
+    "kind": "url",
+    "value": "instagram.com/explore"
+  },
+  {
+    "id": "10000000-0000-4000-8000-000000000010",
+    "kind": "url",
+    "value": "instagram.com/reels"
+  },
+  {
+    "id": "10000000-0000-4000-8000-000000000011",
+    "kind": "url",
+    "value": "tiktok.com"
+  },
+  {
+    "id": "10000000-0000-4000-8000-000000000012",
+    "kind": "url",
+    "value": "tiktok.com/foryou"
+  },
+  {
+    "id": "10000000-0000-4000-8000-000000000013",
+    "kind": "url",
+    "value": "tiktok.com/following"
+  },
+  {
+    "id": "10000000-0000-4000-8000-000000000014",
+    "kind": "url",
+    "value": "tiktok.com/explore"
+  },
+  {
+    "id": "10000000-0000-4000-8000-000000000015",
+    "kind": "url",
+    "value": "facebook.com"
+  },
+  {
+    "id": "10000000-0000-4000-8000-000000000016",
+    "kind": "url",
+    "value": "facebook.com/home.php"
+  },
+  {
+    "id": "10000000-0000-4000-8000-000000000017",
+    "kind": "url",
+    "value": "facebook.com/watch"
+  },
+  {
+    "id": "10000000-0000-4000-8000-000000000018",
+    "kind": "url",
+    "value": "facebook.com/reel"
+  },
+  {
+    "id": "10000000-0000-4000-8000-000000000019",
+    "kind": "url",
+    "value": "facebook.com/reels"
+  },
+  {
+    "id": "10000000-0000-4000-8000-000000000020",
+    "kind": "url",
+    "value": "facebook.com/groups/feed"
+  },
+  {
+    "id": "10000000-0000-4000-8000-000000000021",
+    "kind": "url",
+    "value": "threads.com"
+  },
+  {
+    "id": "10000000-0000-4000-8000-000000000022",
+    "kind": "url",
+    "value": "threads.com/following"
+  },
+  {
+    "id": "10000000-0000-4000-8000-000000000023",
+    "kind": "url",
+    "value": "bsky.app"
+  },
+  {
+    "id": "10000000-0000-4000-8000-000000000024",
+    "kind": "url",
+    "value": "bsky.app/profile/bsky.app/feed/whats-hot"
+  },
+  {
+    "id": "10000000-0000-4000-8000-000000000025",
+    "kind": "url",
+    "value": "pinterest.com"
+  },
+  {
+    "id": "10000000-0000-4000-8000-000000000026",
+    "kind": "url",
+    "value": "pinterest.com/today"
+  },
+  {
+    "id": "10000000-0000-4000-8000-000000000027",
+    "kind": "url",
+    "value": "pinterest.com/ideas"
+  },
+  {
+    "id": "10000000-0000-4000-8000-000000000028",
+    "kind": "url",
+    "value": "linkedin.com/feed"
+  },
+  {
     "id": "10000000-0000-4000-8000-000000000005",
     "kind": "url",
     "value": "youtube.com"

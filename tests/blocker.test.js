@@ -34,13 +34,41 @@ test("loads default blocked pages for new installs", () => {
 
   assert.deepEqual(state.entries.map(({ kind, value }) => ({ kind, value })), [
     { kind: "url", value: "x.com" },
+    { kind: "url", value: "instagram.com" },
+    { kind: "url", value: "instagram.com/explore" },
+    { kind: "url", value: "instagram.com/reels" },
+    { kind: "url", value: "tiktok.com" },
+    { kind: "url", value: "tiktok.com/foryou" },
+    { kind: "url", value: "tiktok.com/following" },
+    { kind: "url", value: "tiktok.com/explore" },
+    { kind: "url", value: "facebook.com" },
+    { kind: "url", value: "facebook.com/home.php" },
+    { kind: "url", value: "facebook.com/watch" },
+    { kind: "url", value: "facebook.com/reel" },
+    { kind: "url", value: "facebook.com/reels" },
+    { kind: "url", value: "facebook.com/groups/feed" },
+    { kind: "url", value: "threads.com" },
+    { kind: "url", value: "threads.com/following" },
+    { kind: "url", value: "bsky.app" },
+    { kind: "url", value: "bsky.app/profile/bsky.app/feed/whats-hot" },
+    { kind: "url", value: "pinterest.com" },
+    { kind: "url", value: "pinterest.com/today" },
+    { kind: "url", value: "pinterest.com/ideas" },
+    { kind: "url", value: "linkedin.com/feed" },
     { kind: "url", value: "youtube.com" },
     { kind: "url", value: "reddit.com" },
     { kind: "url", value: "ycombinator.com" }
   ]);
   assert.deepEqual(state.schedule, { type: "always" });
   assert.deepEqual(state.domainLimits, [
+    { domain: "bsky.app", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
+    { domain: "facebook.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
+    { domain: "instagram.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
+    { domain: "linkedin.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
+    { domain: "pinterest.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
     { domain: "reddit.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
+    { domain: "threads.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
+    { domain: "tiktok.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
     { domain: "x.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
     { domain: "ycombinator.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
     { domain: "youtube.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES }

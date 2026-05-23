@@ -10,7 +10,14 @@
     "tabs"
   ],
   "host_permissions": [
+    "*://*.bsky.app/*",
+    "*://*.facebook.com/*",
+    "*://*.instagram.com/*",
+    "*://*.linkedin.com/*",
+    "*://*.pinterest.com/*",
     "*://*.reddit.com/*",
+    "*://*.threads.com/*",
+    "*://*.tiktok.com/*",
     "*://*.twitter.com/*",
     "*://*.x.com/*",
     "*://*.ycombinator.com/*",
