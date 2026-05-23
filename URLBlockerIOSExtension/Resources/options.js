@@ -3,6 +3,19 @@
 
   const api = root.browser || root.chrome;
   const core = root.BlockerCore;
+  const DEFAULT_GROUP_TITLES = {
+    "bsky.app": "Bluesky",
+    "facebook.com": "Facebook",
+    "instagram.com": "Instagram",
+    "linkedin.com": "LinkedIn",
+    "pinterest.com": "Pinterest",
+    "reddit.com": "Reddit",
+    "threads.com": "Threads",
+    "tiktok.com": "TikTok",
+    "x.com": "X",
+    "ycombinator.com": "Hacker News",
+    "youtube.com": "YouTube"
+  };
   const state = {
     defaultEntries: [],
     draftEntries: [],
@@ -143,6 +156,14 @@
     return groups;
   }
 
+  function defaultGroupTitle(domain) {
+    if (!Object.hasOwn(DEFAULT_GROUP_TITLES, domain)) {
+      throw new Error(`Missing default group title: ${domain}.`);
+    }
+
+    return DEFAULT_GROUP_TITLES[domain];
+  }
+
   function renderDefaultGroup(domain, entries) {
     const group = document.createElement("article");
     const toolbar = document.createElement("div");
@@ -150,13 +171,14 @@
     const title = document.createElement("div");
     const limitLabel = document.createElement("label");
     const limitInput = document.createElement("input");
+    const titleText = defaultGroupTitle(domain);
 
     group.className = "block-row default-group";
     group.dataset.domain = domain;
     toolbar.className = "row-toolbar default-group-toolbar";
     heading.className = "default-group-heading";
     title.className = "default-group-title";
-    title.textContent = domain;
+    title.textContent = titleText;
     limitLabel.className = "default-group-limit";
     limitLabel.textContent = "Limit minutes";
     limitInput.className = "limit-input";
@@ -165,7 +187,7 @@
     limitInput.max = "960";
     limitInput.step = "1";
     limitInput.inputMode = "numeric";
-    limitInput.setAttribute("aria-label", `Limit minutes for ${domain}`);
+    limitInput.setAttribute("aria-label", `Limit minutes for ${titleText}`);
     limitInput.value = String(entries[0].limitMinutes);
     limitInput.addEventListener("input", () => updateLimit(entries[0].id, limitInput.value));
     heading.append(title);
