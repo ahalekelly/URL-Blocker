@@ -57,6 +57,7 @@ test("loads default blocked pages for new installs", () => {
     { type: "default", kind: "url", value: "linkedin.com/feed", enabled: true },
     { type: "default", kind: "url", value: "youtube.com", enabled: true },
     { type: "default", kind: "url", value: "reddit.com", enabled: true },
+    { type: "default", kind: "url", value: "reddit.com/r/*", enabled: true },
     { type: "default", kind: "url", value: "ycombinator.com", enabled: true }
   ]);
   assert.deepEqual(state.schedule, { type: "always" });
@@ -146,6 +147,28 @@ test("migrates legacy default entries and deleted defaults", () => {
   ]);
 });
 
+test("migrates schema 7 states to split subreddit feeds from reddit", () => {
+  const oldDefaultEntries = defaultBlockedPages
+    .filter((entry) => entry.value !== "reddit.com/r/*")
+    .map((entry) => ({ ...entry, enabled: entry.value !== "reddit.com" }));
+  const state = core.parseStoredState({
+    schemaVersion: 7,
+    entries: oldDefaultEntries,
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: core.DEFAULT_SCHEDULE,
+    domainLimits: core.domainLimitsForEntries(oldDefaultEntries, [{ domain: "reddit.com", limitMinutes: 12 }])
+  }, defaultBlockedPages);
+  const redditEntry = state.entries.find((entry) => entry.value === "reddit.com");
+  const subredditEntry = state.entries.find((entry) => entry.value === "reddit.com/r/*");
+
+  assert.equal(redditEntry.enabled, false);
+  assert.equal(subredditEntry.enabled, false);
+  assert.deepEqual(state.domainLimits.find((limit) => limit.domain === "reddit.com"), {
+    domain: "reddit.com",
+    limitMinutes: 12
+  });
+});
+
 test("maps URL alias source hosts to permissions", () => {
   const state = validState([
     { id: ids[0], kind: "url", value: "x.com" }
@@ -166,7 +189,7 @@ test("normalizes URL entries for path-based matching", () => {
   assert.equal(core.normalizeUrlEntryValue("https://twitter.com"), "x.com");
   assert.equal(core.normalizeUrlEntryValue("https://twitter.com/home"), "x.com");
   assert.equal(core.normalizeUrlEntryValue("https://ycombinator.com/news"), "ycombinator.com");
-  assert.equal(core.normalizeUrlEntryValue("https://old.reddit.com/r/safari/top?t=month"), "reddit.com");
+  assert.equal(core.normalizeUrlEntryValue("https://old.reddit.com/r/safari/top?t=month"), "reddit.com/r/*");
   assert.throws(() => core.normalizeUrlEntryValue("ftp://example.com"), /http or https/);
   assert.throws(() => core.normalizeUrlEntryValue("https://user@example.com"), /usernames/);
   assert.throws(() => core.normalizeUrlEntryValue("https://example.com:8443/path"), /non-default ports/);
@@ -454,16 +477,21 @@ test("matches URL subpaths without matching sibling prefixes", () => {
   assert.equal(core.findMatchingEntry(state, "https://reddit.com/popularity").type, "none");
 });
 
-test("matches root URL entries and subreddit feed aliases", () => {
-  const state = validState([
+test("matches root reddit and subreddit feed entries separately", () => {
+  const rootState = validState([
     { id: ids[0], kind: "url", value: "reddit.com" }
   ]);
+  const subredditState = validState([
+    { id: ids[1], kind: "url", value: "reddit.com/r/*" }
+  ]);
 
-  assert.equal(core.findMatchingEntry(state, "https://reddit.com").type, "match");
-  assert.equal(core.findMatchingEntry(state, "https://reddit.com/").type, "match");
-  assert.equal(core.findMatchingEntry(state, "https://reddit.com/r/safari").type, "match");
-  assert.equal(core.findMatchingEntry(state, "https://old.reddit.com/r/safari/new?sort=hour").type, "match");
-  assert.equal(core.findMatchingEntry(state, "https://reddit.com/r/safari/comments/123/post").type, "none");
+  assert.equal(core.findMatchingEntry(rootState, "https://reddit.com").type, "match");
+  assert.equal(core.findMatchingEntry(rootState, "https://reddit.com/").type, "match");
+  assert.equal(core.findMatchingEntry(rootState, "https://reddit.com/r/safari").type, "none");
+  assert.equal(core.findMatchingEntry(subredditState, "https://reddit.com").type, "none");
+  assert.equal(core.findMatchingEntry(subredditState, "https://reddit.com/r/safari").type, "match");
+  assert.equal(core.findMatchingEntry(subredditState, "https://old.reddit.com/r/safari/new?sort=hour").type, "match");
+  assert.equal(core.findMatchingEntry(subredditState, "https://reddit.com/r/safari/comments/123/post").type, "none");
 });
 
 test("matches hardcoded URL aliases as their root URLs", () => {

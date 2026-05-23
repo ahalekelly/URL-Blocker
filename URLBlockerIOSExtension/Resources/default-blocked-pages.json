@@ -169,6 +169,13 @@
   },
   {
     "type": "default",
+    "id": "10000000-0000-4000-8000-000000000029",
+    "kind": "url",
+    "value": "reddit.com/r/*",
+    "enabled": true
+  },
+  {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000007",
     "kind": "url",
     "value": "ycombinator.com",

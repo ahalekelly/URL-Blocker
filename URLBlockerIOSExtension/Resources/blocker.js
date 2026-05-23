@@ -2,8 +2,10 @@
   "use strict";
 
   const STATE_KEY = "blockerState";
-  const SCHEMA_VERSION = 7;
+  const SCHEMA_VERSION = 8;
   const LEGACY_SCHEMA_VERSION = 6;
+  const PREVIOUS_SCHEMA_VERSION = 7;
+  const SUBREDDIT_FEEDS_VALUE = "reddit.com/r/*";
   const MAX_ENTRIES = 1000;
   const MAX_BLOCKED_PAGE_HTML_LENGTH = 4000;
   const DEFAULT_LIMIT_MINUTES = 30;
@@ -20,7 +22,7 @@
       type: "pathRegex",
       host: "reddit.com",
       pathPattern: /^\/r\/[a-z0-9_]+(?:\/(?:hot|new|top|rising|controversial))?$/i,
-      target: "reddit.com"
+      target: SUBREDDIT_FEEDS_VALUE
     }
   ];
   const KIND_LABELS = {
@@ -197,7 +199,7 @@
   }
 
   function migrateStoredState(rawState, defaultEntries) {
-    if (!isPlainObject(rawState) || rawState.schemaVersion !== LEGACY_SCHEMA_VERSION || !Array.isArray(rawState.entries)) {
+    if (!isPlainObject(rawState) || ![LEGACY_SCHEMA_VERSION, PREVIOUS_SCHEMA_VERSION].includes(rawState.schemaVersion) || !Array.isArray(rawState.entries)) {
       return rawState;
     }
 
@@ -211,10 +213,18 @@
       const defaultEntry = defaultCatalog.byId.get(entry.id.toLowerCase());
 
       if (!defaultEntry) {
+        if (rawState.schemaVersion === PREVIOUS_SCHEMA_VERSION) {
+          return entry;
+        }
+
         return { type: "custom", id: entry.id, kind: entry.kind, value: entry.value };
       }
 
       seenDefaultIds.add(defaultEntry.id);
+
+      if (rawState.schemaVersion === PREVIOUS_SCHEMA_VERSION) {
+        return { ...defaultEntry, enabled: entry.enabled };
+      }
 
       return { ...defaultEntry, enabled: true };
     });
@@ -224,7 +234,7 @@
         return;
       }
 
-      entries.push({ ...entry, enabled: false });
+      entries.push({ ...entry, enabled: enabledForAddedDefault(entry, entries) });
     });
 
     return {
@@ -234,6 +244,16 @@
       schedule: rawState.schedule,
       domainLimits: domainLimitsForEntries(entries, Array.isArray(rawState.domainLimits) ? rawState.domainLimits : [])
     };
+  }
+
+  function enabledForAddedDefault(entry, entries) {
+    if (entry.value !== SUBREDDIT_FEEDS_VALUE) {
+      return false;
+    }
+
+    const redditEntry = entries.find((candidate) => candidate.type === "default" && candidate.value === "reddit.com");
+
+    return redditEntry ? redditEntry.enabled : false;
   }
 
   function normalizeDefaultEntries(defaultEntries) {

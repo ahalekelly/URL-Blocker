@@ -181,7 +181,7 @@
     const enabledLabel = document.createElement("label");
     const enabledInput = document.createElement("input");
     const enabledText = document.createElement("span");
-    const valueInput = document.createElement("input");
+    const value = document.createElement("span");
     const rowError = document.createElement("p");
     const error = state.rowErrors.get(entry.id) || "";
 
@@ -194,16 +194,13 @@
     enabledInput.setAttribute("aria-label", `Enable ${entry.value}`);
     enabledInput.addEventListener("change", () => updateEnabled(entry.id, enabledInput.checked));
     enabledText.textContent = "Enabled";
-    valueInput.className = "value-input";
-    valueInput.type = "text";
-    valueInput.value = entry.value;
-    valueInput.readOnly = true;
-    valueInput.setAttribute("aria-label", "Block rule");
+    value.className = "default-group-entry-value";
+    value.textContent = entry.value;
     rowError.className = "row-error";
     rowError.hidden = error === "";
     rowError.textContent = error;
     enabledLabel.append(enabledInput, enabledText);
-    row.append(enabledLabel, valueInput, rowError);
+    row.append(value, enabledLabel, rowError);
 
     return row;
   }

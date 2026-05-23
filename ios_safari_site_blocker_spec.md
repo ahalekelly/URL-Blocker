@@ -471,7 +471,8 @@ Run these tests on iPhone and iPad. Simulators are useful but not sufficient for
 | URL descendant path | Block `https://reddit.com/popular` | `/popular/foo` is allowed |
 | URL including subpaths | Block `https://reddit.com/popular` with URL blocking including subpaths | `/popular`, `/popular/`, `/popular?foo=bar`, `/popular/foo`, and `/popular/foo?bar=baz` are blocked |
 | URL including subpaths text prefix | Block `https://reddit.com/popular` with URL blocking including subpaths | `/popularity` is allowed |
-| Root URL with aliases | Block `https://reddit.com` | Root and subreddit feed pages like `/r/safari` and `/r/safari/new` are blocked; subreddit comment pages are allowed |
+| Root Reddit URL | Block `https://reddit.com` | Root Reddit URLs are blocked; subreddit feed and comment pages are allowed |
+| Subreddit feeds | Block `https://reddit.com/r/*` | Subreddit feed pages like `/r/safari` and `/r/safari/new` are blocked; subreddit comment pages are allowed |
 | Domain | Block `example.com` | `example.com` and subdomains are blocked |
 | Regex valid | Add an anchored regex for two paths | Matching paths block; non-matching paths allow |
 | Regex invalid | Add unsupported regex | Save fails and old blocklist remains active |

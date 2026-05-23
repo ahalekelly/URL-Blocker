@@ -8,8 +8,10 @@ enum NativeBlocklistStore {
 
     static let stateKey = "blockerState"
 
-    private static let schemaVersion = 7
+    private static let schemaVersion = 8
     private static let legacySchemaVersion = 6
+    private static let previousSchemaVersion = 7
+    private static let subredditFeedsValue = "reddit.com/r/*"
     private static let screenTimeUsageKey = "screenTimeUsage"
     private static let screenTimeUsageSchemaVersion = 1
     private static let screenTimeWindowHours = 16
@@ -30,7 +32,7 @@ enum NativeBlocklistStore {
         .pathRegex(
             host: "reddit.com",
             pathPattern: #"^/r/[a-z0-9_]+(?:/(?:hot|new|top|rising|controversial))?$"#,
-            target: "reddit.com"
+            target: subredditFeedsValue
         )
     ]
 
@@ -147,8 +149,9 @@ enum NativeBlocklistStore {
 
         let defaultEntries = try normalizedDefaultEntries()
 
-        if state["schemaVersion"] as? Int == legacySchemaVersion {
-            return try validateState(migrateLegacyState(state, defaultEntries), defaultEntries)
+        if let storedSchemaVersion = state["schemaVersion"] as? Int,
+           [legacySchemaVersion, previousSchemaVersion].contains(storedSchemaVersion) {
+            return try validateState(migrateStoredState(state, defaultEntries), defaultEntries)
         }
 
         return try validateState(rawState, defaultEntries)
@@ -848,11 +851,12 @@ enum NativeBlocklistStore {
         ], entries)
     }
 
-    private static func migrateLegacyState(_ state: [String: Any], _ defaultEntries: [[String: Any]]) throws -> [String: Any] {
+    private static func migrateStoredState(_ state: [String: Any], _ defaultEntries: [[String: Any]]) throws -> [String: Any] {
         guard let oldEntries = state["entries"] as? [[String: Any]] else {
             return state
         }
 
+        let storedSchemaVersion = state["schemaVersion"] as! Int
         let defaultEntriesById = Dictionary(uniqueKeysWithValues: defaultEntries.map { ($0["id"] as! String, $0) })
         var seenDefaultIds = Set<String>()
         var entries: [[String: Any]] = oldEntries.map { entry in
@@ -860,11 +864,19 @@ enum NativeBlocklistStore {
                 return entry
             }
 
-            guard let defaultEntry = defaultEntriesById[id.lowercased()] else {
+            guard var defaultEntry = defaultEntriesById[id.lowercased()] else {
+                if storedSchemaVersion == previousSchemaVersion {
+                    return entry
+                }
+
                 return ["type": "custom", "id": id, "kind": entry["kind"] as Any, "value": entry["value"] as Any]
             }
 
             seenDefaultIds.insert(defaultEntry["id"] as! String)
+
+            if storedSchemaVersion == previousSchemaVersion {
+                defaultEntry["enabled"] = entry["enabled"]
+            }
 
             return defaultEntry
         }
@@ -874,9 +886,9 @@ enum NativeBlocklistStore {
 
             if seenDefaultIds.contains(id) { return }
 
-            var disabledEntry = entry
-            disabledEntry["enabled"] = false
-            entries.append(disabledEntry)
+            var addedEntry = entry
+            addedEntry["enabled"] = enabledForAddedDefault(entry, entries)
+            entries.append(addedEntry)
         }
 
         return [
@@ -886,6 +898,18 @@ enum NativeBlocklistStore {
             "schedule": state["schedule"] as Any,
             "domainLimits": try domainLimitsForEntries(entries, state["domainLimits"] as? [[String: Any]] ?? [])
         ]
+    }
+
+    private static func enabledForAddedDefault(_ entry: [String: Any], _ entries: [[String: Any]]) -> Bool {
+        if entry["value"] as? String != subredditFeedsValue {
+            return false
+        }
+
+        let redditEntry = entries.first { candidate in
+            candidate["type"] as? String == "default" && candidate["value"] as? String == "reddit.com"
+        }
+
+        return redditEntry?["enabled"] as? Bool ?? false
     }
 
     private static func normalizedDefaultEntries() throws -> [[String: Any]] {

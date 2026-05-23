@@ -215,7 +215,7 @@ h2 {
 
 .default-group-entry {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px 12px;
 }
@@ -224,8 +224,13 @@ h2 {
   margin-top: 0;
 }
 
-.default-group-entry .value-input {
+.default-group-entry-value {
   min-height: 40px;
+  display: flex;
+  align-items: center;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-weight: 600;
 }
 
 .default-group-entry .row-error {
@@ -410,7 +415,4 @@ input[readonly] {
     flex: 1 1 148px;
   }
 
-  .default-group-entry {
-    grid-template-columns: 1fr;
-  }
 }
