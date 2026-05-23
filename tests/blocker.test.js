@@ -64,6 +64,7 @@ test("normalizes URL entries for path-based matching", () => {
   assert.equal(core.normalizeUrlEntryValue("https://x.com/home"), "x.com");
   assert.equal(core.normalizeUrlEntryValue("https://twitter.com/home"), "twitter.com");
   assert.equal(core.normalizeUrlEntryValue("https://ycombinator.com/news"), "ycombinator.com");
+  assert.equal(core.normalizeUrlEntryValue("https://old.reddit.com/r/safari/top?t=month"), "reddit.com");
   assert.throws(() => core.normalizeUrlEntryValue("ftp://example.com"), /http or https/);
   assert.throws(() => core.normalizeUrlEntryValue("https://user@example.com"), /usernames/);
   assert.throws(() => core.normalizeUrlEntryValue("https://example.com:8443/path"), /non-default ports/);
@@ -340,14 +341,16 @@ test("matches URL subpaths without matching sibling prefixes", () => {
   assert.equal(core.findMatchingEntry(state, "https://reddit.com/popularity").type, "none");
 });
 
-test("keeps root URL entries scoped to the root path", () => {
+test("matches root URL entries and subreddit feed aliases", () => {
   const state = validState([
     { id: ids[0], kind: "url", value: "reddit.com" }
   ]);
 
   assert.equal(core.findMatchingEntry(state, "https://reddit.com").type, "match");
   assert.equal(core.findMatchingEntry(state, "https://reddit.com/").type, "match");
-  assert.equal(core.findMatchingEntry(state, "https://reddit.com/r/safari").type, "none");
+  assert.equal(core.findMatchingEntry(state, "https://reddit.com/r/safari").type, "match");
+  assert.equal(core.findMatchingEntry(state, "https://old.reddit.com/r/safari/new?sort=hour").type, "match");
+  assert.equal(core.findMatchingEntry(state, "https://reddit.com/r/safari/comments/123/post").type, "none");
 });
 
 test("matches hardcoded URL aliases as their root URLs", () => {
@@ -367,7 +370,7 @@ test("matches hardcoded URL aliases as their root URLs", () => {
 test("maps blocklist entries to host permissions", () => {
   const state = validState([
     { id: ids[0], kind: "url", value: "https://reddit.com/popular" },
-    { id: ids[1], kind: "urlWithSubpaths", value: "https://old.reddit.com/r/safari" },
+    { id: ids[1], kind: "urlWithSubpaths", value: "https://old.reddit.com/user/safari" },
     { id: ids[2], kind: "domain", value: "example.com" }
   ]);
 

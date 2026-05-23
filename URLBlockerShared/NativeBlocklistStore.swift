@@ -1,6 +1,11 @@
 import Foundation
 
 enum NativeBlocklistStore {
+    private enum UrlAlias {
+        case exact(source: String, target: String)
+        case pathRegex(host: String, pathPattern: String, target: String)
+    }
+
     static let stateKey = "blockerState"
 
     private static let schemaVersion = 6
@@ -12,10 +17,15 @@ enum NativeBlocklistStore {
     private static let appGroupIdentifier = "group.com.akelly.URLBlocker"
     private static let entryKinds = Set(["domain", "url", "urlWithSubpaths", "regex"])
     private static let entryIdPattern = #"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"#
-    private static let urlAliases = [
-        "x.com/home": "x.com",
-        "twitter.com/home": "twitter.com",
-        "ycombinator.com/news": "ycombinator.com"
+    private static let urlAliases: [UrlAlias] = [
+        .exact(source: "x.com/home", target: "x.com"),
+        .exact(source: "twitter.com/home", target: "twitter.com"),
+        .exact(source: "ycombinator.com/news", target: "ycombinator.com"),
+        .pathRegex(
+            host: "reddit.com",
+            pathPattern: #"^/r/[a-z0-9_]+(?:/(?:hot|new|top|rising|controversial))?$"#,
+            target: "reddit.com"
+        )
     ]
 
     static func handle(_ message: [String: Any]) -> [String: Any] {
@@ -252,7 +262,7 @@ enum NativeBlocklistStore {
         let storedPath = path == "/" ? "" : path
         let storedValue = "\(host)\(storedPath)"
 
-        if let alias = urlAliases[storedValue.lowercased()] {
+        if let alias = urlAliasTarget(host: host, path: storedPath, storedValue: storedValue) {
             return (alias, true)
         }
 
@@ -578,6 +588,23 @@ enum NativeBlocklistStore {
 
     private static func matches(_ value: String, _ pattern: String) -> Bool {
         value.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    private static func urlAliasTarget(host: String, path: String, storedValue: String) -> String? {
+        for alias in urlAliases {
+            switch alias {
+            case .exact(let source, let target):
+                if source == storedValue.lowercased() { return target }
+            case .pathRegex(let aliasHost, let pathPattern, let target):
+                if hostMatches(aliasHost, host), matches(path, pathPattern) { return target }
+            }
+        }
+
+        return nil
+    }
+
+    private static func hostMatches(_ domain: String, _ host: String) -> Bool {
+        host == domain || host.hasSuffix(".\(domain)")
     }
 
     private static func stripLeadingWww(_ host: String) -> String {

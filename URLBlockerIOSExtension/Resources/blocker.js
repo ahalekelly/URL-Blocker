@@ -12,9 +12,15 @@
   const ALL_WEBSITES_ORIGIN = "*://*/*";
   const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const URL_ALIASES = [
-    { source: "x.com/home", target: "x.com" },
-    { source: "twitter.com/home", target: "twitter.com" },
-    { source: "ycombinator.com/news", target: "ycombinator.com" }
+    { type: "exact", source: "x.com/home", target: "x.com" },
+    { type: "exact", source: "twitter.com/home", target: "twitter.com" },
+    { type: "exact", source: "ycombinator.com/news", target: "ycombinator.com" },
+    {
+      type: "pathRegex",
+      host: "reddit.com",
+      pathPattern: /^\/r\/[a-z0-9_]+(?:\/(?:hot|new|top|rising|controversial))?$/i,
+      target: "reddit.com"
+    }
   ];
   const KIND_LABELS = {
     url: "URL",
@@ -279,10 +285,10 @@
     const path = stripTrailingSlashes(url.pathname);
     const storedPath = path === "/" ? "" : path;
     const value = `${host}${storedPath}`;
-    const alias = URL_ALIASES.find((candidate) => candidate.source === value.toLowerCase());
+    const alias = storedUrlAliasTarget(host, storedPath, value);
 
     if (alias) {
-      return { value: alias.target, aliased: true };
+      return { value: alias, aliased: true };
     }
 
     return { value, aliased: false };
@@ -711,22 +717,66 @@
 
   function pageAliasPath(host, path) {
     const normalizedPath = path === "/" ? "" : path;
+    const target = pageUrlAliasTarget(stripLeadingWww(host), normalizedPath);
 
-    for (const alias of URL_ALIASES) {
-      const source = splitStoredUrl(alias.source);
-
-      if (!domainMatchesHost(source.host, stripLeadingWww(host))) {
-        continue;
-      }
-
-      if (source.path.toLowerCase() !== normalizedPath.toLowerCase()) {
-        continue;
-      }
-
-      return splitStoredUrl(alias.target).path;
+    if (target) {
+      return splitStoredUrl(target).path;
     }
 
     return normalizedPath;
+  }
+
+  function storedUrlAliasTarget(host, path, storedValue) {
+    for (const alias of URL_ALIASES) {
+      switch (alias.type) {
+        case "exact":
+          if (alias.source === storedValue.toLowerCase()) {
+            return alias.target;
+          }
+
+          break;
+        case "pathRegex":
+          if (domainMatchesHost(alias.host, host) && alias.pathPattern.test(path)) {
+            return alias.target;
+          }
+
+          break;
+        default:
+          throw new Error(`Unknown URL alias type: ${alias.type}`);
+      }
+    }
+
+    return null;
+  }
+
+  function pageUrlAliasTarget(host, path) {
+    for (const alias of URL_ALIASES) {
+      switch (alias.type) {
+        case "exact": {
+          const source = splitStoredUrl(alias.source);
+
+          if (!domainMatchesHost(source.host, host)) {
+            continue;
+          }
+
+          if (source.path.toLowerCase() !== path.toLowerCase()) {
+            continue;
+          }
+
+          return alias.target;
+        }
+        case "pathRegex":
+          if (domainMatchesHost(alias.host, host) && alias.pathPattern.test(path)) {
+            return alias.target;
+          }
+
+          break;
+        default:
+          throw new Error(`Unknown URL alias type: ${alias.type}`);
+      }
+    }
+
+    return null;
   }
 
   function domainMatchesUrl(domain, pageUrl) {
