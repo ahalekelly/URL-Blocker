@@ -9,7 +9,7 @@ IOS_DERIVED_DATA ?= /tmp/urlblocker_ios_build
 IOS_SIGNED_IPA ?= $(CURDIR)/build/URLBlockerIOS-signed.ipa
 IOS_DEVICE_SCRIPT := $(CURDIR)/scripts/connected-iphone.mjs
 IOS_SIGNING_ASSETS ?= $(HOME)/Documents/UDIDRegistrations/iOSSigning
-IOS_SIGNING_DERIVED_DATA ?= /tmp/urlblocker_signing/build
+IOS_SIGNING_DERIVED_DATA ?= /tmp/urlblocker_signing_build
 IOS_SIGNING_SCRIPT := $(CURDIR)/scripts/sign-ios-udid.mjs
 IOS_SIGNING_WORK_DIR ?= /tmp/urlblocker_signing
 IOS_SIGNED_DIR ?= /tmp/urlblocker_signed
@@ -18,13 +18,36 @@ P12_PASSWORD_FILE ?= $(IOS_SIGNING_ASSETS)/Development.p12.password
 MACOS_DERIVED_DATA ?= /tmp/urlblocker_macos_build
 MACOS_CODE_SIGN_IDENTITY ?= Apple Development
 
+IOS_BUILD_APP := $(IOS_DERIVED_DATA)/Build/Products/Release-iphoneos/URLBlockerIOS.app
+IOS_BUILD_STAMP := $(IOS_DERIVED_DATA)/Build/Products/Release-iphoneos/.URLBlockerIOS.build.stamp
 MACOS_BUILD_APP := $(MACOS_DERIVED_DATA)/Build/Products/Release/URLBlockerMac.app
+MACOS_BUILD_STAMP := $(MACOS_DERIVED_DATA)/Build/Products/Release/.URLBlockerMac.build.stamp
 MACOS_BUILD_EXTENSION := $(MACOS_BUILD_APP)/Contents/PlugIns/URLBlockerMacExtension.appex
 MACOS_INSTALLED_APP := /Applications/URLBlockerMac.app
 MACOS_INSTALLED_EXTENSION := $(MACOS_INSTALLED_APP)/Contents/PlugIns/URLBlockerMacExtension.appex
 SAFARI_EXTENSION_ID := com.akelly.URLBlockerMac.Extension
 SAFARI_EXTENSION_SDK := com.apple.Safari.web-extension
 LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister
+
+XCODE_PROJECT_INPUTS := \
+	Makefile \
+	$(PROJECT)/project.pbxproj \
+	$(PROJECT)/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+
+IOS_BUILD_INPUTS := \
+	$(XCODE_PROJECT_INPUTS) \
+	$(PROJECT)/xcshareddata/xcschemes/$(IOS_SCHEME).xcscheme \
+	$(shell find URLBlockerIOS URLBlockerIOSExtension URLBlockerShared -type f ! -name .DS_Store)
+
+IOS_SIGNING_INPUTS := $(wildcard \
+	$(IOS_SIGNING_ASSETS)/Development.mobileprovision \
+	$(IOS_SIGNING_ASSETS)/Development.p12 \
+	$(P12_PASSWORD_FILE))
+
+MACOS_BUILD_INPUTS := \
+	$(XCODE_PROJECT_INPUTS) \
+	$(PROJECT)/xcshareddata/xcschemes/$(MACOS_SCHEME).xcscheme \
+	$(shell find URLBlockerMac URLBlockerExtensionMac URLBlockerShared -type f ! -name .DS_Store)
 
 .PHONY: help test all build check ios-build ios-signed-ipa ios-devices ios-install macos-build macos-install macos-clean-registration macos-verify macos-plugin-check
 
@@ -52,7 +75,9 @@ build: ios-build macos-build
 
 check: test build
 
-ios-build:
+ios-build: $(IOS_BUILD_STAMP)
+
+$(IOS_BUILD_STAMP): $(IOS_BUILD_INPUTS)
 	xcodebuild \
 	  -project "$(PROJECT)" \
 	  -scheme "$(IOS_SCHEME)" \
@@ -63,8 +88,15 @@ ios-build:
 	  CODE_SIGNING_ALLOWED=NO \
 	  COMPILATION_CACHE_ENABLE_CACHING=NO \
 	  build
+	@if [[ ! -d "$(IOS_BUILD_APP)" ]]; then \
+	  printf "Missing built app: %s\n" "$(IOS_BUILD_APP)" >&2; \
+	  exit 1; \
+	fi
+	@touch "$@"
 
-ios-signed-ipa:
+ios-signed-ipa: $(IOS_SIGNED_IPA)
+
+$(IOS_SIGNED_IPA): $(IOS_SIGNING_SCRIPT) $(IOS_SIGNING_INPUTS) $(IOS_BUILD_INPUTS)
 	IOS_APP_GROUP="$(IOS_APP_GROUP)" \
 	IOS_PROJECT="$(PROJECT)" \
 	IOS_SCHEME="$(IOS_SCHEME)" \
@@ -79,7 +111,7 @@ ios-signed-ipa:
 ios-devices:
 	xcrun devicectl list devices
 
-ios-install: ios-signed-ipa
+ios-install: $(IOS_SIGNED_IPA)
 	@if [[ ! -f "$(IOS_SIGNED_IPA)" ]]; then \
 	  printf "Missing signed IPA: %s\n" "$(IOS_SIGNED_IPA)" >&2; \
 	  exit 1; \
@@ -101,7 +133,10 @@ ios-install: ios-signed-ipa
 	unzip -q "$(IOS_SIGNED_IPA)" -d "$$install_dir"; \
 	xcrun devicectl device install app --device "$$device" "$$install_dir/Payload/URLBlockerIOS.app"
 
-macos-build:
+macos-build: $(MACOS_BUILD_STAMP)
+	$(MAKE) macos-clean-registration
+
+$(MACOS_BUILD_STAMP): $(MACOS_BUILD_INPUTS)
 	xcodebuild \
 	  -project "$(PROJECT)" \
 	  -scheme "$(MACOS_SCHEME)" \
@@ -112,7 +147,11 @@ macos-build:
 	  COMPILATION_CACHE_ENABLE_CACHING=NO \
 	  CODE_SIGN_IDENTITY="$(MACOS_CODE_SIGN_IDENTITY)" \
 	  build
-	$(MAKE) macos-clean-registration
+	@if [[ ! -d "$(MACOS_BUILD_APP)" ]]; then \
+	  printf "Missing built app: %s\n" "$(MACOS_BUILD_APP)" >&2; \
+	  exit 1; \
+	fi
+	@touch "$@"
 
 macos-install: macos-build
 	ditto "$(MACOS_BUILD_APP)" "$(MACOS_INSTALLED_APP)"
