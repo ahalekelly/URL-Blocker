@@ -13,7 +13,8 @@
   const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const URL_ALIASES = [
     { type: "exact", source: "x.com/home", target: "x.com" },
-    { type: "exact", source: "twitter.com/home", target: "twitter.com" },
+    { type: "exact", source: "twitter.com", target: "x.com" },
+    { type: "exact", source: "twitter.com/home", target: "x.com" },
     { type: "exact", source: "ycombinator.com/news", target: "ycombinator.com" },
     {
       type: "pathRegex",
@@ -542,7 +543,7 @@
     const limits = [...state.domainLimits].sort((left, right) => right.domain.length - left.domain.length);
 
     for (const limit of limits) {
-      if (domainMatchesHost(limit.domain, result.url.host)) {
+      if (domainMatchesHost(limit.domain, result.url.limitHost)) {
         return { type: "match", domain: limit.domain };
       }
     }
@@ -628,7 +629,7 @@
           break;
         case "url":
         case "urlWithSubpaths":
-          origins.push(`*://*.${splitStoredUrl(entry.value).host}/*`);
+          urlPermissionHosts(entry.value).forEach((host) => origins.push(`*://*.${host}/*`));
           break;
         case "regex":
           needsAllWebsites = true;
@@ -698,14 +699,17 @@
       const host = url.hostname.toLowerCase();
       const base = `${scheme}//${host}${url.port === "" ? "" : `:${url.port}`}`;
       const path = stripTrailingSlashes(url.pathname);
-      const aliasedPath = pageAliasPath(host, path);
-      const pathMatchUrl = `${base}${aliasedPath}`;
+      const normalizedPath = path === "/" ? "" : path;
+      const aliasHost = stripLeadingWww(host);
+      const aliasTarget = pageUrlAliasTarget(aliasHost, normalizedPath);
+      const pathMatchUrl = aliasTarget ? storedUrlMatchUrl(scheme, aliasTarget) : `${base}${normalizedPath}`;
       const regexMatchUrl = `${base}${url.pathname}${url.search}`;
 
       return {
         type: "valid",
         url: {
           host,
+          limitHost: hostAliasTarget(aliasHost) || host,
           pathMatchUrl,
           regexMatchUrl
         }
@@ -713,17 +717,6 @@
     } catch {
       return invalidUrl();
     }
-  }
-
-  function pageAliasPath(host, path) {
-    const normalizedPath = path === "/" ? "" : path;
-    const target = pageUrlAliasTarget(stripLeadingWww(host), normalizedPath);
-
-    if (target) {
-      return splitStoredUrl(target).path;
-    }
-
-    return normalizedPath;
   }
 
   function storedUrlAliasTarget(host, path, storedValue) {
@@ -777,6 +770,64 @@
     }
 
     return null;
+  }
+
+  function hostAliasTarget(host) {
+    for (const alias of URL_ALIASES) {
+      switch (alias.type) {
+        case "exact": {
+          const source = splitStoredUrl(alias.source);
+
+          if (domainMatchesHost(source.host, host)) {
+            return splitStoredUrl(alias.target).host;
+          }
+
+          break;
+        }
+        case "pathRegex":
+          if (domainMatchesHost(alias.host, host)) {
+            return splitStoredUrl(alias.target).host;
+          }
+
+          break;
+        default:
+          throw new Error(`Unknown URL alias type: ${alias.type}`);
+      }
+    }
+
+    return null;
+  }
+
+  function urlPermissionHosts(value) {
+    const target = value.toLowerCase();
+    const hosts = [splitStoredUrl(value).host];
+
+    for (const alias of URL_ALIASES) {
+      switch (alias.type) {
+        case "exact":
+          if (alias.target === target) {
+            hosts.push(splitStoredUrl(alias.source).host);
+          }
+
+          break;
+        case "pathRegex":
+          if (alias.target === target) {
+            hosts.push(alias.host);
+          }
+
+          break;
+        default:
+          throw new Error(`Unknown URL alias type: ${alias.type}`);
+      }
+    }
+
+    return [...new Set(hosts)];
+  }
+
+  function storedUrlMatchUrl(scheme, value) {
+    const { host, path } = splitStoredUrl(value);
+
+    return `${scheme}//${host}${path}`;
   }
 
   function domainMatchesUrl(domain, pageUrl) {

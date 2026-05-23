@@ -479,6 +479,7 @@ Run these tests on iPhone and iPad. Simulators are useful but not sufficient for
 | URL input with fragment | Add `https://x.com/home#feed` | Input updates to `https://x.com/home`; save blocks `/home` with any fragment |
 | URL input with trailing slash | Add `https://x.com/home/` | Input updates to `https://x.com/home`; save blocks `/home` and `/home/` |
 | Root URL input | Add `https://x.com/` | Input updates to `https://x.com`; save blocks `https://x.com` and `https://x.com/` |
+| Twitter URL alias | Block `https://x.com` | `https://twitter.com` and `https://twitter.com/home` are blocked as X aliases |
 | Hash route on blocked path | Block `https://x.com/home` | `/home#feed` is blocked |
 | Permission denied | Deny website access for a test site | Editor works; site is not reliably blocked; warning is visible |
 | Safari restart | Save blocklist, force quit Safari, reopen blocked URL | Direct navigation is still blocked |

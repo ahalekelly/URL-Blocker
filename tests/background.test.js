@@ -21,7 +21,7 @@ test("saveState validates, writes storage, and syncs content scripts", async () 
   assert.equal(response.state.blockedPageHtml, "<p>Blocked.</p>");
   assert.equal(api.storageData[core.STATE_KEY].entries[0].value, "x.com");
   assert.deepEqual(api.registeredScripts[0].js, ["content.js"]);
-  assert.deepEqual(api.registeredScripts[0].matches, ["*://*.x.com/*"]);
+  assert.deepEqual(api.registeredScripts[0].matches, ["*://*.twitter.com/*", "*://*.x.com/*"]);
 });
 
 test("getState loads default blocked pages when storage is empty", async () => {
@@ -58,7 +58,7 @@ test("saveState removes access for sites no longer blocked", async () => {
   ]));
 
   assert.equal(response.type, "saved");
-  assert.deepEqual(api.registeredScripts[0].matches, ["*://*.reddit.com/*", "*://*.x.com/*"]);
+  assert.deepEqual(api.registeredScripts[0].matches, ["*://*.reddit.com/*", "*://*.twitter.com/*", "*://*.x.com/*"]);
   assert.deepEqual(api.removedOrigins, ["*://*.example.com/*"]);
 });
 
@@ -143,7 +143,7 @@ test("syncWebsiteAccess registers content scripts for the saved blocklist", asyn
   const response = await controller.handleMessage({ type: "syncWebsiteAccess" }, {});
 
   assert.equal(response.type, "synced");
-  assert.deepEqual(api.registeredScripts[0].matches, ["*://*.x.com/*"]);
+  assert.deepEqual(api.registeredScripts[0].matches, ["*://*.twitter.com/*", "*://*.x.com/*"]);
 });
 
 test("urlChanged redirects matching sender tab to the blocked page", async () => {

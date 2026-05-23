@@ -19,7 +19,8 @@ enum NativeBlocklistStore {
     private static let entryIdPattern = #"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"#
     private static let urlAliases: [UrlAlias] = [
         .exact(source: "x.com/home", target: "x.com"),
-        .exact(source: "twitter.com/home", target: "twitter.com"),
+        .exact(source: "twitter.com", target: "x.com"),
+        .exact(source: "twitter.com/home", target: "x.com"),
         .exact(source: "ycombinator.com/news", target: "ycombinator.com"),
         .pathRegex(
             host: "reddit.com",

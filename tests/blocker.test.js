@@ -34,7 +34,6 @@ test("loads default blocked pages for new installs", () => {
 
   assert.deepEqual(state.entries.map(({ kind, value }) => ({ kind, value })), [
     { kind: "url", value: "x.com" },
-    { kind: "url", value: "twitter.com" },
     { kind: "url", value: "youtube.com" },
     { kind: "url", value: "reddit.com" },
     { kind: "url", value: "ycombinator.com" }
@@ -42,7 +41,6 @@ test("loads default blocked pages for new installs", () => {
   assert.deepEqual(state.schedule, { type: "always" });
   assert.deepEqual(state.domainLimits, [
     { domain: "reddit.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
-    { domain: "twitter.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
     { domain: "x.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
     { domain: "ycombinator.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
     { domain: "youtube.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES }
@@ -51,6 +49,14 @@ test("loads default blocked pages for new installs", () => {
 
 test("keeps install-time permissions aligned with default blocked pages", () => {
   assert.deepEqual(core.permissionOriginsForState(core.emptyState(defaultBlockedPages)), manifest.host_permissions);
+});
+
+test("maps URL alias source hosts to permissions", () => {
+  const state = validState([
+    { id: ids[0], kind: "url", value: "x.com" }
+  ]);
+
+  assert.deepEqual(core.permissionOriginsForState(state), ["*://*.twitter.com/*", "*://*.x.com/*"]);
 });
 
 test("normalizes URL entries for path-based matching", () => {
@@ -62,7 +68,8 @@ test("normalizes URL entries for path-based matching", () => {
   assert.equal(core.normalizeUrlEntryValue("http://example.com:80/Docs/"), "example.com/Docs");
   assert.equal(core.normalizeUrlEntryValue("Example.com/Docs/?x=1#top"), "example.com/Docs");
   assert.equal(core.normalizeUrlEntryValue("https://x.com/home"), "x.com");
-  assert.equal(core.normalizeUrlEntryValue("https://twitter.com/home"), "twitter.com");
+  assert.equal(core.normalizeUrlEntryValue("https://twitter.com"), "x.com");
+  assert.equal(core.normalizeUrlEntryValue("https://twitter.com/home"), "x.com");
   assert.equal(core.normalizeUrlEntryValue("https://ycombinator.com/news"), "ycombinator.com");
   assert.equal(core.normalizeUrlEntryValue("https://old.reddit.com/r/safari/top?t=month"), "reddit.com");
   assert.throws(() => core.normalizeUrlEntryValue("ftp://example.com"), /http or https/);
@@ -229,6 +236,17 @@ test("finds screen time domains by host only", () => {
   assert.deepEqual(core.screenTimeDomainForUrl(state, "safari-web-extension://extension/options.html"), { type: "none" });
 });
 
+test("finds screen time domains through URL host aliases", () => {
+  const state = validState([
+    { id: ids[0], kind: "url", value: "x.com" }
+  ]);
+
+  assert.deepEqual(core.screenTimeDomainForUrl(state, "https://twitter.com/messages"), {
+    type: "match",
+    domain: "x.com"
+  });
+});
+
 test("validates domain limits against associated domains", () => {
   const state = validState([
     { id: ids[0], kind: "url", value: "https://example.com/focus" },
@@ -356,15 +374,16 @@ test("matches root URL entries and subreddit feed aliases", () => {
 test("matches hardcoded URL aliases as their root URLs", () => {
   const state = validState([
     { id: ids[0], kind: "url", value: "x.com" },
-    { id: ids[1], kind: "url", value: "twitter.com" },
-    { id: ids[2], kind: "url", value: "ycombinator.com" }
+    { id: ids[1], kind: "url", value: "ycombinator.com" }
   ]);
 
   assert.equal(core.findMatchingEntry(state, "https://x.com/home").type, "match");
+  assert.equal(core.findMatchingEntry(state, "https://twitter.com").type, "match");
   assert.equal(core.findMatchingEntry(state, "https://www.twitter.com/home?src=nav").type, "match");
   assert.equal(core.findMatchingEntry(state, "https://news.ycombinator.com/news").type, "match");
   assert.equal(core.findMatchingEntry(state, "https://ycombinator.com/news").type, "match");
   assert.equal(core.findMatchingEntry(state, "https://x.com/messages").type, "none");
+  assert.equal(core.findMatchingEntry(state, "https://twitter.com/messages").type, "none");
 });
 
 test("maps blocklist entries to host permissions", () => {
