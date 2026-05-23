@@ -146,14 +146,15 @@
   function renderDefaultGroup(domain, entries) {
     const group = document.createElement("article");
     const toolbar = document.createElement("div");
+    const heading = document.createElement("div");
     const title = document.createElement("div");
     const limitLabel = document.createElement("label");
     const limitInput = document.createElement("input");
-    const entryList = document.createElement("div");
 
     group.className = "block-row default-group";
     group.dataset.domain = domain;
     toolbar.className = "row-toolbar default-group-toolbar";
+    heading.className = "default-group-heading";
     title.className = "default-group-title";
     title.textContent = domain;
     limitLabel.className = "default-group-limit";
@@ -167,26 +168,59 @@
     limitInput.setAttribute("aria-label", `Limit minutes for ${domain}`);
     limitInput.value = String(entries[0].limitMinutes);
     limitInput.addEventListener("input", () => updateLimit(entries[0].id, limitInput.value));
+    heading.append(title);
+
+    if (entries.length === 1) {
+      const entry = entries[0];
+      const rowError = document.createElement("p");
+
+      heading.append(renderDefaultEnabledLabel(entry));
+      rowError.className = "row-error";
+      rowError.hidden = !state.rowErrors.has(entry.id);
+      rowError.textContent = state.rowErrors.get(entry.id) || "";
+      limitLabel.append(limitInput);
+      toolbar.append(heading, limitLabel);
+      group.append(toolbar);
+      group.append(rowError);
+      return group;
+    }
+
+    const entryList = document.createElement("div");
+
     entryList.className = "default-group-entries";
     entryList.replaceChildren(...entries.map(renderDefaultGroupEntry));
     limitLabel.append(limitInput);
-    toolbar.append(title, limitLabel);
-    group.append(toolbar, entryList);
+    toolbar.append(heading, limitLabel);
+    group.append(toolbar);
+    group.append(entryList);
 
     return group;
   }
 
   function renderDefaultGroupEntry(entry) {
     const row = document.createElement("div");
-    const enabledLabel = document.createElement("label");
-    const enabledInput = document.createElement("input");
-    const enabledText = document.createElement("span");
+    const enabledLabel = renderDefaultEnabledLabel(entry);
     const value = document.createElement("span");
     const rowError = document.createElement("p");
     const error = state.rowErrors.get(entry.id) || "";
 
     row.className = "default-group-entry";
     row.dataset.entryId = entry.id;
+    value.className = "default-group-entry-value";
+    value.textContent = entry.value;
+    rowError.className = "row-error";
+    rowError.hidden = error === "";
+    rowError.textContent = error;
+    row.append(value, enabledLabel, rowError);
+
+    return row;
+  }
+
+  function renderDefaultEnabledLabel(entry) {
+    const enabledLabel = document.createElement("label");
+    const enabledInput = document.createElement("input");
+    const enabledText = document.createElement("span");
+
     enabledLabel.className = "enabled-label";
     enabledInput.className = "enabled-input";
     enabledInput.type = "checkbox";
@@ -194,15 +228,9 @@
     enabledInput.setAttribute("aria-label", `Enable ${entry.value}`);
     enabledInput.addEventListener("change", () => updateEnabled(entry.id, enabledInput.checked));
     enabledText.textContent = "Enabled";
-    value.className = "default-group-entry-value";
-    value.textContent = entry.value;
-    rowError.className = "row-error";
-    rowError.hidden = error === "";
-    rowError.textContent = error;
     enabledLabel.append(enabledInput, enabledText);
-    row.append(value, enabledLabel, rowError);
 
-    return row;
+    return enabledLabel;
   }
 
   function renderRow(entry) {
