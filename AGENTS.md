@@ -90,7 +90,6 @@ Use [ios_build_sign_install.md](ios_build_sign_install.md) for the complete sign
 
 - After finishing changes and before committing, run `make test` and then install the signed iOS build to the user's iPhone with `make ios-install`. If `make ios-install` fails during the build process then fix the error, but if the build succeeds but the install fails it's probably just that the iPhone isn't connected so don't bother retrying. Notify the user whether the install succeeded or failed.
 - After finishing and testing each change, commit all changes for that completed work.
-- If you're about to start a new change and there are uncommited code changes, commit them before you start. Make a subagent to look at the changes to figure out what they do and what a good commit message would be.
 - Save any important or useful information to this file, make sure it update it when information changes, you learn new things, or you are given new general instructions
 
 ## Coding Preferences
