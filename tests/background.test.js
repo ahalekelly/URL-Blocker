@@ -243,6 +243,33 @@ test("screenTimeElapsed logs time into the current hour bucket", async () => {
   });
 });
 
+test("screenTimeElapsed stores usage through native storage on iOS", async () => {
+  const api = fakeApi({ nativeStorage: true, now: 20 * 60 * 60 * 1000 });
+  api.nativeData[core.STATE_KEY] = validState([
+    { id, kind: "domain", value: "example.com" }
+  ]);
+  const controller = createBackgroundController(api);
+
+  assert.deepEqual(await controller.handleMessage({
+    type: "screenTimeElapsed",
+    url: "https://www.example.com/path",
+    elapsedMs: 2500
+  }, {}), { type: "logged", domain: "example.com", totalMs: 2500, limitMinutes: 30, isOverLimit: false });
+  assert.equal(api.storageData.screenTimeUsage, undefined);
+  assert.deepEqual(api.nativeData.screenTimeUsage, {
+    schemaVersion: 1,
+    totalsByDomain: {
+      "example.com": { 20: 2500 }
+    }
+  });
+  assert.deepEqual(await controller.handleMessage({ type: "getScreenTimeLog" }, {}), {
+    type: "screenTimeLog",
+    entries: [
+      { domain: "example.com", totalMs: 2500, limitMinutes: 30, isOverLimit: false }
+    ]
+  });
+});
+
 test("screenTimeElapsed validates elapsed time", async () => {
   const controller = createBackgroundController(fakeApi());
 
@@ -414,6 +441,7 @@ function currentMinute() {
 function fakeApi(overrides = {}) {
   const api = {
     storageData: {},
+    nativeData: {},
     grantedOrigins: overrides.grantedOrigins || ["*://*.example.com/*", ...manifest.host_permissions],
     tabsData: overrides.tabs || [],
     registeredScripts: [],
@@ -477,6 +505,26 @@ function fakeApi(overrides = {}) {
       }
     }
   };
+
+  if (overrides.nativeStorage) {
+    api.runtime.getPlatformInfo = async () => ({ os: "ios" });
+    api.runtime.sendNativeMessage = async (_applicationId, message) => {
+      switch (message.type) {
+        case "getState":
+          return { type: "state", state: api.nativeData[core.STATE_KEY] || core.emptyState(defaultBlockedPages) };
+        case "saveState":
+          api.nativeData[core.STATE_KEY] = message.state;
+          return { type: "saved", state: message.state };
+        case "getScreenTimeUsage":
+          return { type: "screenTimeUsage", usage: api.nativeData.screenTimeUsage };
+        case "saveScreenTimeUsage":
+          api.nativeData.screenTimeUsage = message.usage;
+          return { type: "savedScreenTimeUsage", usage: message.usage };
+        default:
+          return { type: "error", error: `Unknown native message type: ${message.type}.` };
+      }
+    };
+  }
 
   return api;
 }

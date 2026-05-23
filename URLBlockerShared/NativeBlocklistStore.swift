@@ -9,6 +9,9 @@ enum NativeBlocklistStore {
     static let stateKey = "blockerState"
 
     private static let schemaVersion = 6
+    private static let screenTimeUsageKey = "screenTimeUsage"
+    private static let screenTimeUsageSchemaVersion = 1
+    private static let screenTimeWindowHours = 16
     private static let maxBlockedPageHtmlLength = 4000
     private static let defaultLimitMinutes = 30
     private static let maxLimitMinutes = 960
@@ -43,6 +46,15 @@ enum NativeBlocklistStore {
             case "resetState":
                 try requireKeys(message, ["type"], "resetState message")
                 return resetState()
+            case "getScreenTimeUsage":
+                try requireKeys(message, ["type"], "getScreenTimeUsage message")
+                return getScreenTimeUsage()
+            case "saveScreenTimeUsage":
+                try requireKeys(message, ["type", "usage"], "saveScreenTimeUsage message")
+                return saveScreenTimeUsage(message["usage"])
+            case "getScreenTimeLog":
+                try requireKeys(message, ["type"], "getScreenTimeLog message")
+                return getScreenTimeLog()
             default:
                 return error("Unknown native message type: \(type).")
             }
@@ -80,6 +92,39 @@ enum NativeBlocklistStore {
             return ["type": "saved", "state": state]
         } catch let error as BlocklistValidationError {
             return ["type": "validationError", "errors": error.errors.map(\.dictionary)]
+        } catch {
+            return self.error(error.localizedDescription)
+        }
+    }
+
+    private static func getScreenTimeUsage() -> [String: Any] {
+        do {
+            return ["type": "screenTimeUsage", "usage": screenTimeUsagePayload(try loadScreenTimeUsage(currentHour()))]
+        } catch {
+            return self.error(error.localizedDescription)
+        }
+    }
+
+    private static func saveScreenTimeUsage(_ rawUsage: Any?) -> [String: Any] {
+        do {
+            let usage = pruneScreenTimeUsage(try parseScreenTimeUsage(rawUsage), currentHour())
+            let payload = screenTimeUsagePayload(usage)
+            defaults.set(payload, forKey: screenTimeUsageKey)
+            return ["type": "savedScreenTimeUsage", "usage": payload]
+        } catch {
+            return self.error(error.localizedDescription)
+        }
+    }
+
+    private static func getScreenTimeLog() -> [String: Any] {
+        do {
+            let hour = currentHour()
+            let state = try loadState()
+            let usage = try loadScreenTimeUsage(hour)
+
+            return ["type": "screenTimeLog", "entries": try screenTimeEntries(state, usage, hour)]
+        } catch let error as BlocklistValidationError {
+            return self.error(error.errors.map(\.message).joined(separator: "\n"))
         } catch {
             return self.error(error.localizedDescription)
         }
@@ -496,6 +541,140 @@ enum NativeBlocklistStore {
         return (host, components.path.isEmpty || components.path == "/" ? "" : components.path)
     }
 
+    private static func loadScreenTimeUsage(_ hour: Int) throws -> [String: [String: Int]] {
+        guard let storedUsage = defaults.object(forKey: screenTimeUsageKey) else {
+            return [:]
+        }
+
+        let usage = pruneScreenTimeUsage(try parseScreenTimeUsage(storedUsage), hour)
+        defaults.set(screenTimeUsagePayload(usage), forKey: screenTimeUsageKey)
+
+        return usage
+    }
+
+    private static func parseScreenTimeUsage(_ rawUsage: Any?) throws -> [String: [String: Int]] {
+        guard let usage = rawUsage as? [String: Any] else {
+            throw NativeBlocklistError("Screen time usage must be an object.")
+        }
+
+        try requireKeys(usage, ["schemaVersion", "totalsByDomain"], "Screen time usage")
+
+        guard let schemaVersion = usage["schemaVersion"] as? Int,
+              schemaVersion == screenTimeUsageSchemaVersion else {
+            throw NativeBlocklistError("Unsupported screen time usage version.")
+        }
+
+        guard let rawTotals = usage["totalsByDomain"] as? [String: Any] else {
+            throw NativeBlocklistError("Screen time usage totals must be an object.")
+        }
+
+        var totalsByDomain: [String: [String: Int]] = [:]
+
+        for (domain, rawBuckets) in rawTotals {
+            if try normalizeDomainEntryValue(domain) != domain {
+                throw NativeBlocklistError("Screen time domain must be normalized.")
+            }
+
+            guard let buckets = rawBuckets as? [String: Any] else {
+                throw NativeBlocklistError("Screen time buckets must be an object.")
+            }
+
+            totalsByDomain[domain] = try parseScreenTimeBuckets(buckets)
+        }
+
+        return totalsByDomain
+    }
+
+    private static func parseScreenTimeBuckets(_ buckets: [String: Any]) throws -> [String: Int] {
+        var parsed: [String: Int] = [:]
+
+        for (bucket, totalMs) in buckets {
+            if !matches(bucket, #"^\d+$"#) {
+                throw NativeBlocklistError("Screen time bucket must be an hour number.")
+            }
+
+            guard let totalMs = totalMs as? Int, totalMs >= 0 else {
+                throw NativeBlocklistError("Screen time total must be a non-negative integer.")
+            }
+
+            parsed[bucket] = totalMs
+        }
+
+        return parsed
+    }
+
+    private static func pruneScreenTimeUsage(_ usage: [String: [String: Int]], _ hour: Int) -> [String: [String: Int]] {
+        let minHour = hour - screenTimeWindowHours + 1
+        var totalsByDomain: [String: [String: Int]] = [:]
+
+        usage.forEach { domain, buckets in
+            buckets.forEach { bucket, totalMs in
+                let bucketHour = Int(bucket)!
+
+                if bucketHour < minHour || bucketHour > hour {
+                    return
+                }
+
+                totalsByDomain[domain, default: [:]][bucket] = totalMs
+            }
+        }
+
+        return totalsByDomain
+    }
+
+    private static func screenTimeEntries(
+        _ state: [String: Any],
+        _ usage: [String: [String: Int]],
+        _ hour: Int
+    ) throws -> [[String: Any]] {
+        guard let domainLimits = state["domainLimits"] as? [[String: Any]] else {
+            throw NativeBlocklistError("Domain limits must be an array.")
+        }
+
+        return try domainLimits.map { limit in
+            guard let domain = limit["domain"] as? String,
+                  let limitMinutes = limit["limitMinutes"] as? Int else {
+                throw NativeBlocklistError("Domain limit is invalid.")
+            }
+
+            let totalMs = screenTimeTotalMs(usage, domain, hour)
+
+            return [
+                "domain": domain,
+                "totalMs": totalMs,
+                "limitMinutes": limitMinutes,
+                "isOverLimit": totalMs >= limitMinutes * 60 * 1000
+            ]
+        }.sorted { left, right in
+            let leftTotal = left["totalMs"] as! Int
+            let rightTotal = right["totalMs"] as! Int
+
+            if leftTotal != rightTotal {
+                return leftTotal > rightTotal
+            }
+
+            return (left["domain"] as! String) < (right["domain"] as! String)
+        }
+    }
+
+    private static func screenTimeTotalMs(_ usage: [String: [String: Int]], _ domain: String, _ hour: Int) -> Int {
+        let minHour = hour - screenTimeWindowHours + 1
+
+        return (usage[domain] ?? [:]).reduce(0) { total, item in
+            let bucketHour = Int(item.key)!
+
+            if bucketHour < minHour || bucketHour > hour {
+                return total
+            }
+
+            return total + item.value
+        }
+    }
+
+    private static func screenTimeUsagePayload(_ usage: [String: [String: Int]]) -> [String: Any] {
+        ["schemaVersion": screenTimeUsageSchemaVersion, "totalsByDomain": usage]
+    }
+
     private static func pushUnknownKeyErrors(
         _ errors: inout [BlocklistError],
         _ object: [String: Any],
@@ -620,6 +799,10 @@ enum NativeBlocklistStore {
 
     private static func isMinute(_ value: Int) -> Bool {
         value >= 0 && value <= 1439
+    }
+
+    private static func currentHour() -> Int {
+        Int(Date().timeIntervalSince1970 / 3600)
     }
 
     private static func isIpAddress(_ host: String) -> Bool {

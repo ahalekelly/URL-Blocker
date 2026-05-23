@@ -14,6 +14,7 @@
 
   function createBackgroundController(api) {
     const stateStorage = createStateStorage(api);
+    const screenTimeStorage = createScreenTimeStorage(api);
 
     async function handleMessage(message, sender) {
       if (!isPlainObject(message) || typeof message.type !== "string") {
@@ -221,17 +222,16 @@
       usage.totalsByDomain[domain][bucket] = (usage.totalsByDomain[domain][bucket] || 0) + elapsedMs;
       const pruned = pruneScreenTimeUsage(usage, hour);
 
-      await api.storage.local.set({ [SCREEN_TIME_USAGE_KEY]: pruned });
+      await screenTimeStorage.saveUsage(pruned);
 
       return pruned;
     }
 
     async function loadScreenTimeUsage(hour) {
-      const stored = await api.storage.local.get(SCREEN_TIME_USAGE_KEY);
-      const usage = parseScreenTimeUsage(stored[SCREEN_TIME_USAGE_KEY]);
+      const usage = parseScreenTimeUsage(await screenTimeStorage.loadUsage());
       const pruned = pruneScreenTimeUsage(usage, hour);
 
-      await api.storage.local.set({ [SCREEN_TIME_USAGE_KEY]: pruned });
+      await screenTimeStorage.saveUsage(pruned);
 
       return pruned;
     }
@@ -473,6 +473,56 @@
       },
       async saveState(state) {
         return (await usesNativeStorage(api)) ? nativeStorage.saveState(state) : browserStorage.saveState(state);
+      }
+    };
+  }
+
+  function createScreenTimeStorage(api) {
+    const browserStorage = {
+      async loadUsage() {
+        const stored = await api.storage.local.get(SCREEN_TIME_USAGE_KEY);
+
+        return stored[SCREEN_TIME_USAGE_KEY];
+      },
+      async saveUsage(usage) {
+        await api.storage.local.set({ [SCREEN_TIME_USAGE_KEY]: usage });
+
+        return usage;
+      }
+    };
+    const nativeStorage = {
+      async loadUsage() {
+        const response = await sendNativeMessage(api, { type: "getScreenTimeUsage" });
+
+        switch (response.type) {
+          case "screenTimeUsage":
+            return response.usage;
+          case "error":
+            throw new Error(response.error);
+          default:
+            throw new Error(`Unknown native getScreenTimeUsage response: ${response.type}`);
+        }
+      },
+      async saveUsage(usage) {
+        const response = await sendNativeMessage(api, { type: "saveScreenTimeUsage", usage });
+
+        switch (response.type) {
+          case "savedScreenTimeUsage":
+            return response.usage;
+          case "error":
+            throw new Error(response.error);
+          default:
+            throw new Error(`Unknown native saveScreenTimeUsage response: ${response.type}`);
+        }
+      }
+    };
+
+    return {
+      async loadUsage() {
+        return (await usesNativeStorage(api)) ? nativeStorage.loadUsage() : browserStorage.loadUsage();
+      },
+      async saveUsage(usage) {
+        return (await usesNativeStorage(api)) ? nativeStorage.saveUsage(usage) : browserStorage.saveUsage(usage);
       }
     };
   }
