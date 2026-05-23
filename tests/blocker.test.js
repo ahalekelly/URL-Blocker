@@ -54,7 +54,7 @@ test("loads default blocked pages for new installs", () => {
     { type: "default", kind: "url", value: "pinterest.com", enabled: true },
     { type: "default", kind: "url", value: "pinterest.com/today", enabled: true },
     { type: "default", kind: "url", value: "pinterest.com/ideas", enabled: true },
-    { type: "default", kind: "url", value: "linkedin.com/feed", enabled: true },
+    { type: "default", kind: "url", value: "linkedin.com", enabled: true },
     { type: "default", kind: "url", value: "youtube.com", enabled: true },
     { type: "default", kind: "url", value: "reddit.com", enabled: true },
     { type: "default", kind: "url", value: "reddit.com/r/*", enabled: true },
@@ -117,6 +117,20 @@ test("keeps default entries locked but configurable", () => {
 
   assert.equal(missingDefault.type, "invalid");
   assert.match(missingDefault.errors[0].message, /Missing default entry/);
+});
+
+test("normalizes old linkedin feed default entries", () => {
+  const linkedinDefault = defaultBlockedPages.find((entry) => entry.value === "linkedin.com");
+  const state = core.validateState({
+    schemaVersion: core.SCHEMA_VERSION,
+    entries: [{ ...linkedinDefault, value: "linkedin.com/feed" }],
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: core.DEFAULT_SCHEDULE,
+    domainLimits: [{ domain: "linkedin.com", limitMinutes: 30 }]
+  }, [linkedinDefault]);
+
+  assert.equal(state.type, "valid");
+  assert.equal(state.state.entries[0].value, "linkedin.com");
 });
 
 test("migrates legacy default entries and deleted defaults", () => {
@@ -189,6 +203,7 @@ test("normalizes URL entries for path-based matching", () => {
   assert.equal(core.normalizeUrlEntryValue("https://twitter.com"), "x.com");
   assert.equal(core.normalizeUrlEntryValue("https://twitter.com/home"), "x.com");
   assert.equal(core.normalizeUrlEntryValue("https://ycombinator.com/news"), "ycombinator.com");
+  assert.equal(core.normalizeUrlEntryValue("https://linkedin.com/feed?trk=nav"), "linkedin.com");
   assert.equal(core.normalizeUrlEntryValue("https://old.reddit.com/r/safari/top?t=month"), "reddit.com/r/*");
   assert.throws(() => core.normalizeUrlEntryValue("ftp://example.com"), /http or https/);
   assert.throws(() => core.normalizeUrlEntryValue("https://user@example.com"), /usernames/);
@@ -497,7 +512,8 @@ test("matches root reddit and subreddit feed entries separately", () => {
 test("matches hardcoded URL aliases as their root URLs", () => {
   const state = validState([
     { id: ids[0], kind: "url", value: "x.com" },
-    { id: ids[1], kind: "url", value: "ycombinator.com" }
+    { id: ids[1], kind: "url", value: "ycombinator.com" },
+    { id: ids[2], kind: "url", value: "linkedin.com" }
   ]);
 
   assert.equal(core.findMatchingEntry(state, "https://x.com/home").type, "match");
@@ -505,8 +521,10 @@ test("matches hardcoded URL aliases as their root URLs", () => {
   assert.equal(core.findMatchingEntry(state, "https://www.twitter.com/home?src=nav").type, "match");
   assert.equal(core.findMatchingEntry(state, "https://news.ycombinator.com/news").type, "match");
   assert.equal(core.findMatchingEntry(state, "https://ycombinator.com/news").type, "match");
+  assert.equal(core.findMatchingEntry(state, "https://www.linkedin.com/feed?trk=nav").type, "match");
   assert.equal(core.findMatchingEntry(state, "https://x.com/messages").type, "none");
   assert.equal(core.findMatchingEntry(state, "https://twitter.com/messages").type, "none");
+  assert.equal(core.findMatchingEntry(state, "https://linkedin.com/jobs").type, "none");
 });
 
 test("maps blocklist entries to host permissions", () => {

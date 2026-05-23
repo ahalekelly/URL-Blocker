@@ -18,6 +18,7 @@
     { type: "exact", source: "twitter.com", target: "x.com" },
     { type: "exact", source: "twitter.com/home", target: "x.com" },
     { type: "exact", source: "ycombinator.com/news", target: "ycombinator.com" },
+    { type: "exact", source: "linkedin.com/feed", target: "linkedin.com" },
     {
       type: "pathRegex",
       host: "reddit.com",

@@ -29,6 +29,7 @@ enum NativeBlocklistStore {
         .exact(source: "twitter.com", target: "x.com"),
         .exact(source: "twitter.com/home", target: "x.com"),
         .exact(source: "ycombinator.com/news", target: "ycombinator.com"),
+        .exact(source: "linkedin.com/feed", target: "linkedin.com"),
         .pathRegex(
             host: "reddit.com",
             pathPattern: #"^/r/[a-z0-9_]+(?:/(?:hot|new|top|rising|controversial))?$"#,
