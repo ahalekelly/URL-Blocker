@@ -38,11 +38,13 @@ Build the unpacked Chrome extension:
 make chrome-extension
 ```
 
-Build and launch Chrome with the unpacked extension loaded in a repo-local profile:
+Build and launch Vivaldi with the unpacked extension loaded in the main profile:
 
 ```sh
 make chrome-install
 ```
+
+Current Google Chrome ignores `--load-extension` from the command line, so `make chrome-install` defaults to Vivaldi.
 
 Build the signed iOS IPA, signed macOS app, and unpacked Chrome extension:
 

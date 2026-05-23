@@ -5,6 +5,6 @@
   "scripts": {
     "build-chrome-extension": "node scripts/build-chrome-extension.mjs",
     "sync-default-blocked-pages": "node scripts/sync-default-blocked-pages.mjs",
-    "test": "node scripts/sync-default-blocked-pages.mjs --check && node scripts/build-chrome-extension.mjs --check && node --test"
+    "test": "node scripts/sync-default-blocked-pages.mjs --check && node scripts/build-chrome-extension.mjs --check && node --test tests/*.test.js"
   }
 }

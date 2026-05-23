@@ -17,9 +17,8 @@ IOS_APP_GROUP ?= group.d944b664533a4c2f.1
 P12_PASSWORD_FILE ?= $(IOS_SIGNING_ASSETS)/Development.p12.password
 MACOS_DERIVED_DATA ?= /tmp/urlblocker_macos_build
 MACOS_CODE_SIGN_IDENTITY ?= Apple Development
-CHROME_APP ?= Google Chrome
+CHROME_APP ?= Vivaldi
 CHROME_EXTENSION_DIR := $(CURDIR)/build/chrome-extension
-CHROME_PROFILE_DIR ?= $(CURDIR)/build/chrome-profile
 
 MACOS_BUILD_APP := $(MACOS_DERIVED_DATA)/Build/Products/Release/URLBlockerMac.app
 MACOS_BUILD_EXTENSION := $(MACOS_BUILD_APP)/Contents/PlugIns/URLBlockerMacExtension.appex
@@ -35,7 +34,7 @@ help:
 	@printf "Targets:\n"
 	@printf "  make test                    Run JavaScript tests.\n"
 	@printf "  make chrome-extension        Build the unpacked Chrome extension in build/chrome-extension.\n"
-	@printf "  make chrome-install          Build and launch Chrome with the extension loaded.\n"
+	@printf "  make chrome-install          Build and launch Vivaldi with the extension loaded.\n"
 	@printf "  make ios-build               Build build/URLBlockerIOS-signed.ipa with UDID Registrations signing.\n"
 	@printf "  make ios-build-unsigned      Build the unsigned iOS device app.\n"
 	@printf "  make ios-signed-ipa          Alias for make ios-build.\n"
@@ -62,11 +61,14 @@ chrome-extension:
 	npm run build-chrome-extension
 
 chrome-install: chrome-extension
-	@mkdir -p "$(CHROME_PROFILE_DIR)"
+	@if pgrep -x "$(CHROME_APP)" >/dev/null; then \
+	  printf "%s is already running. Quit it, then rerun make chrome-install so --load-extension applies at startup.\n" "$(CHROME_APP)" >&2; \
+	  exit 1; \
+	fi
 	@printf "Opening %s with URL Blocker loaded from %s\n" "$(CHROME_APP)" "$(CHROME_EXTENSION_DIR)"
 	open -na "$(CHROME_APP)" --args \
-	  --user-data-dir="$(CHROME_PROFILE_DIR)" \
-	  --load-extension="$(CHROME_EXTENSION_DIR)"
+	  --load-extension="$(CHROME_EXTENSION_DIR)" \
+	  chrome://extensions
 
 ios-build:
 	IOS_APP_GROUP="$(IOS_APP_GROUP)" \
