@@ -451,7 +451,7 @@
   function updateScheduleType(type) {
     switch (type) {
       case "always":
-        state.draftSchedule = core.DEFAULT_SCHEDULE;
+        state.draftSchedule = { type: "always" };
         break;
       case "dailyWindow":
         state.draftSchedule = existingDailyWindow();
@@ -900,7 +900,7 @@
   function editableSchedule(schedule) {
     switch (schedule.type) {
       case "always":
-        return core.DEFAULT_SCHEDULE;
+        return { type: "always" };
       case "dailyWindow":
         return {
           type: "dailyWindow",
@@ -917,7 +917,7 @@
       return state.draftSchedule;
     }
 
-    return { type: "dailyWindow", startMinute: 540, endMinute: 1020 };
+    return core.DEFAULT_SCHEDULE;
   }
 
   function minuteToTime(minute) {

@@ -11,7 +11,7 @@
   const DEFAULT_LIMIT_MINUTES = 30;
   const MAX_LIMIT_MINUTES = 960;
   const DEFAULT_BLOCKED_PAGE_HTML = "<h1>Blocked</h1><p>This page is on your blocklist.</p>";
-  const DEFAULT_SCHEDULE = { type: "always" };
+  const DEFAULT_SCHEDULE = { type: "dailyWindow", startMinute: 1380, endMinute: 1140 };
   const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const URL_ALIASES = [
     { type: "exact", source: "x.com/home", target: "x.com" },
@@ -520,7 +520,7 @@
           return invalid(errors);
         }
 
-        return { type: "valid", schedule: DEFAULT_SCHEDULE };
+        return { type: "valid", schedule: { type: "always" } };
       case "dailyWindow":
         pushUnknownKeyErrors(errors, schedule, ["type", "startMinute", "endMinute"], "Schedule");
 

@@ -30,7 +30,7 @@ test("getState loads default blocked pages when storage is empty", async () => {
 
   assert.equal(response.type, "state");
   assert.deepEqual(response.state.entries, core.emptyState(defaultBlockedPages).entries);
-  assert.deepEqual(response.state.schedule, { type: "always" });
+  assert.deepEqual(response.state.schedule, { type: "dailyWindow", startMinute: 1380, endMinute: 1140 });
   assert.deepEqual(response.state.domainLimits, core.emptyState(defaultBlockedPages).domainLimits);
 });
 
