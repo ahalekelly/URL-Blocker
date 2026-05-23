@@ -165,7 +165,7 @@ function buildUnsignedApp() {
     "-derivedDataPath",
     config.derivedData,
     "CODE_SIGNING_ALLOWED=NO",
-    "COMPILATION_CACHE_ENABLE_CACHING=NO",
+    "COMPILATION_CACHE_ENABLE_CACHING=YES",
     "build",
   ], { cwd: config.sourceCopy });
 }

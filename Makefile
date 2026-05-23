@@ -92,7 +92,7 @@ $(IOS_BUILD_STAMP): $(IOS_BUILD_INPUTS)
 	  -destination generic/platform=iOS \
 	  -derivedDataPath "$(IOS_DERIVED_DATA)" \
 	  CODE_SIGNING_ALLOWED=NO \
-	  COMPILATION_CACHE_ENABLE_CACHING=NO \
+	  COMPILATION_CACHE_ENABLE_CACHING=YES \
 	  build
 	@if [[ ! -x "$(IOS_BUILD_BINARY)" ]]; then \
 	  printf "Missing built app executable: %s\n" "$(IOS_BUILD_BINARY)" >&2; \
@@ -154,7 +154,7 @@ $(MACOS_BUILD_STAMP): $(MACOS_BUILD_INPUTS)
 	  -sdk macosx \
 	  -destination generic/platform=macOS \
 	  -derivedDataPath "$(MACOS_DERIVED_DATA)" \
-	  COMPILATION_CACHE_ENABLE_CACHING=NO \
+	  COMPILATION_CACHE_ENABLE_CACHING=YES \
 	  CODE_SIGN_IDENTITY="$(MACOS_CODE_SIGN_IDENTITY)" \
 	  build
 	@if [[ ! -x "$(MACOS_BUILD_BINARY)" ]]; then \

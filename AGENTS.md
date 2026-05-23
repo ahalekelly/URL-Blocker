@@ -16,6 +16,8 @@
 
 ## Commands
 
+- Always run `make ...` commands outside the Codex sandbox so Xcode, signing, device install, and compilation cache access use the normal macOS services and keychains.
+
 Show build and install targets:
 
 ```sh
