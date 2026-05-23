@@ -26,13 +26,14 @@ SAFARI_EXTENSION_ID := com.akelly.URLBlockerMac.Extension
 SAFARI_EXTENSION_SDK := com.apple.Safari.web-extension
 LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister
 
-.PHONY: help test all build check ios-build ios-signed-ipa ios-devices ios-install macos-build macos-install macos-clean-registration macos-verify macos-plugin-check
+.PHONY: help test all build check ios-build ios-build-unsigned ios-signed-ipa ios-devices ios-install macos-build macos-install macos-clean-registration macos-verify macos-plugin-check
 
 help:
 	@printf "Targets:\n"
 	@printf "  make test                    Run JavaScript tests.\n"
-	@printf "  make ios-build               Build the unsigned iOS device app.\n"
-	@printf "  make ios-signed-ipa          Build build/URLBlockerIOS-signed.ipa with UDID Registrations signing.\n"
+	@printf "  make ios-build               Build build/URLBlockerIOS-signed.ipa with UDID Registrations signing.\n"
+	@printf "  make ios-build-unsigned      Build the unsigned iOS device app.\n"
+	@printf "  make ios-signed-ipa          Alias for make ios-build.\n"
 	@printf "  make ios-devices             List iOS devices available to Xcode.\n"
 	@printf "  make ios-install             Build the signed IPA, then install it on the connected iPhone.\n"
 	@printf "  make ios-install DEVICE=...  Build the signed IPA, then install it on a specific iPhone.\n"
@@ -53,18 +54,6 @@ build: ios-build macos-build
 check: test build
 
 ios-build:
-	xcodebuild \
-	  -project "$(PROJECT)" \
-	  -scheme "$(IOS_SCHEME)" \
-	  -configuration Release \
-	  -sdk iphoneos \
-	  -destination generic/platform=iOS \
-	  -derivedDataPath "$(IOS_DERIVED_DATA)" \
-	  CODE_SIGNING_ALLOWED=NO \
-	  COMPILATION_CACHE_ENABLE_CACHING=YES \
-	  build
-
-ios-signed-ipa:
 	IOS_APP_GROUP="$(IOS_APP_GROUP)" \
 	IOS_PROJECT="$(PROJECT)" \
 	IOS_SCHEME="$(IOS_SCHEME)" \
@@ -76,10 +65,24 @@ ios-signed-ipa:
 	P12_PASSWORD_FILE="$(P12_PASSWORD_FILE)" \
 	node "$(IOS_SIGNING_SCRIPT)"
 
+ios-build-unsigned:
+	xcodebuild \
+	  -project "$(PROJECT)" \
+	  -scheme "$(IOS_SCHEME)" \
+	  -configuration Release \
+	  -sdk iphoneos \
+	  -destination generic/platform=iOS \
+	  -derivedDataPath "$(IOS_DERIVED_DATA)" \
+	  CODE_SIGNING_ALLOWED=NO \
+	  COMPILATION_CACHE_ENABLE_CACHING=YES \
+	  build
+
+ios-signed-ipa: ios-build
+
 ios-devices:
 	xcrun devicectl list devices
 
-ios-install: ios-signed-ipa
+ios-install: ios-build
 	@if [[ ! -f "$(IOS_SIGNED_IPA)" ]]; then \
 	  printf "Missing signed IPA: %s\n" "$(IOS_SIGNED_IPA)" >&2; \
 	  exit 1; \

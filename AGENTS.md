@@ -30,19 +30,25 @@ Run JavaScript tests:
 make test
 ```
 
-Build both unsigned platform targets:
+Build the signed iOS IPA and signed macOS app:
 
 ```sh
 make all
 ```
 
-Build the unsigned iOS device app:
+Build the UDID-signed iOS IPA:
 
 ```sh
 make ios-build
 ```
 
-Build the UDID-signed iOS IPA:
+Build the unsigned iOS device app:
+
+```sh
+make ios-build-unsigned
+```
+
+Build the UDID-signed iOS IPA with the legacy alias:
 
 ```sh
 make ios-signed-ipa

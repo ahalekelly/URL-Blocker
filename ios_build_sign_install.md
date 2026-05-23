@@ -57,7 +57,7 @@ make ios-install
 That target builds `build/URLBlockerIOS-signed.ipa` with UDID Registrations signing, then installs it on the connected iPhone. To build the signed IPA without installing it:
 
 ```sh
-make ios-signed-ipa
+make ios-build
 ```
 
 The target does this:
@@ -100,7 +100,7 @@ The current profile lists multiple app groups. URL Blocker uses `group.d944b6645
 
 # Prepare a Signing Copy
 
-`make ios-signed-ipa` handles this section. These commands are the manual fallback.
+`make ios-build` handles this section. These commands are the manual fallback.
 
 UDID Registrations signs against its generated app id, not the project defaults. Build from a temporary copy so the repo stays clean.
 
@@ -129,7 +129,7 @@ In the temporary copy, update these values:
 
 # Build the App Bundle
 
-`make ios-signed-ipa` handles this section. The manual command builds an unsigned device app bundle:
+`make ios-build` handles this section. The manual command builds an unsigned device app bundle:
 
 ```sh
 xcodebuild \
@@ -138,16 +138,16 @@ xcodebuild \
   -configuration Release \
   -sdk iphoneos \
   -destination generic/platform=iOS \
-  -derivedDataPath /tmp/urlblocker_signing/build \
+  -derivedDataPath /tmp/urlblocker_signing_build \
   CODE_SIGNING_ALLOWED=NO \
-  COMPILATION_CACHE_ENABLE_CACHING=NO \
+  COMPILATION_CACHE_ENABLE_CACHING=YES \
   build
 ```
 
 The built app should be here:
 
 ```text
-/tmp/urlblocker_signing/build/Build/Products/Release-iphoneos/URLBlockerIOS.app
+/tmp/urlblocker_signing_build/Build/Products/Release-iphoneos/URLBlockerIOS.app
 ```
 
 If `actool` or Xcode cannot start because the selected iOS platform is unavailable, install the matching iOS platform runtime:
@@ -160,7 +160,7 @@ This can be required even for a physical-device `iphoneos` build because asset c
 
 # Create Signing Entitlements
 
-`make ios-signed-ipa` handles this section. For a manual signing run, create `/tmp/urlblocker_signing/entitlements.plist` using values from the provisioning profile:
+`make ios-build` handles this section. For a manual signing run, create `/tmp/urlblocker_signing/entitlements.plist` using values from the provisioning profile:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -187,7 +187,7 @@ This can be required even for a physical-device `iphoneos` build because asset c
 
 # Import the Certificate
 
-`make ios-signed-ipa` handles this section and prompts for the `.p12` password when needed. For a manual signing run, use a temporary keychain instead of importing into the login keychain:
+`make ios-build` handles this section and prompts for the `.p12` password when needed. For a manual signing run, use a temporary keychain instead of importing into the login keychain:
 
 ```sh
 mkdir -p /tmp/urlblocker_signing
@@ -227,7 +227,7 @@ Do not use `-allowProvisioningUpdates` or automatic Apple signing for this flow.
 
 # Sign and Package
 
-`make ios-signed-ipa` handles this section. For a manual signing run, set the identity hash:
+`make ios-build` handles this section. For a manual signing run, set the identity hash:
 
 ```sh
 IDENTITY_HASH=954D99D17036F84F30F655128FB9B87560F87630
@@ -321,7 +321,7 @@ make ios-install DEVICE="My iPhone"
 To rebuild the signed IPA without installing it:
 
 ```sh
-make ios-signed-ipa
+make ios-build
 ```
 
 The raw commands are:
@@ -436,7 +436,7 @@ xcodebuild \
   -sdk macosx \
   -destination generic/platform=macOS \
   -derivedDataPath /tmp/urlblocker_macos_build \
-  COMPILATION_CACHE_ENABLE_CACHING=NO \
+  COMPILATION_CACHE_ENABLE_CACHING=YES \
   CODE_SIGN_IDENTITY="Apple Development" \
   build
 ```
@@ -519,7 +519,7 @@ After installing the signed macOS app:
 5. Open the URL Blocker toolbar item in Safari. If website access is missing, the blocklist editor should ask for website access and list the sites that need access.
 6. After choosing `Always Allow`, reload the blocklist editor. The editor should be visible, and the website access prompt should be hidden.
 
-Before shipping extension resource changes, rerun `npm test` and the unsigned iOS build command above because iOS and macOS share the extension JavaScript, CSS, HTML, and native request handler.
+Before shipping extension resource changes, rerun `npm test` and the signed iOS build command above because iOS and macOS share the extension JavaScript, CSS, HTML, and native request handler.
 
 The UDID Registrations certificate was tested against the macOS app and Safari Web Extension target, but it is not usable for this project on macOS:
 
