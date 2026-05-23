@@ -71,10 +71,10 @@ enum NativeBlocklistStore {
                 try requireKeys(message, ["type", "usage"], "saveScreenTimeUsage message")
                 return try save(message["usage"], .screenTimeUsage)
             default:
-                return error("Unknown native message type: \(type).")
+                throw NativeBlocklistError("Unknown native message type: \(type).")
             }
         } catch {
-            return self.error(error.localizedDescription)
+            return self.error(error)
         }
     }
 
@@ -123,8 +123,14 @@ enum NativeBlocklistStore {
         return string
     }
 
-    private static func error(_ message: String) -> [String: Any] {
-        ["type": "error", "error": message]
+    private static func error(_ error: Error) -> [String: Any] {
+        let nsError = error as NSError
+
+        return [
+            "type": "error",
+            "error": nsError.localizedDescription,
+            "errorCode": "\(nsError.domain) \(nsError.code)"
+        ]
     }
 
     private static var defaults: UserDefaults {

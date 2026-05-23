@@ -9,7 +9,10 @@
   const fallbackHtml = "<h1>Blocked</h1><p>This page is on your blocklist.</p>";
 
   closeButton.addEventListener("click", closeCurrentTab);
-  loadState().catch(() => renderBlockedPage(fallbackHtml));
+  loadState().catch((error) => {
+    console.error("URL Blocker could not load the blocked page settings.", errorDetails(error));
+    renderBlockedPage(fallbackHtml);
+  });
 
   async function loadState() {
     const response = await api.runtime.sendMessage({ type: "getState" });
@@ -20,6 +23,10 @@
         return;
       case "stateError":
       case "error":
+        console.error("URL Blocker could not load custom blocked page HTML.", {
+          message: response.error,
+          code: response.errorCode || response.type
+        });
         renderBlockedPage(fallbackHtml);
         return;
       default:
@@ -50,5 +57,13 @@
     }
 
     await api.tabs.remove(tab.id);
+  }
+
+  function errorDetails(error) {
+    if (error instanceof Error) {
+      return { message: error.message, code: error.errorCode || error.code || error.name };
+    }
+
+    return { message: String(error), code: "UnknownError" };
   }
 })(globalThis);

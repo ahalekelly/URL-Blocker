@@ -52,7 +52,13 @@ struct MacContentView: View {
     }
 
     private func refreshExtensionState() {
-        SFSafariExtensionManager.getStateOfSafariExtension(withIdentifier: MacSafari.extensionBundleIdentifier) { state, _ in
+        SFSafariExtensionManager.getStateOfSafariExtension(withIdentifier: MacSafari.extensionBundleIdentifier) { state, error in
+            if let error {
+                extensionState = .disabled
+                alert = AppAlert(title: "Extension State Unavailable", error: error)
+                return
+            }
+
             guard let state = state else {
                 extensionState = .disabled
                 return
@@ -65,11 +71,11 @@ struct MacContentView: View {
     private func openExtensionSettings() {
         SFSafariApplication.showPreferencesForExtension(withIdentifier: MacSafari.extensionBundleIdentifier) { error in
             DispatchQueue.main.async {
-                if error == nil { return }
+                guard let error else { return }
 
                 alert = AppAlert(
                     title: "Open Safari Extension Settings",
-                    message: "Safari could not open URL Blocker settings automatically. In Safari, choose Safari > Settings > Extensions, then select URL Blocker."
+                    message: "Safari could not open URL Blocker settings automatically. In Safari, choose Safari > Settings > Extensions, then select URL Blocker.\n\n\(DebugErrorMessage.describe(error))"
                 )
             }
         }
@@ -77,22 +83,22 @@ struct MacContentView: View {
 
     private func openBlocklistSettings() {
         guard let script = NSAppleScript(source: MacSafari.openBlocklistScript) else {
-            showEditorUnavailable()
+            showEditorUnavailable("AppleScript source could not be compiled.\n\nCode: AppleScriptCompileFailed")
             return
         }
 
         var error: NSDictionary?
         script.executeAndReturnError(&error)
 
-        if error == nil { return }
+        guard let error else { return }
 
-        showEditorUnavailable()
+        showEditorUnavailable(DebugErrorMessage.describeAppleScript(error))
     }
 
-    private func showEditorUnavailable() {
+    private func showEditorUnavailable(_ detail: String) {
         alert = AppAlert(
             title: "Editor Unavailable",
-            message: "Open Safari and click the URL Blocker toolbar button to open the blocklist."
+            message: "Open Safari and click the URL Blocker toolbar button to open the blocklist.\n\n\(detail)"
         )
     }
 }
@@ -146,4 +152,29 @@ private struct AppAlert: Identifiable {
     let id = UUID()
     let title: String
     let message: String
+
+    init(title: String, message: String) {
+        self.title = title
+        self.message = message
+    }
+
+    init(title: String, error: Error) {
+        self.title = title
+        self.message = DebugErrorMessage.describe(error)
+    }
+}
+
+private enum DebugErrorMessage {
+    static func describe(_ error: Error) -> String {
+        let nsError = error as NSError
+
+        return "\(nsError.localizedDescription)\n\nCode: \(nsError.domain) \(nsError.code)"
+    }
+
+    static func describeAppleScript(_ error: NSDictionary) -> String {
+        let message = error["NSAppleScriptErrorMessage"] as? String ?? "AppleScript failed."
+        let number = error["NSAppleScriptErrorNumber"] as? NSNumber
+
+        return "\(message)\n\nCode: AppleScript \(number?.stringValue ?? "unknown")"
+    }
 }

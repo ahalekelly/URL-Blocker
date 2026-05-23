@@ -122,6 +122,31 @@ test("getDefaultState returns default blocked pages without saving", async () =>
   assert.equal(api.storageData[core.STATE_KEY], storedState);
 });
 
+test("getDefaultState returns debug codes when default pages fail to load", async () => {
+  const api = fakeApi();
+  const fetch = globalThis.fetch;
+
+  api.runtime.getURL = (path) => `file:///extension/${path}`;
+  globalThis.fetch = async (url) => {
+    const error = new TypeError("Load failed");
+
+    assert.equal(url, "file:///extension/default-blocked-pages.json");
+    error.code = -1001;
+    throw error;
+  };
+
+  try {
+    const response = await createBackgroundController(api).getDefaultState();
+
+    assert.equal(response.type, "error");
+    assert.match(response.error, /Load failed/);
+    assert.match(response.errorCode, /DefaultBlockedPagesLoadFailed/);
+    assert.match(response.errorCode, /-1001/);
+  } finally {
+    globalThis.fetch = fetch;
+  }
+});
+
 test("saveState registers the literal regex host", async () => {
   const api = fakeApi({ grantedOrigins: ["*://*.x.com/*", "*://*.example.com/*"] });
   const controller = createBackgroundController(api);
@@ -660,7 +685,7 @@ function fakeApi(overrides = {}) {
           api.nativeData.screenTimeUsage = message.usage;
           return { type: "savedScreenTimeUsage", usage: message.usage };
         default:
-          return { type: "error", error: `Unknown native message type: ${message.type}.` };
+          return { type: "error", error: `Unknown native message type: ${message.type}.`, errorCode: "NativeTestUnknownMessage" };
       }
     };
   }

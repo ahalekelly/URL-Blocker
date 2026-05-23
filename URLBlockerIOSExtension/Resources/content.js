@@ -114,7 +114,7 @@
     const url = screenTimeUrl;
     screenTimeStartedAt = now;
     api.runtime.sendMessage({ type: "screenTimeElapsed", url, elapsedMs })
-      .catch((error) => console.error("URL Blocker could not log screen time.", error));
+      .catch((error) => console.error("URL Blocker could not log screen time.", errorDetails(error)));
   }
 
   function sendCurrentUrl(force) {
@@ -128,7 +128,15 @@
     api.runtime.sendMessage({ type: "urlChanged", url: currentUrl })
       .catch((error) => {
         lastSentUrl = "";
-        console.error("URL Blocker could not check the current URL.", error);
+        console.error("URL Blocker could not check the current URL.", errorDetails(error));
       });
+  }
+
+  function errorDetails(error) {
+    if (error instanceof Error) {
+      return { message: error.message, code: error.errorCode || error.code || error.name };
+    }
+
+    return { message: String(error), code: "UnknownError" };
   }
 })(globalThis);

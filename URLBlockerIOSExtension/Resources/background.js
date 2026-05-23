@@ -18,7 +18,7 @@
 
     async function handleMessage(message, sender) {
       if (!isPlainObject(message) || typeof message.type !== "string") {
-        throw new Error("Extension message must include a type.");
+        throw codedError("InvalidExtensionMessage", "Extension message must include a type.");
       }
 
       switch (message.type) {
@@ -47,7 +47,7 @@
           requireKeys(message, ["type"], "getScreenTimeLog message");
           return getScreenTimeLog();
         default:
-          throw new Error(`Unknown message type: ${message.type}`);
+          throw codedError("UnknownExtensionMessage", `Unknown message type: ${message.type}`);
       }
     }
 
@@ -55,7 +55,7 @@
       try {
         return { type: "state", state: await loadState() };
       } catch (error) {
-        return { type: "stateError", error: error.message };
+        return errorResponse("stateError", error);
       }
     }
 
@@ -63,7 +63,7 @@
       try {
         return { type: "state", state: await loadDefaultState() };
       } catch (error) {
-        return { type: "error", error: error.message };
+        return errorResponse("error", error);
       }
     }
 
@@ -84,7 +84,7 @@
       }
 
       if (storageResponse.type !== "saved") {
-        throw new Error(storageResponse.error);
+        throw errorFromResponse(storageResponse);
       }
 
       await redirectOpenBlockedTabs(storageResponse.state);
@@ -105,7 +105,7 @@
 
     async function urlChanged(rawUrl, sender) {
       if (!sender.tab || typeof sender.tab.id !== "number") {
-        throw new Error("urlChanged message must come from a tab.");
+        throw codedError("MissingSenderTab", "urlChanged message must come from a tab.");
       }
 
       return redirectBlockedUrl(sender.tab.id, rawUrl);
@@ -113,11 +113,11 @@
 
     async function logScreenTime(rawUrl, elapsedMs, sender = {}) {
       if (typeof rawUrl !== "string" || rawUrl.trim() === "") {
-        throw new Error("Screen time URL must be a string.");
+        throw codedError("ScreenTimeUrlInvalid", "Screen time URL must be a string.");
       }
 
       if (!Number.isInteger(elapsedMs) || elapsedMs <= 0) {
-        throw new Error("Screen time elapsed time must be a positive integer.");
+        throw codedError("ScreenTimeElapsedInvalid", "Screen time elapsed time must be a positive integer.");
       }
 
       const state = await loadState();
@@ -145,11 +145,11 @@
 
     async function redirectBlockedUrl(tabId, rawUrl) {
       if (typeof tabId !== "number") {
-        throw new Error("Blocked tab ID must be a number.");
+        throw codedError("BlockedTabInvalid", "Blocked tab ID must be a number.");
       }
 
       if (typeof rawUrl !== "string" || rawUrl.trim() === "") {
-        throw new Error("Blocked URL must be a string.");
+        throw codedError("BlockedUrlInvalid", "Blocked URL must be a string.");
       }
 
       const state = await loadState();
@@ -240,13 +240,24 @@
     }
 
     async function loadDefaultEntries() {
-      const response = await fetch(runtimeUrl("default-blocked-pages.json"));
+      const url = runtimeUrl("default-blocked-pages.json");
+      let response;
 
-      if (!response.ok) {
-        throw new Error("Default blocked pages could not be loaded.");
+      try {
+        response = await fetch(url);
+      } catch (error) {
+        throw codedError("DefaultBlockedPagesLoadFailed", `Default blocked pages request failed for ${url}: ${errorMessage(error)}`, error);
       }
 
-      return response.json();
+      if (!response.ok) {
+        throw codedError(`HTTP ${response.status}`, `Default blocked pages could not be loaded from ${url}.`);
+      }
+
+      try {
+        return await response.json();
+      } catch (error) {
+        throw codedError("DefaultBlockedPagesParseFailed", `Default blocked pages JSON could not be parsed from ${url}: ${errorMessage(error)}`, error);
+      }
     }
 
     function runtimeUrl(path) {
@@ -267,7 +278,7 @@
       const granted = await api.permissions.contains({ origins });
 
       if (!granted) {
-        throw new Error("Website access was not granted for the requested websites.");
+        throw codedError("WebsiteAccessMissing", "Website access was not granted for the requested websites.");
       }
     }
 
@@ -467,7 +478,7 @@
           case "storedState":
             return response.state;
           case "error":
-            throw new Error(response.error);
+            throw errorFromResponse(response);
           default:
             throw new Error(`Unknown native loadState response: ${response.type}`);
         }
@@ -479,7 +490,7 @@
           case "savedState":
             return { type: "saved", state: response.state };
           case "error":
-            throw new Error(response.error);
+            throw errorFromResponse(response);
           default:
             throw new Error(`Unknown native saveState response: ${response.type}`);
         }
@@ -517,7 +528,7 @@
           case "storedScreenTimeUsage":
             return response.usage;
           case "error":
-            throw new Error(response.error);
+            throw errorFromResponse(response);
           default:
             throw new Error(`Unknown native loadScreenTimeUsage response: ${response.type}`);
         }
@@ -529,7 +540,7 @@
           case "savedScreenTimeUsage":
             return response.usage;
           case "error":
-            throw new Error(response.error);
+            throw errorFromResponse(response);
           default:
             throw new Error(`Unknown native saveScreenTimeUsage response: ${response.type}`);
         }
@@ -564,7 +575,7 @@
     const response = await api.runtime.sendNativeMessage("application.id", message);
 
     if (!isPlainObject(response) || typeof response.type !== "string") {
-      throw new Error("Native response must include a type.");
+      throw codedError("NativeResponseInvalid", "Native response must include a type.");
     }
 
     return response;
@@ -577,14 +588,14 @@
     api.runtime.onMessage.addListener((message, sender, sendResponse) => {
       controller.handleMessage(message, sender)
         .then(sendResponse)
-        .catch((error) => sendResponse({ type: "error", error: error.message }));
+        .catch((error) => sendResponse(errorResponse("error", error)));
 
       return true;
     });
 
     if (action && action.onClicked) {
       action.onClicked.addListener(() => {
-        controller.openOptions().catch(() => undefined);
+        controller.openOptions().catch((error) => console.error("URL Blocker could not open options.", errorResponse("error", error)));
       });
     }
 
@@ -595,7 +606,7 @@
         }
 
         controller.redirectBlockedUrl(tabId, changeInfo.url)
-          .catch((error) => console.error("URL Blocker could not redirect updated tab.", error));
+          .catch((error) => console.error("URL Blocker could not redirect updated tab.", errorResponse("error", error)));
       });
     }
 
@@ -607,12 +618,64 @@
     const unknownKeys = Object.keys(object).filter((key) => !allowed.has(key));
 
     if (unknownKeys.length > 0) {
-      throw new Error(`${label} has unknown key: ${unknownKeys[0]}.`);
+      throw codedError("UnknownMessageKey", `${label} has unknown key: ${unknownKeys[0]}.`);
     }
   }
 
   function isPlainObject(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+
+  function errorResponse(type, error) {
+    return { type, error: errorMessage(error), errorCode: errorCode(error) };
+  }
+
+  function errorFromResponse(response) {
+    return codedError(response.errorCode || response.type, response.error || `Unexpected response: ${response.type}`);
+  }
+
+  function codedError(errorCode, message, cause) {
+    const error = new Error(message);
+    const causeCode = cause ? errorCodeValue(cause) : "";
+
+    error.errorCode = causeCode === "" ? errorCode : `${errorCode}; ${causeCode}`;
+    return error;
+  }
+
+  function errorMessage(error) {
+    if (error instanceof Error && error.message !== "") {
+      return error.message;
+    }
+
+    return String(error);
+  }
+
+  function errorCode(error) {
+    return errorCodeValue(error) || "UnknownError";
+  }
+
+  function errorCodeValue(error) {
+    if (error instanceof Error && typeof error.errorCode === "string") {
+      return error.errorCode;
+    }
+
+    if (error instanceof Error && error.code !== undefined) {
+      return String(error.code);
+    }
+
+    if (error instanceof Error && error.name !== "") {
+      return error.name;
+    }
+
+    if (isPlainObject(error) && typeof error.errorCode === "string") {
+      return error.errorCode;
+    }
+
+    if (isPlainObject(error) && error.code !== undefined) {
+      return String(error.code);
+    }
+
+    return "";
   }
 
   root.BackgroundController = { createBackgroundController };
@@ -628,6 +691,6 @@
 
     controller.loadState()
       .then(controller.syncContentScripts)
-      .catch((error) => console.error("URL Blocker could not sync website access.", error));
+      .catch((error) => console.error("URL Blocker could not sync website access.", errorResponse("error", error)));
   }
 })(globalThis);

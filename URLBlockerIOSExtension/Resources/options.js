@@ -62,6 +62,8 @@
   scheduleEndInput.addEventListener("input", updateScheduleWindow);
   resetButton.addEventListener("click", resetBlocklist);
   grantAccessButton.addEventListener("click", requestMissingWebsiteAccess);
+  root.addEventListener("error", (event) => showFatalError(event.error || codedError("WindowError", event.message)));
+  root.addEventListener("unhandledrejection", (event) => showFatalError(errorFromReason(event.reason)));
 
   loadState().catch(showFatalError);
 
@@ -77,13 +79,13 @@
         return;
       case "stateError":
         await loadDefaultStateForReset();
-        showRepair(response.error);
+        showRepair(errorFromResponse(response));
         return;
       case "error":
-        showFatalError(new Error(response.error));
+        showFatalError(errorFromResponse(response));
         return;
       default:
-        throw new Error(`Unknown getState response: ${response.type}`);
+        throw codedError("UnexpectedGetStateResponse", `Unknown getState response: ${response.type}`);
     }
   }
 
@@ -527,7 +529,7 @@
       await requestWebsiteAccess(localResult.state);
     } catch (error) {
       state.isSaving = false;
-      state.pageError = error.message;
+      state.pageError = errorMessage(error);
       render();
       return;
     }
@@ -547,11 +549,11 @@
         showValidationErrors(response.errors);
         return;
       case "error":
-        state.pageError = response.error;
+        state.pageError = errorMessage(errorFromResponse(response));
         render();
         return;
       default:
-        throw new Error(`Unknown saveState response: ${response.type}`);
+        throw codedError("UnexpectedSaveStateResponse", `Unknown saveState response: ${response.type}`);
     }
   }
 
@@ -565,7 +567,7 @@
     const granted = await api.permissions.request({ origins });
 
     if (!granted) {
-      throw new Error("Allow the requested website access before saving.");
+      throw codedError("WebsiteAccessDenied", "Allow the requested website access before saving.");
     }
   }
 
@@ -579,7 +581,7 @@
 
       if (!granted) {
         state.isRequestingPermissions = false;
-        state.pageError = "Allow website access before editing the blocklist.";
+        state.pageError = errorMessage(codedError("WebsiteAccessDenied", "Allow website access before editing the blocklist."));
         render();
         return;
       }
@@ -587,7 +589,7 @@
       const response = await api.runtime.sendMessage({ type: "syncWebsiteAccess" });
 
       if (response.type !== "synced") {
-        throw new Error("Website access was granted, but blocking could not be refreshed.");
+        throw errorFromResponse(response);
       }
 
       state.isRequestingPermissions = false;
@@ -596,7 +598,7 @@
       render();
     } catch (error) {
       state.isRequestingPermissions = false;
-      state.pageError = error.message;
+      state.pageError = errorMessage(error);
       render();
     }
   }
@@ -620,9 +622,9 @@
         state.screenTimeEntries = normalizeScreenTimeEntries(response.entries);
         return;
       case "error":
-        throw new Error(response.error);
+        throw errorFromResponse(response);
       default:
-        throw new Error(`Unknown getScreenTimeLog response: ${response.type}`);
+        throw codedError("UnexpectedScreenTimeResponse", `Unknown getScreenTimeLog response: ${response.type}`);
     }
   }
 
@@ -634,9 +636,9 @@
         setDraftState(response.state);
         return;
       case "error":
-        throw new Error(response.error);
+        throw errorFromResponse(response);
       default:
-        throw new Error(`Unknown getDefaultState response: ${response.type}`);
+        throw codedError("UnexpectedGetDefaultStateResponse", `Unknown getDefaultState response: ${response.type}`);
     }
   }
 
@@ -727,14 +729,14 @@
     const localResult = normalizeAndValidateDraft();
 
     if (localResult.type === "invalid") {
-      showRepair(localResult.errors.map((error) => error.message).join("\n"));
+      showRepair(codedError("ValidationError", localResult.errors.map((error) => error.message).join("\n")));
       return;
     }
 
     try {
       await requestWebsiteAccess(localResult.state);
     } catch (error) {
-      showRepair(error.message);
+      showRepair(error);
       return;
     }
 
@@ -749,13 +751,13 @@
         applySavedState(response.state, "Reset.");
         return;
       case "validationError":
-        showRepair(response.errors.map((error) => error.message).join("\n"));
+        showRepair(codedError("ValidationError", response.errors.map((error) => error.message).join("\n")));
         return;
       case "error":
-        showRepair(response.error);
+        showRepair(errorFromResponse(response));
         return;
       default:
-        throw new Error(`Unknown saveState response: ${response.type}`);
+        throw codedError("UnexpectedSaveStateResponse", `Unknown saveState response: ${response.type}`);
     }
   }
 
@@ -774,11 +776,11 @@
 
   function showValidationErrors(errors) {
     state.rowErrors = new Map();
-    state.pageError = "Fix the highlighted rows before saving.";
+    state.pageError = errorMessage(codedError("ValidationError", "Fix the highlighted rows before saving."));
 
     errors.forEach((error) => {
       if (error.index === null) {
-        state.pageError = error.message;
+        state.pageError = errorMessage(codedError("ValidationError", error.message));
         return;
       }
 
@@ -794,14 +796,55 @@
 
   function showRepair(error) {
     resetButton.disabled = false;
-    repairMessage.textContent = error;
+    repairMessage.textContent = errorMessage(error);
     repairPanel.hidden = false;
     editorPanel.hidden = true;
   }
 
   function showFatalError(error) {
-    state.pageError = error.message;
+    state.pageError = errorMessage(error);
     render();
+  }
+
+  function errorFromResponse(response) {
+    return codedError(response.errorCode || response.type, response.error || `Unexpected response: ${response.type}`);
+  }
+
+  function errorFromReason(reason) {
+    if (reason instanceof Error) {
+      return reason;
+    }
+
+    return codedError("UnhandledPromiseRejection", String(reason));
+  }
+
+  function codedError(errorCode, message) {
+    const error = new Error(message);
+    error.errorCode = errorCode;
+    return error;
+  }
+
+  function errorMessage(error) {
+    const code = errorCode(error);
+    const message = error instanceof Error ? error.message : String(error);
+
+    return `${message}\n\nCode: ${code}`;
+  }
+
+  function errorCode(error) {
+    if (error instanceof Error && typeof error.errorCode === "string") {
+      return error.errorCode;
+    }
+
+    if (error instanceof Error && error.code !== undefined) {
+      return String(error.code);
+    }
+
+    if (error instanceof Error && error.name !== "") {
+      return error.name;
+    }
+
+    return "UnknownError";
   }
 
   function clearMessages() {

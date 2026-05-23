@@ -1,3 +1,4 @@
+import Foundation
 import SafariServices
 import SwiftUI
 import UIKit
@@ -16,7 +17,9 @@ struct ContentView: View {
             case .setup:
                 setupView
             case .blocklist:
-                BlocklistWebView()
+                BlocklistWebView { error in
+                    alert = AppAlert(title: "Blocklist Load Failed", error: error)
+                }
                     .navigationTitle("Blocklist")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
@@ -73,6 +76,7 @@ struct ContentView: View {
                     }
                 } catch {
                     extensionState = .disabled
+                    alert = AppAlert(title: "Extension State Unavailable", error: error)
                 }
                 return
             }
@@ -87,7 +91,7 @@ struct ContentView: View {
                 do {
                     try await SFSafariSettings.openExtensionsSettings(forIdentifiers: [Safari.extensionBundleIdentifier])
                 } catch {
-                    alert = AppAlert(title: "Settings Unavailable", message: error.localizedDescription)
+                    alert = AppAlert(title: "Settings Unavailable", error: error)
                 }
             }
             return
@@ -100,7 +104,10 @@ struct ContentView: View {
 
         UIApplication.shared.open(url) { success in
             if !success {
-                alert = AppAlert(title: "Settings Unavailable", message: "Open iOS Settings, then go to Safari > Extensions.")
+                alert = AppAlert(
+                    title: "Settings Unavailable",
+                    message: "Open iOS Settings, then go to Safari > Extensions.\n\nCode: UIApplicationOpenFailed"
+                )
             }
         }
     }
@@ -111,8 +118,10 @@ struct ContentView: View {
 }
 
 private struct BlocklistWebView: UIViewRepresentable {
+    let onError: (Error) -> Void
+
     func makeCoordinator() -> Coordinator {
-        Coordinator()
+        Coordinator(onError: onError)
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -124,14 +133,20 @@ private struct BlocklistWebView: UIViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         context.coordinator.webView = webView
+        webView.navigationDelegate = context.coordinator
         webView.loadFileURL(Safari.optionsPageURL, allowingReadAccessTo: Safari.resourcesURL)
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {}
 
-    final class Coordinator: NSObject, WKScriptMessageHandler {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         weak var webView: WKWebView?
+        let onError: (Error) -> Void
+
+        init(onError: @escaping (Error) -> Void) {
+            self.onError = onError
+        }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             guard let body = message.body as? [String: Any],
@@ -140,33 +155,57 @@ private struct BlocklistWebView: UIViewRepresentable {
             }
 
             guard let request = body["message"] as? [String: Any] else {
-                reply(id: id, response: ["type": "error", "error": "Blocklist message must include a message object."])
+                reply(id: id, response: [
+                    "type": "error",
+                    "error": "Blocklist message must include a message object.",
+                    "errorCode": "BlocklistScriptMessageInvalid"
+                ])
                 return
             }
 
             reply(id: id, response: NativeBlocklistStore.handle(request))
         }
 
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            onError(error)
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            onError(error)
+        }
+
         private func reply(id: String, response: [String: Any]) {
             let payload: [String: Any] = ["id": id, "response": response]
             let data = try! JSONSerialization.data(withJSONObject: payload)
             let json = String(data: data, encoding: .utf8)!
-            webView?.evaluateJavaScript("__URLBlockerReply(\(json));")
+            webView?.evaluateJavaScript("__URLBlockerReply(\(json));") { _, error in
+                if let error {
+                    self.onError(error)
+                }
+            }
         }
     }
 
     private static var browserShim: String {
         [
-            nativeBrowserShim,
+            nativeBrowserShim(defaultBlockedPagesURL: Safari.resourceDataURL(
+                "default-blocked-pages",
+                withExtension: "json",
+                mimeType: "application/json"
+            )),
             Safari.resourceText("blocker", withExtension: "js"),
             Safari.resourceText("background", withExtension: "js"),
             backgroundControllerShim
         ].joined(separator: "\n")
     }
 
-    private static let nativeBrowserShim = """
+    private static func nativeBrowserShim(defaultBlockedPagesURL: String) -> String {
+        """
     (() => {
       const callbacks = new Map();
+      const resourceURLs = new Map([
+        ["default-blocked-pages.json", \(Safari.javaScriptString(defaultBlockedPagesURL))]
+      ]);
       let nextId = 0;
 
       window.__URLBlockerReply = (reply) => {
@@ -189,7 +228,7 @@ private struct BlocklistWebView: UIViewRepresentable {
         runtime: {
           getManifest: () => ({ host_permissions: [] }),
           getPlatformInfo: () => Promise.resolve({ os: "ios" }),
-          getURL: (path) => new URL(path, document.baseURI).href,
+          getURL: (path) => resourceURLs.get(path) || new URL(path, document.baseURI).href,
           sendNativeMessage
         },
         permissions: {
@@ -216,6 +255,7 @@ private struct BlocklistWebView: UIViewRepresentable {
       window.chrome = api;
     })();
     """
+    }
 
     private static let backgroundControllerShim = """
     (() => {
@@ -268,6 +308,18 @@ private enum Safari {
         return text
     }
 
+    static func resourceDataURL(_ name: String, withExtension fileExtension: String, mimeType: String) -> String {
+        let data = Data(resourceText(name, withExtension: fileExtension).utf8).base64EncodedString()
+
+        return "data:\(mimeType);base64,\(data)"
+    }
+
+    static func javaScriptString(_ value: String) -> String {
+        let data = try! JSONEncoder().encode(value)
+
+        return String(data: data, encoding: .utf8)!
+    }
+
     private static var extensionBundle: Bundle {
         guard let pluginsURL = Bundle.main.builtInPlugInsURL else {
             fatalError("Missing app plug-ins directory.")
@@ -304,4 +356,22 @@ private struct AppAlert: Identifiable {
     let id = UUID()
     let title: String
     let message: String
+
+    init(title: String, message: String) {
+        self.title = title
+        self.message = message
+    }
+
+    init(title: String, error: Error) {
+        self.title = title
+        self.message = DebugErrorMessage.describe(error)
+    }
+}
+
+private enum DebugErrorMessage {
+    static func describe(_ error: Error) -> String {
+        let nsError = error as NSError
+
+        return "\(nsError.localizedDescription)\n\nCode: \(nsError.domain) \(nsError.code)"
+    }
 }
