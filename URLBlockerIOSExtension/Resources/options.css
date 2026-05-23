@@ -186,6 +186,53 @@ h2 {
   font-weight: 700;
 }
 
+.default-group {
+  display: grid;
+  gap: 12px;
+}
+
+.default-group-toolbar {
+  align-items: end;
+}
+
+.default-group-title {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.default-group-limit {
+  min-width: 180px;
+  margin-top: 0;
+}
+
+.default-group-entries {
+  display: grid;
+  gap: 8px;
+}
+
+.default-group-entry {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.default-group-entry .enabled-label {
+  margin-top: 0;
+}
+
+.default-group-entry .value-input {
+  min-height: 40px;
+}
+
+.default-group-entry .row-error {
+  grid-column: 1 / -1;
+  margin-top: 0;
+}
+
 .enabled-label {
   display: flex;
   align-items: center;
@@ -361,5 +408,9 @@ input[readonly] {
 
   .segments button {
     flex: 1 1 148px;
+  }
+
+  .default-group-entry {
+    grid-template-columns: 1fr;
   }
 }

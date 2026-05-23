@@ -62,7 +62,7 @@
 
     switch (response.type) {
       case "state":
-    state.draftEntries = editableEntries(response.state.entries, response.state.domainLimits);
+        state.draftEntries = editableEntries(response.state.entries, response.state.domainLimits);
         state.draftBlockedPageHtml = response.state.blockedPageHtml;
         state.draftSchedule = editableSchedule(response.state.schedule);
         await refreshWebsiteAccess(response.state);
@@ -96,7 +96,7 @@
     repairPanel.hidden = true;
     permissionPanel.hidden = !needsWebsiteAccess;
     editorPanel.hidden = needsWebsiteAccess;
-    rowsElement.replaceChildren(...state.draftEntries.map(renderRow));
+    rowsElement.replaceChildren(...renderBlockItems());
     blockedPageHtmlInput.value = state.draftBlockedPageHtml;
     alwaysScheduleInput.checked = state.draftSchedule.type === "always";
     dailyScheduleInput.checked = state.draftSchedule.type === "dailyWindow";
@@ -113,6 +113,119 @@
     successMessage.hidden = state.successMessage === "";
     successMessage.textContent = state.successMessage;
     renderScreenTimeLog();
+  }
+
+  function renderBlockItems() {
+    const groupedDefaults = groupedDefaultEntries();
+    const renderedDomains = new Set();
+
+    return state.draftEntries.flatMap((entry) => {
+      if (entry.type !== "default") {
+        return [renderRow(entry)];
+      }
+
+      const domain = core.associatedDomainForEntry(entry);
+      const group = groupedDefaults.get(domain);
+
+      if (!group) {
+        return [renderRow(entry)];
+      }
+
+      if (renderedDomains.has(domain)) {
+        return [];
+      }
+
+      renderedDomains.add(domain);
+
+      return [renderDefaultGroup(domain, group)];
+    });
+  }
+
+  function groupedDefaultEntries() {
+    const groups = new Map();
+
+    state.draftEntries.forEach((entry) => {
+      if (entry.type !== "default") {
+        return;
+      }
+
+      const domain = core.associatedDomainForEntry(entry);
+
+      groups.set(domain, [...(groups.get(domain) || []), entry]);
+    });
+
+    groups.forEach((entries, domain) => {
+      if (entries.length === 1) {
+        groups.delete(domain);
+      }
+    });
+
+    return groups;
+  }
+
+  function renderDefaultGroup(domain, entries) {
+    const group = document.createElement("article");
+    const toolbar = document.createElement("div");
+    const title = document.createElement("div");
+    const limitLabel = document.createElement("label");
+    const limitInput = document.createElement("input");
+    const entryList = document.createElement("div");
+
+    group.className = "block-row default-group";
+    group.dataset.domain = domain;
+    toolbar.className = "row-toolbar default-group-toolbar";
+    title.className = "default-group-title";
+    title.textContent = domain;
+    limitLabel.className = "default-group-limit";
+    limitLabel.textContent = "Limit minutes";
+    limitInput.className = "limit-input";
+    limitInput.type = "number";
+    limitInput.min = "1";
+    limitInput.max = "960";
+    limitInput.step = "1";
+    limitInput.inputMode = "numeric";
+    limitInput.setAttribute("aria-label", `Limit minutes for ${domain}`);
+    limitInput.value = String(entries[0].limitMinutes);
+    limitInput.addEventListener("input", () => updateLimit(entries[0].id, limitInput.value));
+    entryList.className = "default-group-entries";
+    entryList.replaceChildren(...entries.map(renderDefaultGroupEntry));
+    limitLabel.append(limitInput);
+    toolbar.append(title, limitLabel);
+    group.append(toolbar, entryList);
+
+    return group;
+  }
+
+  function renderDefaultGroupEntry(entry) {
+    const row = document.createElement("div");
+    const enabledLabel = document.createElement("label");
+    const enabledInput = document.createElement("input");
+    const enabledText = document.createElement("span");
+    const valueInput = document.createElement("input");
+    const rowError = document.createElement("p");
+    const error = state.rowErrors.get(entry.id) || "";
+
+    row.className = "default-group-entry";
+    row.dataset.entryId = entry.id;
+    enabledLabel.className = "enabled-label";
+    enabledInput.className = "enabled-input";
+    enabledInput.type = "checkbox";
+    enabledInput.checked = entry.enabled;
+    enabledInput.setAttribute("aria-label", `Enable ${entry.value}`);
+    enabledInput.addEventListener("change", () => updateEnabled(entry.id, enabledInput.checked));
+    enabledText.textContent = "Enabled";
+    valueInput.className = "value-input";
+    valueInput.type = "text";
+    valueInput.value = entry.value;
+    valueInput.readOnly = true;
+    valueInput.setAttribute("aria-label", "Block rule");
+    rowError.className = "row-error";
+    rowError.hidden = error === "";
+    rowError.textContent = error;
+    enabledLabel.append(enabledInput, enabledText);
+    row.append(enabledLabel, valueInput, rowError);
+
+    return row;
   }
 
   function renderRow(entry) {
