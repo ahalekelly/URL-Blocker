@@ -109,15 +109,17 @@ test("saveState keeps install-time permissions when they are no longer blocked",
   assert.deepEqual(api.grantedOrigins, ["*://*.youtube.com/*"]);
 });
 
-test("resetState restores default blocked pages", async () => {
+test("getDefaultState returns default blocked pages without saving", async () => {
   const api = fakeApi();
-  api.storageData[core.STATE_KEY] = validState([]);
-  const controller = createBackgroundController(api);
-  const response = await controller.handleMessage({ type: "resetState" }, {});
+  const storedState = validState([]);
 
-  assert.equal(response.type, "saved");
+  api.storageData[core.STATE_KEY] = storedState;
+  const controller = createBackgroundController(api);
+  const response = await controller.handleMessage({ type: "getDefaultState" }, {});
+
+  assert.equal(response.type, "state");
   assert.deepEqual(response.state.entries, core.emptyState(defaultBlockedPages).entries);
-  assert.deepEqual(api.storageData[core.STATE_KEY].entries, core.emptyState(defaultBlockedPages).entries);
+  assert.equal(api.storageData[core.STATE_KEY], storedState);
 });
 
 test("saveState registers the literal regex host", async () => {

@@ -70,15 +70,13 @@
 
     switch (response.type) {
       case "state":
-        state.defaultEntries = defaultEntriesFromState(response.state.entries);
-        state.draftEntries = editableEntries(response.state.entries, response.state.domainLimits);
-        state.draftBlockedPageHtml = response.state.blockedPageHtml;
-        state.draftSchedule = editableSchedule(response.state.schedule);
+        setDraftState(response.state);
         await refreshWebsiteAccess(response.state);
         await loadScreenTimeLog();
         render();
         return;
       case "stateError":
+        await loadDefaultStateForReset();
         showRepair(response.error);
         return;
       case "error":
@@ -543,12 +541,7 @@
 
     switch (response.type) {
       case "saved":
-        state.defaultEntries = defaultEntriesFromState(response.state.entries);
-        state.draftEntries = editableEntries(response.state.entries, response.state.domainLimits);
-        state.draftBlockedPageHtml = response.state.blockedPageHtml;
-        state.draftSchedule = editableSchedule(response.state.schedule);
-        state.successMessage = "Saved.";
-        render();
+        applySavedState(response.state, "Saved.");
         return;
       case "validationError":
         showValidationErrors(response.errors);
@@ -633,6 +626,20 @@
     }
   }
 
+  async function loadDefaultStateForReset() {
+    const response = await api.runtime.sendMessage({ type: "getDefaultState" });
+
+    switch (response.type) {
+      case "state":
+        setDraftState(response.state);
+        return;
+      case "error":
+        throw new Error(response.error);
+      default:
+        throw new Error(`Unknown getDefaultState response: ${response.type}`);
+    }
+  }
+
   function permissionPanelMessage() {
     if (state.missingOrigins.length === 1) {
       return "URL Blocker needs access to this website before blocking can run.";
@@ -714,21 +721,55 @@
   }
 
   async function resetBlocklist() {
-    const response = await api.runtime.sendMessage({
-      type: "resetState"
-    });
+    resetButton.disabled = true;
+    clearMessages();
 
-    if (response.type !== "saved") {
-      showFatalError(new Error("Reset failed."));
+    const localResult = normalizeAndValidateDraft();
+
+    if (localResult.type === "invalid") {
+      showRepair(localResult.errors.map((error) => error.message).join("\n"));
       return;
     }
 
-    state.defaultEntries = defaultEntriesFromState(response.state.entries);
-    state.draftEntries = editableEntries(response.state.entries, response.state.domainLimits);
-    state.draftBlockedPageHtml = response.state.blockedPageHtml;
-    state.draftSchedule = editableSchedule(response.state.schedule);
-    state.successMessage = "Reset.";
+    try {
+      await requestWebsiteAccess(localResult.state);
+    } catch (error) {
+      showRepair(error.message);
+      return;
+    }
+
+    const response = await api.runtime.sendMessage({
+      type: "saveState",
+      state: localResult.state
+    });
+
+    switch (response.type) {
+      case "saved":
+        resetButton.disabled = false;
+        applySavedState(response.state, "Reset.");
+        return;
+      case "validationError":
+        showRepair(response.errors.map((error) => error.message).join("\n"));
+        return;
+      case "error":
+        showRepair(response.error);
+        return;
+      default:
+        throw new Error(`Unknown saveState response: ${response.type}`);
+    }
+  }
+
+  function applySavedState(savedState, message) {
+    setDraftState(savedState);
+    state.successMessage = message;
     render();
+  }
+
+  function setDraftState(blockerState) {
+    state.defaultEntries = defaultEntriesFromState(blockerState.entries);
+    state.draftEntries = editableEntries(blockerState.entries, blockerState.domainLimits);
+    state.draftBlockedPageHtml = blockerState.blockedPageHtml;
+    state.draftSchedule = editableSchedule(blockerState.schedule);
   }
 
   function showValidationErrors(errors) {
@@ -752,6 +793,7 @@
   }
 
   function showRepair(error) {
+    resetButton.disabled = false;
     repairMessage.textContent = error;
     repairPanel.hidden = false;
     editorPanel.hidden = true;

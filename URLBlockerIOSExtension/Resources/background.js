@@ -25,12 +25,12 @@
         case "getState":
           requireKeys(message, ["type"], "getState message");
           return getState();
+        case "getDefaultState":
+          requireKeys(message, ["type"], "getDefaultState message");
+          return getDefaultState();
         case "saveState":
           requireKeys(message, ["type", "state"], "saveState message");
           return saveState(message.state);
-        case "resetState":
-          requireKeys(message, ["type"], "resetState message");
-          return resetState();
         case "syncWebsiteAccess":
           requireKeys(message, ["type"], "syncWebsiteAccess message");
           return syncWebsiteAccess();
@@ -59,6 +59,14 @@
       }
     }
 
+    async function getDefaultState() {
+      try {
+        return { type: "state", state: await loadDefaultState() };
+      } catch (error) {
+        return { type: "error", error: error.message };
+      }
+    }
+
     async function saveState(rawState) {
       const defaultEntries = await loadDefaultEntries();
       const result = core.validateState(rawState, defaultEntries);
@@ -83,10 +91,6 @@
       await removeUnusedWebsiteAccess(result.state);
 
       return { type: "saved", state: storageResponse.state };
-    }
-
-    async function resetState() {
-      return saveState(await loadDefaultState());
     }
 
     async function openOptions() {
@@ -309,12 +313,12 @@
     return {
       getScreenTimeLog,
       getState,
+      getDefaultState,
       handleMessage,
       loadState,
       logScreenTime,
       openOptions,
       redirectBlockedUrl,
-      resetState,
       saveState,
       syncContentScripts,
       syncWebsiteAccess
