@@ -519,7 +519,7 @@ After installing the signed macOS app:
 5. Open the URL Blocker toolbar item in Safari. If website access is missing, the blocklist editor should ask for website access and list the sites that need access.
 6. After choosing `Always Allow`, reload the blocklist editor. The editor should be visible, and the website access prompt should be hidden.
 
-Before shipping extension resource changes, rerun `npm test` and the signed iOS build command above because iOS and macOS share the extension JavaScript, CSS, HTML, and native request handler.
+After finishing changes and before committing, run `npm test` and the signed iOS build with `make ios-build`. Do not use `make ios-build-unsigned` as the final pre-commit iOS build because it does not exercise the signed install lane. iOS and macOS share the extension JavaScript, CSS, HTML, and native request handler.
 
 The UDID Registrations certificate was tested against the macOS app and Safari Web Extension target, but it is not usable for this project on macOS:
 

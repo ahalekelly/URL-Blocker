@@ -88,6 +88,7 @@ Use [ios_build_sign_install.md](ios_build_sign_install.md) for the complete sign
 
 ## Committing
 
+- After finishing changes and before committing, run `make test` and the signed iOS build with `make ios-build`; do not use `make ios-build-unsigned` as the final pre-commit iOS build.
 - After finishing and testing each change, commit all changes for that completed work.
 - If you're about to start a new change and there are uncommited code changes, commit them before you start. Make a subagent to look at the changes to figure out what they do and what a good commit message would be.
 - Save any important or useful information to this file, make sure it update it when information changes, you learn new things, or you are given new general instructions
