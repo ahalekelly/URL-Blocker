@@ -34,6 +34,43 @@ test("getState loads default blocked pages when storage is empty", async () => {
   assert.deepEqual(response.state.domainLimits, core.emptyState(defaultBlockedPages).domainLimits);
 });
 
+test("getState loads default blocked pages without runtime getURL", async () => {
+  const api = fakeApi();
+  const fetch = globalThis.fetch;
+  const location = Object.getOwnPropertyDescriptor(globalThis, "location");
+
+  delete api.runtime.getURL;
+  Object.defineProperty(globalThis, "location", {
+    configurable: true,
+    value: { href: "safari-web-extension://extension/background.js" }
+  });
+  globalThis.fetch = async (url) => {
+    assert.equal(url, "safari-web-extension://extension/default-blocked-pages.json");
+
+    return {
+      ok: true,
+      async json() {
+        return defaultBlockedPages;
+      }
+    };
+  };
+
+  try {
+    const response = await createBackgroundController(api).getState();
+
+    assert.equal(response.type, "state");
+    assert.deepEqual(response.state.entries, core.emptyState(defaultBlockedPages).entries);
+  } finally {
+    globalThis.fetch = fetch;
+
+    if (location) {
+      Object.defineProperty(globalThis, "location", location);
+    } else {
+      delete globalThis.location;
+    }
+  }
+});
+
 test("saveState rejects unsupported old state", async () => {
   const api = fakeApi();
   const controller = createBackgroundController(api);

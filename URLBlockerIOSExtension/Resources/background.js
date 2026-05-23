@@ -90,7 +90,7 @@
     }
 
     async function openOptions() {
-      await api.tabs.create({ url: api.runtime.getURL("options.html") });
+      await api.tabs.create({ url: runtimeUrl("options.html") });
       return { type: "opened" };
     }
 
@@ -186,7 +186,7 @@
     }
 
     function blockedPageUrl(rawUrl) {
-      return `${api.runtime.getURL("blocked.html")}#${encodeURIComponent(rawUrl)}`;
+      return `${runtimeUrl("blocked.html")}#${encodeURIComponent(rawUrl)}`;
     }
 
     async function loadState() {
@@ -242,13 +242,21 @@
     }
 
     async function loadDefaultEntries() {
-      const response = await fetch(api.runtime.getURL("default-blocked-pages.json"));
+      const response = await fetch(runtimeUrl("default-blocked-pages.json"));
 
       if (!response.ok) {
         throw new Error("Default blocked pages could not be loaded.");
       }
 
       return response.json();
+    }
+
+    function runtimeUrl(path) {
+      if (typeof api.runtime.getURL === "function") {
+        return api.runtime.getURL(path);
+      }
+
+      return new URL(path, root.location.href).href;
     }
 
     async function requireWebsiteAccess(state) {

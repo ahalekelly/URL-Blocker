@@ -53,15 +53,11 @@
   loadState().catch(showFatalError);
 
   async function loadState() {
-    const [defaultEntries, response] = await Promise.all([
-      loadDefaultEntries(),
-      api.runtime.sendMessage({ type: "getState" })
-    ]);
-
-    state.defaultEntries = defaultEntries;
+    const response = await api.runtime.sendMessage({ type: "getState" });
 
     switch (response.type) {
       case "state":
+        state.defaultEntries = defaultEntriesFromState(response.state.entries);
         state.draftEntries = editableEntries(response.state.entries, response.state.domainLimits);
         state.draftBlockedPageHtml = response.state.blockedPageHtml;
         state.draftSchedule = editableSchedule(response.state.schedule);
@@ -78,16 +74,6 @@
       default:
         throw new Error(`Unknown getState response: ${response.type}`);
     }
-  }
-
-  async function loadDefaultEntries() {
-    const response = await fetch(api.runtime.getURL("default-blocked-pages.json"));
-
-    if (!response.ok) {
-      throw new Error("Default blocked pages could not be loaded.");
-    }
-
-    return core.emptyState(await response.json()).entries;
   }
 
   function render() {
@@ -516,6 +502,7 @@
 
     switch (response.type) {
       case "saved":
+        state.defaultEntries = defaultEntriesFromState(response.state.entries);
         state.draftEntries = editableEntries(response.state.entries, response.state.domainLimits);
         state.draftBlockedPageHtml = response.state.blockedPageHtml;
         state.draftSchedule = editableSchedule(response.state.schedule);
@@ -695,6 +682,7 @@
       return;
     }
 
+    state.defaultEntries = defaultEntriesFromState(response.state.entries);
     state.draftEntries = editableEntries(response.state.entries, response.state.domainLimits);
     state.draftBlockedPageHtml = response.state.blockedPageHtml;
     state.draftSchedule = editableSchedule(response.state.schedule);
@@ -763,6 +751,24 @@
           throw new Error(`Unknown entry type: ${entry.type}`);
       }
     }));
+  }
+
+  function defaultEntriesFromState(entries) {
+    const defaultEntries = [];
+
+    entries.forEach((entry) => {
+      switch (entry.type) {
+        case "custom":
+          return;
+        case "default":
+          defaultEntries.push({ type: "default", id: entry.id, kind: entry.kind, value: entry.value, enabled: true });
+          return;
+        default:
+          throw new Error(`Unknown entry type: ${entry.type}`);
+      }
+    });
+
+    return defaultEntries;
   }
 
   function editableSchedule(schedule) {
