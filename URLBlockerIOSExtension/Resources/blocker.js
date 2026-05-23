@@ -9,7 +9,6 @@
   const MAX_LIMIT_MINUTES = 960;
   const DEFAULT_BLOCKED_PAGE_HTML = "<h1>Blocked</h1><p>This page is on your blocklist.</p>";
   const DEFAULT_SCHEDULE = { type: "always" };
-  const ALL_WEBSITES_ORIGIN = "*://*/*";
   const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const URL_ALIASES = [
     { type: "exact", source: "x.com/home", target: "x.com" },
@@ -620,7 +619,6 @@
 
   function permissionOriginsForEntries(entries) {
     const origins = [];
-    let needsAllWebsites = false;
 
     for (const entry of entries) {
       switch (entry.kind) {
@@ -632,15 +630,11 @@
           urlPermissionHosts(entry.value).forEach((host) => origins.push(`*://*.${host}/*`));
           break;
         case "regex":
-          needsAllWebsites = true;
+          origins.push(`*://*.${domainForRegexEntryValue(entry.value)}/*`);
           break;
         default:
           throw new Error(`Unknown matcher kind: ${entry.kind}`);
       }
-    }
-
-    if (needsAllWebsites) {
-      return [ALL_WEBSITES_ORIGIN];
     }
 
     return [...new Set(origins)].sort();
@@ -655,7 +649,8 @@
       case "urlWithSubpaths":
         return makeContentRegex(entry).test(pageUrl.pathMatchUrl);
       case "regex":
-        return new RegExp(entry.value, "i").test(pageUrl.regexMatchUrl);
+        return domainMatchesHost(domainForRegexEntryValue(entry.value), pageUrl.host)
+          && new RegExp(entry.value, "i").test(pageUrl.regexMatchUrl);
       default:
         throw new Error(`Unknown matcher kind: ${entry.kind}`);
     }

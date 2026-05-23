@@ -121,12 +121,12 @@ Required permissions:
 
 Required optional host access:
 
-- `*://*/*`
+- None.
 
 Required extension surfaces:
 
 - MV3 service worker background.
-- Dynamically registered content script on the normalized hosts in the blocklist, or on all HTTP/HTTPS websites when any Custom regex entry exists.
+- Dynamically registered content script on the normalized hosts in the blocklist.
 - Content script runs at `document_start`.
 - Options page for editing.
 - No extension action, popup, or Safari Extensions menu item for editing the blocklist.
@@ -151,7 +151,7 @@ iOS Safari requires users to enable the extension and grant website access. The 
 5. Enable the blocker.
 6. Save blocklist entries and grant access to those websites.
 
-The app should request website access only for normalized hosts in the blocklist. URL entries request the whole host so same-site SPA route changes can still be blocked. Custom regex entries require all-websites access because they can match arbitrary hosts.
+The app should request website access only for normalized hosts in the blocklist. URL entries request the whole host so same-site SPA route changes can still be blocked. Custom regex entries must start with one literal host, and request only that host.
 
 The extension must behave gracefully when access is missing:
 
@@ -562,7 +562,7 @@ Permission origin tests:
 - URL and URL-with-subpaths entries map to their normalized host origins.
 - Duplicate host origins are removed.
 - Origins are sorted for stable saves and tests.
-- Regex entries require all-website access.
+- Regex entries map to their one literal host origin.
 
 ## Background Worker Tests
 

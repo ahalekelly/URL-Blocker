@@ -428,13 +428,13 @@ test("maps blocklist entries to host permissions", () => {
   ]);
 });
 
-test("maps regex entries to all-website permissions", () => {
+test("maps regex entries to their literal host permissions", () => {
   const state = validState([
     { id: ids[1], kind: "domain", value: "example.com" },
     { id: ids[0], kind: "regex", value: "^https://x\\.com/(home|explore)/?$" }
   ]);
 
-  assert.deepEqual(core.permissionOriginsForState(state), ["*://*/*"]);
+  assert.deepEqual(core.permissionOriginsForState(state), ["*://*.example.com/*", "*://*.x.com/*"]);
 });
 
 test("matches regex entries case-insensitively without fragments", () => {
@@ -444,6 +444,7 @@ test("matches regex entries case-insensitively without fragments", () => {
 
   assert.equal(core.findMatchingEntry(state, "https://x.com/HOME/#feed").type, "match");
   assert.equal(core.findMatchingEntry(state, "https://x.com/messages").type, "none");
+  assert.equal(core.findMatchingEntry(state, "https://not-x.com/home").type, "none");
 });
 
 function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits = core.domainLimitsForEntries(entries, [])) {

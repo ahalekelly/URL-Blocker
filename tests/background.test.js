@@ -83,15 +83,15 @@ test("resetState restores default blocked pages", async () => {
   assert.deepEqual(api.storageData[core.STATE_KEY].entries, core.emptyState(defaultBlockedPages).entries);
 });
 
-test("saveState registers all websites when a regex entry exists", async () => {
-  const api = fakeApi({ grantedOrigins: ["*://*/*", "*://*.example.com/*"] });
+test("saveState registers the literal regex host", async () => {
+  const api = fakeApi({ grantedOrigins: ["*://*.x.com/*", "*://*.example.com/*"] });
   const controller = createBackgroundController(api);
   const response = await controller.saveState(validState([
     { id, kind: "regex", value: "^https://x\\.com/(home|explore)/?$" }
   ]));
 
   assert.equal(response.type, "saved");
-  assert.deepEqual(api.registeredScripts[0].matches, ["*://*/*"]);
+  assert.deepEqual(api.registeredScripts[0].matches, ["*://*.x.com/*"]);
   assert.deepEqual(api.removedOrigins, ["*://*.example.com/*"]);
 });
 

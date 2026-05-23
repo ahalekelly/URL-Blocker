@@ -23,9 +23,6 @@
     "*://*.ycombinator.com/*",
     "*://*.youtube.com/*"
   ],
-  "optional_host_permissions": [
-    "*://*/*"
-  ],
   "background": {
     "service_worker": "background.js"
   },
