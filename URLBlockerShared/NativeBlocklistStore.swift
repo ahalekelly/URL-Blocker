@@ -740,6 +740,8 @@ enum NativeBlocklistStore {
                 "limitMinutes": limitMinutes,
                 "isOverLimit": totalMs >= limitMinutes * 60 * 1000
             ]
+        }.filter { entry in
+            (entry["totalMs"] as! Int) > 0
         }.sorted { left, right in
             let leftTotal = left["totalMs"] as! Int
             let rightTotal = right["totalMs"] as! Int

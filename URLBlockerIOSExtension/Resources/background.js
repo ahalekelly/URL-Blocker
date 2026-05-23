@@ -407,6 +407,7 @@
           isOverLimit: totalMs >= limit.limitMinutes * 60 * 1000
         };
       })
+      .filter((entry) => entry.totalMs > 0)
       .sort((left, right) => right.totalMs - left.totalMs || left.domain.localeCompare(right.domain));
   }
 

@@ -356,6 +356,28 @@ test("getScreenTimeLog sums and prunes the last 16 hour buckets", async () => {
   });
 });
 
+test("getScreenTimeLog hides active domains with zero usage", async () => {
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "domain", value: "example.com" },
+    { id: "22222222-2222-4222-8222-222222222222", kind: "domain", value: "idle.example" }
+  ]);
+  api.storageData.screenTimeUsage = {
+    schemaVersion: 1,
+    totalsByDomain: {
+      "example.com": { 20: 1000 }
+    }
+  };
+  const controller = createBackgroundController(api);
+
+  assert.deepEqual(await controller.handleMessage({ type: "getScreenTimeLog" }, {}), {
+    type: "screenTimeLog",
+    entries: [
+      { domain: "example.com", totalMs: 1000, limitMinutes: 30, isOverLimit: false }
+    ]
+  });
+});
+
 test("urlChanged redirects matching URLs when rolling usage is over limit", async () => {
   const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
   api.storageData[core.STATE_KEY] = validState([
