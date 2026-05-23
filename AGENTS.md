@@ -41,10 +41,16 @@ make chrome-extension
 Build and launch Vivaldi with the unpacked extension loaded in the main profile:
 
 ```sh
-make chrome-install
+make vivaldi-install
 ```
 
-Current Google Chrome ignores `--load-extension` from the command line, so `make chrome-install` defaults to Vivaldi.
+Build and launch Brave with the unpacked extension loaded in the main profile:
+
+```sh
+make brave-install
+```
+
+Current Google Chrome ignores `--load-extension` from the command line, so use Vivaldi or Brave for command-line extension loading.
 
 Build the signed iOS IPA, signed macOS app, and unpacked Chrome extension:
 

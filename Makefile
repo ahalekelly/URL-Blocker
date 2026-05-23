@@ -17,7 +17,8 @@ IOS_APP_GROUP ?= group.d944b664533a4c2f.1
 P12_PASSWORD_FILE ?= $(IOS_SIGNING_ASSETS)/Development.p12.password
 MACOS_DERIVED_DATA ?= /tmp/urlblocker_macos_build
 MACOS_CODE_SIGN_IDENTITY ?= Apple Development
-CHROME_APP ?= Vivaldi
+VIVALDI_APP ?= Vivaldi
+BRAVE_APP ?= Brave Browser
 CHROME_EXTENSION_DIR := $(CURDIR)/build/chrome-extension
 
 MACOS_BUILD_APP := $(MACOS_DERIVED_DATA)/Build/Products/Release/URLBlockerMac.app
@@ -28,13 +29,14 @@ SAFARI_EXTENSION_ID := com.akelly.URLBlockerMac.Extension
 SAFARI_EXTENSION_SDK := com.apple.Safari.web-extension
 LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister
 
-.PHONY: help test all build check chrome-extension chrome-install ios-build ios-build-unsigned ios-signed-ipa ios-devices ios-install macos-build macos-install macos-clean-registration macos-verify macos-plugin-check
+.PHONY: help test all build check chrome-extension vivaldi-install brave-install ios-build ios-build-unsigned ios-signed-ipa ios-devices ios-install macos-build macos-install macos-clean-registration macos-verify macos-plugin-check
 
 help:
 	@printf "Targets:\n"
 	@printf "  make test                    Run JavaScript tests.\n"
 	@printf "  make chrome-extension        Build the unpacked Chrome extension in build/chrome-extension.\n"
-	@printf "  make chrome-install          Build and launch Vivaldi with the extension loaded.\n"
+	@printf "  make vivaldi-install         Build and launch Vivaldi with the extension loaded.\n"
+	@printf "  make brave-install           Build and launch Brave with the extension loaded.\n"
 	@printf "  make ios-build               Build build/URLBlockerIOS-signed.ipa with UDID Registrations signing.\n"
 	@printf "  make ios-build-unsigned      Build the unsigned iOS device app.\n"
 	@printf "  make ios-signed-ipa          Alias for make ios-build.\n"
@@ -60,13 +62,23 @@ check: test build
 chrome-extension:
 	npm run build-chrome-extension
 
-chrome-install: chrome-extension
-	@if pgrep -x "$(CHROME_APP)" >/dev/null; then \
-	  printf "%s is already running. Quit it, then rerun make chrome-install so --load-extension applies at startup.\n" "$(CHROME_APP)" >&2; \
+vivaldi-install: chrome-extension
+	@if pgrep -x "$(VIVALDI_APP)" >/dev/null; then \
+	  printf "%s is already running. Quit it, then rerun make vivaldi-install so --load-extension applies at startup.\n" "$(VIVALDI_APP)" >&2; \
 	  exit 1; \
 	fi
-	@printf "Opening %s with URL Blocker loaded from %s\n" "$(CHROME_APP)" "$(CHROME_EXTENSION_DIR)"
-	open -na "$(CHROME_APP)" --args \
+	@printf "Opening %s with URL Blocker loaded from %s\n" "$(VIVALDI_APP)" "$(CHROME_EXTENSION_DIR)"
+	open -na "$(VIVALDI_APP)" --args \
+	  --load-extension="$(CHROME_EXTENSION_DIR)" \
+	  chrome://extensions
+
+brave-install: chrome-extension
+	@if pgrep -x "$(BRAVE_APP)" >/dev/null; then \
+	  printf "%s is already running. Quit it, then rerun make brave-install so --load-extension applies at startup.\n" "$(BRAVE_APP)" >&2; \
+	  exit 1; \
+	fi
+	@printf "Opening %s with URL Blocker loaded from %s\n" "$(BRAVE_APP)" "$(CHROME_EXTENSION_DIR)"
+	open -na "$(BRAVE_APP)" --args \
 	  --load-extension="$(CHROME_EXTENSION_DIR)" \
 	  chrome://extensions
 
