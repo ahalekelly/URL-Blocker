@@ -155,7 +155,16 @@ private struct BlocklistWebView: UIViewRepresentable {
         }
     }
 
-    private static let browserShim = """
+    private static var browserShim: String {
+        [
+            nativeBrowserShim,
+            Safari.resourceText("blocker", withExtension: "js"),
+            Safari.resourceText("background", withExtension: "js"),
+            backgroundControllerShim
+        ].joined(separator: "\n")
+    }
+
+    private static let nativeBrowserShim = """
     (() => {
       const callbacks = new Map();
       let nextId = 0;
@@ -168,7 +177,7 @@ private struct BlocklistWebView: UIViewRepresentable {
         callback(reply.response);
       };
 
-      function sendMessage(message) {
+      function sendNativeMessage(_applicationId, message) {
         return new Promise((resolve) => {
           const id = String(++nextId);
           callbacks.set(id, resolve);
@@ -176,15 +185,45 @@ private struct BlocklistWebView: UIViewRepresentable {
         });
       }
 
-      window.browser = {
-        runtime: { sendMessage },
+      const api = {
+        runtime: {
+          getManifest: () => ({ host_permissions: [] }),
+          getPlatformInfo: () => Promise.resolve({ os: "ios" }),
+          getURL: (path) => new URL(path, document.baseURI).href,
+          sendNativeMessage
+        },
         permissions: {
           contains: () => Promise.resolve(true),
           getAll: () => Promise.resolve({ origins: [] }),
           remove: () => Promise.resolve(true),
           request: () => Promise.resolve(true)
+        },
+        scripting: {
+          getRegisteredContentScripts: () => Promise.resolve([]),
+          registerContentScripts: () => Promise.resolve(),
+          unregisterContentScripts: () => Promise.resolve()
+        },
+        tabs: {
+          create: () => Promise.resolve(),
+          getCurrent: () => Promise.resolve(null),
+          query: () => Promise.resolve([]),
+          remove: () => Promise.resolve(),
+          update: () => Promise.resolve()
         }
       };
+
+      window.browser = api;
+      window.chrome = api;
+    })();
+    """
+
+    private static let backgroundControllerShim = """
+    (() => {
+      const controller = window.BackgroundController.createBackgroundController(window.browser);
+
+      window.browser.runtime.sendMessage = (message) => controller
+        .handleMessage(message, {})
+        .catch((error) => ({ type: "error", error: error.message }));
       window.chrome = window.browser;
     })();
     """
@@ -215,6 +254,18 @@ private enum Safari {
 
     static var resourcesURL: URL {
         optionsPageURL.deletingLastPathComponent()
+    }
+
+    static func resourceText(_ name: String, withExtension fileExtension: String) -> String {
+        guard let url = extensionBundle.url(forResource: name, withExtension: fileExtension) else {
+            fatalError("Missing \(name).\(fileExtension) in Safari extension resources.")
+        }
+
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            fatalError("Could not load \(name).\(fileExtension) from Safari extension resources.")
+        }
+
+        return text
     }
 
     private static var extensionBundle: Bundle {

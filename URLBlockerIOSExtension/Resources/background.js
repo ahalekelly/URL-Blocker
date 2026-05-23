@@ -457,20 +457,28 @@
     };
     const nativeStorage = {
       async loadState() {
-        const response = await sendNativeMessage(api, { type: "getState" });
+        const response = await sendNativeMessage(api, { type: "loadState" });
 
         switch (response.type) {
-          case "state":
+          case "storedState":
             return response.state;
-          case "stateError":
           case "error":
             throw new Error(response.error);
           default:
-            throw new Error(`Unknown native getState response: ${response.type}`);
+            throw new Error(`Unknown native loadState response: ${response.type}`);
         }
       },
       async saveState(state) {
-        return sendNativeMessage(api, { type: "saveState", state });
+        const response = await sendNativeMessage(api, { type: "saveState", state });
+
+        switch (response.type) {
+          case "savedState":
+            return { type: "saved", state: response.state };
+          case "error":
+            throw new Error(response.error);
+          default:
+            throw new Error(`Unknown native saveState response: ${response.type}`);
+        }
       }
     };
 
@@ -499,15 +507,15 @@
     };
     const nativeStorage = {
       async loadUsage() {
-        const response = await sendNativeMessage(api, { type: "getScreenTimeUsage" });
+        const response = await sendNativeMessage(api, { type: "loadScreenTimeUsage" });
 
         switch (response.type) {
-          case "screenTimeUsage":
+          case "storedScreenTimeUsage":
             return response.usage;
           case "error":
             throw new Error(response.error);
           default:
-            throw new Error(`Unknown native getScreenTimeUsage response: ${response.type}`);
+            throw new Error(`Unknown native loadScreenTimeUsage response: ${response.type}`);
         }
       },
       async saveUsage(usage) {

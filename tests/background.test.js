@@ -647,13 +647,13 @@ function fakeApi(overrides = {}) {
     api.runtime.getPlatformInfo = async () => ({ os: "ios" });
     api.runtime.sendNativeMessage = async (_applicationId, message) => {
       switch (message.type) {
-        case "getState":
-          return { type: "state", state: api.nativeData[core.STATE_KEY] || core.emptyState(defaultBlockedPages) };
+        case "loadState":
+          return { type: "storedState", state: api.nativeData[core.STATE_KEY] };
         case "saveState":
           api.nativeData[core.STATE_KEY] = message.state;
-          return { type: "saved", state: message.state };
-        case "getScreenTimeUsage":
-          return { type: "screenTimeUsage", usage: api.nativeData.screenTimeUsage };
+          return { type: "savedState", state: message.state };
+        case "loadScreenTimeUsage":
+          return { type: "storedScreenTimeUsage", usage: api.nativeData.screenTimeUsage };
         case "saveScreenTimeUsage":
           api.nativeData.screenTimeUsage = message.usage;
           return { type: "savedScreenTimeUsage", usage: message.usage };
