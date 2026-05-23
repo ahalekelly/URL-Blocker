@@ -36,7 +36,7 @@ Build the full iOS app with a packaged Safari Web Extension.
 - Managed storage.
 - Context menus.
 - Notifications.
-- Cross-browser packaging.
+- Separate browser-specific extension logic.
 - Enterprise MDM filtering.
 - A native Swift blocklist editor.
 - A Safari Extensions menu editor entry point.

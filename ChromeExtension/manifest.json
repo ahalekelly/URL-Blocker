@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "URL Blocker",
+  "description": "Block websites and SPA routes from a private local blocklist.",
+  "version": "1.0",
+  "permissions": [
+    "scripting",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "*://*.bsky.app/*",
+    "*://*.facebook.com/*",
+    "*://*.instagram.com/*",
+    "*://*.linkedin.com/*",
+    "*://*.pinterest.com/*",
+    "*://*.reddit.com/*",
+    "*://*.threads.com/*",
+    "*://*.tiktok.com/*",
+    "*://*.twitter.com/*",
+    "*://*.x.com/*",
+    "*://*.ycombinator.com/*",
+    "*://*.youtube.com/*"
+  ],
+  "optional_host_permissions": [
+    "*://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "URL Blocker",
+    "default_icon": {
+      "48": "icons/icon-48.png",
+      "96": "icons/icon-96.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "blocked.html"
+      ],
+      "matches": [
+        "*://*/*"
+      ]
+    }
+  ],
+  "icons": {
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png",
+    "128": "icons/icon-128.png"
+  }
+}

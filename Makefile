@@ -26,11 +26,12 @@ SAFARI_EXTENSION_ID := com.akelly.URLBlockerMac.Extension
 SAFARI_EXTENSION_SDK := com.apple.Safari.web-extension
 LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister
 
-.PHONY: help test all build check ios-build ios-build-unsigned ios-signed-ipa ios-devices ios-install macos-build macos-install macos-clean-registration macos-verify macos-plugin-check
+.PHONY: help test all build check chrome-extension ios-build ios-build-unsigned ios-signed-ipa ios-devices ios-install macos-build macos-install macos-clean-registration macos-verify macos-plugin-check
 
 help:
 	@printf "Targets:\n"
 	@printf "  make test                    Run JavaScript tests.\n"
+	@printf "  make chrome-extension        Build the unpacked Chrome extension in build/chrome-extension.\n"
 	@printf "  make ios-build               Build build/URLBlockerIOS-signed.ipa with UDID Registrations signing.\n"
 	@printf "  make ios-build-unsigned      Build the unsigned iOS device app.\n"
 	@printf "  make ios-signed-ipa          Alias for make ios-build.\n"
@@ -38,9 +39,9 @@ help:
 	@printf "  make ios-install             Build the signed IPA, then install it on the connected iPhone.\n"
 	@printf "  make ios-install DEVICE=...  Build the signed IPA, then install it on a specific iPhone.\n"
 	@printf "  make macos-build             Build the signed macOS app.\n"
-	@printf "  make all                     Build iOS and macOS.\n"
-	@printf "  make build                   Build iOS and macOS.\n"
-	@printf "  make check                   Run tests, then build iOS and macOS.\n"
+	@printf "  make all                     Build iOS, macOS, and Chrome.\n"
+	@printf "  make build                   Build iOS, macOS, and Chrome.\n"
+	@printf "  make check                   Run tests, then build iOS, macOS, and Chrome.\n"
 	@printf "  make macos-install           Build, install to /Applications, and verify Safari registration.\n"
 	@printf "  make macos-plugin-check      Fail if Safari sees duplicate URL Blocker extensions.\n"
 
@@ -49,9 +50,12 @@ test:
 
 all: build
 
-build: ios-build macos-build
+build: ios-build macos-build chrome-extension
 
 check: test build
+
+chrome-extension:
+	npm run build-chrome-extension
 
 ios-build:
 	IOS_APP_GROUP="$(IOS_APP_GROUP)" \

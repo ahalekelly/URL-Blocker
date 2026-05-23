@@ -9,9 +9,11 @@
 
 - `URLBlockerIOS/`: iOS containing app.
 - `URLBlockerIOSExtension/`: Safari Web Extension target and web resources.
+- `ChromeExtension/`: Chrome-specific manifest. The Chrome build reuses the Safari extension web resources.
 - `URLBlockerShared/`: Swift shared state validation and storage.
 - `URLBlockerMac/` and `URLBlockerExtensionMac/`: macOS targets.
 - `tests/`: Node tests for extension JavaScript behavior.
+- `scripts/build-chrome-extension.mjs`: builds the unpacked Chrome extension in `build/chrome-extension`.
 - `scripts/sync-default-blocked-pages.mjs`: syncs/checks default blocked pages.
 
 ## Commands
@@ -30,7 +32,13 @@ Run JavaScript tests:
 make test
 ```
 
-Build the signed iOS IPA and signed macOS app:
+Build the unpacked Chrome extension:
+
+```sh
+make chrome-extension
+```
+
+Build the signed iOS IPA, signed macOS app, and unpacked Chrome extension:
 
 ```sh
 make all
