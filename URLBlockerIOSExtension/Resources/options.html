@@ -32,9 +32,35 @@
       <div id="successMessage" class="success-message" hidden></div>
 
       <section class="settings-panel screen-time-panel">
-        <h2>Last 16 Hours</h2>
+        <h2 id="screenTimeTitle">Last 16 Hours</h2>
         <div id="screenTimeRows" class="screen-time-rows"></div>
         <p id="emptyScreenTime" class="empty-screen-time">No usage logged yet.</p>
+      </section>
+
+      <section class="settings-panel">
+        <h2>Limit Reset</h2>
+        <div class="reset-options">
+          <label class="choice-label">
+            <input id="rollingResetInput" type="radio" name="limitResetType" value="rollingWindow">
+            <span>Rolling Window</span>
+          </label>
+          <label class="choice-label">
+            <input id="dailyResetInput" type="radio" name="limitResetType" value="daily">
+            <span>Daily Reset</span>
+          </label>
+        </div>
+        <div id="rollingResetFields" class="reset-fields">
+          <label>
+            Window Hours
+            <input id="rollingWindowHoursInput" type="number" min="1" max="168" step="1" inputmode="numeric" aria-label="Rolling reset window hours">
+          </label>
+        </div>
+        <div id="dailyResetFields" class="reset-fields">
+          <label>
+            Reset Time
+            <select id="dailyResetHourSelect" aria-label="Daily reset time"></select>
+          </label>
+        </div>
       </section>
 
       <section class="settings-panel">

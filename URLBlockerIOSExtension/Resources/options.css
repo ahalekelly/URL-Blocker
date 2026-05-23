@@ -37,6 +37,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -258,12 +259,15 @@ h2 {
 
 .schedule-options,
 .schedule-window-fields,
+.reset-options,
+.reset-fields,
 .screen-time-row {
   display: flex;
   gap: 12px;
 }
 
-.schedule-window-fields[hidden] {
+.schedule-window-fields[hidden],
+.reset-fields[hidden] {
   display: none;
 }
 
@@ -406,6 +410,8 @@ input[readonly] {
   .row-toolbar,
   .schedule-options,
   .schedule-window-fields,
+  .reset-options,
+  .reset-fields,
   .list-actions,
   .editor-footer {
     display: grid;

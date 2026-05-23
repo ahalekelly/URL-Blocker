@@ -21,6 +21,8 @@
     draftEntries: [],
     draftBlockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     draftSchedule: core.DEFAULT_SCHEDULE,
+    draftLimitReset: core.DEFAULT_LIMIT_RESET,
+    savedLimitReset: core.DEFAULT_LIMIT_RESET,
     rowErrors: new Map(),
     pageError: "",
     successMessage: "",
@@ -40,6 +42,13 @@
   const scheduleWindowFields = document.getElementById("scheduleWindowFields");
   const scheduleStartInput = document.getElementById("scheduleStartInput");
   const scheduleEndInput = document.getElementById("scheduleEndInput");
+  const screenTimeTitle = document.getElementById("screenTimeTitle");
+  const rollingResetInput = document.getElementById("rollingResetInput");
+  const dailyResetInput = document.getElementById("dailyResetInput");
+  const rollingResetFields = document.getElementById("rollingResetFields");
+  const dailyResetFields = document.getElementById("dailyResetFields");
+  const rollingWindowHoursInput = document.getElementById("rollingWindowHoursInput");
+  const dailyResetHourSelect = document.getElementById("dailyResetHourSelect");
   const errorSummary = document.getElementById("errorSummary");
   const successMessage = document.getElementById("successMessage");
   const screenTimeRows = document.getElementById("screenTimeRows");
@@ -53,6 +62,7 @@
   const permissionError = document.getElementById("permissionError");
   const grantAccessButton = document.getElementById("grantAccessButton");
 
+  renderDailyResetHourOptions();
   addRowButton.addEventListener("click", addRow);
   saveButton.addEventListener("click", saveDraft);
   blockedPageHtmlInput.addEventListener("input", updateBlockedPageHtml);
@@ -60,6 +70,10 @@
   dailyScheduleInput.addEventListener("change", () => updateScheduleType("dailyWindow"));
   scheduleStartInput.addEventListener("input", updateScheduleWindow);
   scheduleEndInput.addEventListener("input", updateScheduleWindow);
+  rollingResetInput.addEventListener("change", () => updateLimitResetType("rollingWindow"));
+  dailyResetInput.addEventListener("change", () => updateLimitResetType("daily"));
+  rollingWindowHoursInput.addEventListener("input", updateRollingWindow);
+  dailyResetHourSelect.addEventListener("change", updateDailyResetHour);
   resetButton.addEventListener("click", resetBlocklist);
   grantAccessButton.addEventListener("click", requestMissingWebsiteAccess);
   root.addEventListener("error", (event) => showFatalError(event.error || codedError("WindowError", event.message)));
@@ -97,11 +111,18 @@
     editorPanel.hidden = needsWebsiteAccess;
     rowsElement.replaceChildren(...renderBlockItems());
     blockedPageHtmlInput.value = state.draftBlockedPageHtml;
+    screenTimeTitle.textContent = screenTimeTitleText(state.savedLimitReset);
     alwaysScheduleInput.checked = state.draftSchedule.type === "always";
     dailyScheduleInput.checked = state.draftSchedule.type === "dailyWindow";
     scheduleWindowFields.hidden = state.draftSchedule.type !== "dailyWindow";
     scheduleStartInput.value = minuteToTime(state.draftSchedule.startMinute);
     scheduleEndInput.value = minuteToTime(state.draftSchedule.endMinute);
+    rollingResetInput.checked = state.draftLimitReset.type === "rollingWindow";
+    dailyResetInput.checked = state.draftLimitReset.type === "daily";
+    rollingResetFields.hidden = state.draftLimitReset.type !== "rollingWindow";
+    dailyResetFields.hidden = state.draftLimitReset.type !== "daily";
+    rollingWindowHoursInput.value = String(rollingWindowHours());
+    dailyResetHourSelect.value = String(dailyResetHour());
     saveButton.disabled = state.isSaving;
     grantAccessButton.disabled = state.isRequestingPermissions;
     permissionMessage.textContent = needsWebsiteAccess ? permissionPanelMessage() : "";
@@ -339,6 +360,34 @@
     return row;
   }
 
+  function renderDailyResetHourOptions() {
+    for (let hour = 0; hour < 24; hour += 1) {
+      const option = document.createElement("option");
+
+      option.value = String(hour);
+      option.textContent = minuteToTime(hour * 60);
+      dailyResetHourSelect.append(option);
+    }
+  }
+
+  function screenTimeTitleText(limitReset) {
+    switch (limitReset.type) {
+      case "rollingWindow": {
+        const hours = limitReset.windowHours;
+
+        if (!Number.isInteger(hours)) {
+          return "Screen Time";
+        }
+
+        return `Last ${hours} ${hours === 1 ? "Hour" : "Hours"}`;
+      }
+      case "daily":
+        return `Since ${minuteToTime(limitReset.resetHour * 60)}`;
+      default:
+        throw new Error(`Unknown limit reset type: ${limitReset.type}`);
+    }
+  }
+
   function addRow() {
     state.draftEntries.push(core.newEntry("url"));
     state.draftEntries[state.draftEntries.length - 1].limitMinutes = core.DEFAULT_LIMIT_MINUTES;
@@ -473,6 +522,38 @@
     clearMessages();
   }
 
+  function updateLimitResetType(type) {
+    switch (type) {
+      case "rollingWindow":
+        state.draftLimitReset = existingRollingWindow();
+        break;
+      case "daily":
+        state.draftLimitReset = existingDailyReset();
+        break;
+      default:
+        throw new Error(`Unknown limit reset type: ${type}`);
+    }
+
+    clearMessages();
+    render();
+  }
+
+  function updateRollingWindow() {
+    state.draftLimitReset = {
+      type: "rollingWindow",
+      windowHours: Number(rollingWindowHoursInput.value)
+    };
+    clearMessages();
+  }
+
+  function updateDailyResetHour() {
+    state.draftLimitReset = {
+      type: "daily",
+      resetHour: Number(dailyResetHourSelect.value)
+    };
+    clearMessages();
+  }
+
   function deleteRow(id) {
     const entry = findDraftEntry(id);
 
@@ -543,7 +624,7 @@
 
     switch (response.type) {
       case "saved":
-        applySavedState(response.state, "Saved.");
+        await applySavedState(response.state, "Saved.");
         return;
       case "validationError":
         showValidationErrors(response.errors);
@@ -659,6 +740,7 @@
         entries: storedEntries(state.draftEntries),
         blockedPageHtml: state.draftBlockedPageHtml,
         schedule: state.draftSchedule,
+        limitReset: state.draftLimitReset,
         domainLimits: domainLimitsForDraft()
       }, state.defaultEntries);
     }
@@ -668,6 +750,7 @@
       entries: storedEntries(state.draftEntries),
       blockedPageHtml: state.draftBlockedPageHtml,
       schedule: state.draftSchedule,
+      limitReset: state.draftLimitReset,
       domainLimits: domainLimitsForDraft()
     }, state.defaultEntries);
 
@@ -675,6 +758,7 @@
       state.draftEntries = editableEntries(result.state.entries, result.state.domainLimits);
       state.draftBlockedPageHtml = result.state.blockedPageHtml;
       state.draftSchedule = editableSchedule(result.state.schedule);
+      state.draftLimitReset = editableLimitReset(result.state.limitReset);
     }
 
     return result;
@@ -748,7 +832,7 @@
     switch (response.type) {
       case "saved":
         resetButton.disabled = false;
-        applySavedState(response.state, "Reset.");
+        await applySavedState(response.state, "Reset.");
         return;
       case "validationError":
         showRepair(codedError("ValidationError", response.errors.map((error) => error.message).join("\n")));
@@ -761,8 +845,9 @@
     }
   }
 
-  function applySavedState(savedState, message) {
+  async function applySavedState(savedState, message) {
     setDraftState(savedState);
+    await loadScreenTimeLog();
     state.successMessage = message;
     render();
   }
@@ -772,6 +857,8 @@
     state.draftEntries = editableEntries(blockerState.entries, blockerState.domainLimits);
     state.draftBlockedPageHtml = blockerState.blockedPageHtml;
     state.draftSchedule = editableSchedule(blockerState.schedule);
+    state.draftLimitReset = editableLimitReset(blockerState.limitReset);
+    state.savedLimitReset = editableLimitReset(blockerState.limitReset);
   }
 
   function showValidationErrors(errors) {
@@ -912,12 +999,55 @@
     }
   }
 
+  function editableLimitReset(limitReset) {
+    switch (limitReset.type) {
+      case "rollingWindow":
+        return { type: "rollingWindow", windowHours: limitReset.windowHours };
+      case "daily":
+        return { type: "daily", resetHour: limitReset.resetHour };
+      default:
+        throw new Error(`Unknown limit reset type: ${limitReset.type}`);
+    }
+  }
+
   function existingDailyWindow() {
     if (state.draftSchedule.type === "dailyWindow") {
       return state.draftSchedule;
     }
 
     return core.DEFAULT_SCHEDULE;
+  }
+
+  function existingRollingWindow() {
+    if (state.draftLimitReset.type === "rollingWindow") {
+      return state.draftLimitReset;
+    }
+
+    return core.DEFAULT_LIMIT_RESET;
+  }
+
+  function existingDailyReset() {
+    if (state.draftLimitReset.type === "daily") {
+      return state.draftLimitReset;
+    }
+
+    return { type: "daily", resetHour: 0 };
+  }
+
+  function rollingWindowHours() {
+    if (state.draftLimitReset.type === "rollingWindow") {
+      return state.draftLimitReset.windowHours;
+    }
+
+    return core.DEFAULT_LIMIT_RESET.windowHours;
+  }
+
+  function dailyResetHour() {
+    if (state.draftLimitReset.type === "daily") {
+      return state.draftLimitReset.resetHour;
+    }
+
+    return 0;
   }
 
   function minuteToTime(minute) {

@@ -10,7 +10,6 @@
   const HOUR_MS = 60 * 60 * 1000;
   const SCREEN_TIME_USAGE_KEY = "screenTimeUsage";
   const SCREEN_TIME_USAGE_SCHEMA_VERSION = 1;
-  const SCREEN_TIME_WINDOW_HOURS = 16;
 
   function createBackgroundController(api) {
     const stateStorage = createStateStorage(api);
@@ -135,11 +134,11 @@
 
     async function getScreenTimeLog() {
       const state = await loadState();
-      const hour = currentHour();
+      const nowMs = currentTimeMs();
 
       return {
         type: "screenTimeLog",
-        entries: screenTimeEntries(state, await loadScreenTimeUsage(), hour)
+        entries: screenTimeEntries(state, await loadScreenTimeUsage(), nowMs)
       };
     }
 
@@ -153,18 +152,18 @@
       }
 
       const state = await loadState();
-      const hour = currentHour();
+      const nowMs = currentTimeMs();
       const usage = await loadScreenTimeUsage();
-      const match = core.findBlockedMatchingEntry(state, rawUrl, overLimitDomains(state, usage, hour));
+      const match = core.findBlockedMatchingEntry(state, rawUrl, overLimitDomains(state, usage, nowMs));
 
       return redirectFromMatch(tabId, rawUrl, match);
     }
 
     async function redirectOpenBlockedTabs(state) {
       const tabs = await api.tabs.query({});
-      const hour = currentHour();
+      const nowMs = currentTimeMs();
       const usage = await loadScreenTimeUsage();
-      const limitedDomains = overLimitDomains(state, usage, hour);
+      const limitedDomains = overLimitDomains(state, usage, nowMs);
 
       await Promise.all(tabs.map((tab) => {
         if (typeof tab.id !== "number" || typeof tab.url !== "string") {
@@ -204,9 +203,10 @@
     }
 
     async function saveScreenTimeAndRedirect(state, domain, rawUrl, elapsedMs, sender) {
-      const hour = currentHour();
+      const nowMs = currentTimeMs();
+      const hour = currentHour(nowMs);
       const usage = await saveScreenTime(domain, elapsedMs, hour);
-      const totalMs = screenTimeTotalMs(usage, domain, hour);
+      const totalMs = screenTimeTotalMs(usage, domain, usageWindow(state.limitReset, nowMs));
       const limit = domainLimit(state, domain);
       const isOverLimit = totalMs >= limit.limitMinutes * 60 * 1000;
 
@@ -315,10 +315,12 @@
       }
     }
 
-    function currentHour() {
-      const now = typeof api.now === "function" ? api.now() : Date.now();
+    function currentTimeMs() {
+      return typeof api.now === "function" ? api.now() : Date.now();
+    }
 
-      return Math.floor(now / HOUR_MS);
+    function currentHour(nowMs) {
+      return Math.floor(nowMs / HOUR_MS);
     }
 
     return {
@@ -384,10 +386,12 @@
     return { schemaVersion: SCREEN_TIME_USAGE_SCHEMA_VERSION, totalsByDomain };
   }
 
-  function screenTimeEntries(state, usage, hour) {
+  function screenTimeEntries(state, usage, nowMs) {
+    const hours = usageWindow(state.limitReset, nowMs);
+
     return activeDomainLimits(state)
       .map((limit) => {
-        const totalMs = screenTimeTotalMs(usage, limit.domain, hour);
+        const totalMs = screenTimeTotalMs(usage, limit.domain, hours);
 
         return {
           domain: limit.domain,
@@ -419,25 +423,49 @@
     }
   }
 
-  function overLimitDomains(state, usage, hour) {
-    return new Set(screenTimeEntries(state, usage, hour)
+  function overLimitDomains(state, usage, nowMs) {
+    return new Set(screenTimeEntries(state, usage, nowMs)
       .filter((entry) => entry.isOverLimit)
       .map((entry) => entry.domain));
   }
 
-  function screenTimeTotalMs(usage, domain, hour) {
-    const minHour = hour - SCREEN_TIME_WINDOW_HOURS + 1;
+  function screenTimeTotalMs(usage, domain, window) {
     const buckets = usage.totalsByDomain[domain] || {};
 
     return Object.entries(buckets).reduce((total, [bucket, totalMs]) => {
       const bucketHour = Number(bucket);
 
-      if (bucketHour < minHour || bucketHour > hour) {
+      if (bucketHour < window.startHour || bucketHour > window.endHour) {
         return total;
       }
 
       return total + totalMs;
     }, 0);
+  }
+
+  function usageWindow(limitReset, nowMs) {
+    const hour = Math.floor(nowMs / HOUR_MS);
+
+    switch (limitReset.type) {
+      case "rollingWindow":
+        return { startHour: hour - limitReset.windowHours + 1, endHour: hour };
+      case "daily":
+        return { startHour: dailyResetHour(limitReset.resetHour, nowMs), endHour: hour };
+      default:
+        throw new Error(`Unknown limit reset type: ${limitReset.type}`);
+    }
+  }
+
+  function dailyResetHour(resetHour, nowMs) {
+    const reset = new Date(nowMs);
+
+    reset.setHours(resetHour, 0, 0, 0);
+
+    if (reset.getTime() > nowMs) {
+      reset.setDate(reset.getDate() - 1);
+    }
+
+    return Math.floor(reset.getTime() / HOUR_MS);
   }
 
   function domainLimit(state, domain) {

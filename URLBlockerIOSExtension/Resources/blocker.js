@@ -2,16 +2,19 @@
   "use strict";
 
   const STATE_KEY = "blockerState";
-  const SCHEMA_VERSION = 8;
+  const SCHEMA_VERSION = 9;
   const LEGACY_SCHEMA_VERSION = 6;
-  const PREVIOUS_SCHEMA_VERSION = 7;
+  const SUBREDDIT_SCHEMA_VERSION = 7;
+  const LIMIT_RESET_SCHEMA_VERSION = 8;
   const SUBREDDIT_FEEDS_VALUE = "reddit.com/r/*";
   const MAX_ENTRIES = 1000;
   const MAX_BLOCKED_PAGE_HTML_LENGTH = 4000;
   const DEFAULT_LIMIT_MINUTES = 30;
   const MAX_LIMIT_MINUTES = 960;
+  const MAX_ROLLING_WINDOW_HOURS = 168;
   const DEFAULT_BLOCKED_PAGE_HTML = "<h1>Blocked</h1><p>This page is on your blocklist.</p>";
   const DEFAULT_SCHEDULE = { type: "dailyWindow", startMinute: 1380, endMinute: 1140 };
+  const DEFAULT_LIMIT_RESET = { type: "rollingWindow", windowHours: 16 };
   const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const URL_ALIASES = [
     { type: "exact", source: "x.com/home", target: "x.com" },
@@ -46,6 +49,7 @@
       entries,
       blockedPageHtml: DEFAULT_BLOCKED_PAGE_HTML,
       schedule: DEFAULT_SCHEDULE,
+      limitReset: DEFAULT_LIMIT_RESET,
       domainLimits: domainLimitsForEntries(entries, [])
     }, entries);
 
@@ -90,6 +94,10 @@
       errors.push({ index: null, message: "Schedule must be an object." });
     }
 
+    if (!isPlainObject(rawState.limitReset)) {
+      errors.push({ index: null, message: "Limit reset must be an object." });
+    }
+
     if (!Array.isArray(rawState.domainLimits)) {
       errors.push({ index: null, message: "Domain limits must be an array." });
     }
@@ -100,6 +108,7 @@
 
     let blockedPageHtml = "";
     let schedule = DEFAULT_SCHEDULE;
+    let limitReset = DEFAULT_LIMIT_RESET;
 
     try {
       blockedPageHtml = normalizeBlockedPageHtml(rawState.blockedPageHtml);
@@ -113,6 +122,14 @@
       errors.push(...scheduleResult.errors);
     } else {
       schedule = scheduleResult.schedule;
+    }
+
+    const limitResetResult = normalizeLimitReset(rawState.limitReset);
+
+    if (limitResetResult.type === "invalid") {
+      errors.push(...limitResetResult.errors);
+    } else {
+      limitReset = limitResetResult.limitReset;
     }
 
     if (rawState.entries.length > MAX_ENTRIES) {
@@ -184,6 +201,7 @@
         entries,
         blockedPageHtml,
         schedule,
+        limitReset,
         domainLimits: limitsResult.domainLimits
       }
     };
@@ -200,7 +218,7 @@
   }
 
   function migrateStoredState(rawState, defaultEntries) {
-    if (!isPlainObject(rawState) || ![LEGACY_SCHEMA_VERSION, PREVIOUS_SCHEMA_VERSION].includes(rawState.schemaVersion) || !Array.isArray(rawState.entries)) {
+    if (!isPlainObject(rawState) || ![LEGACY_SCHEMA_VERSION, SUBREDDIT_SCHEMA_VERSION, LIMIT_RESET_SCHEMA_VERSION].includes(rawState.schemaVersion) || !Array.isArray(rawState.entries)) {
       return rawState;
     }
 
@@ -214,7 +232,7 @@
       const defaultEntry = defaultCatalog.byId.get(entry.id.toLowerCase());
 
       if (!defaultEntry) {
-        if (rawState.schemaVersion === PREVIOUS_SCHEMA_VERSION) {
+        if (rawState.schemaVersion !== LEGACY_SCHEMA_VERSION) {
           return entry;
         }
 
@@ -223,7 +241,7 @@
 
       seenDefaultIds.add(defaultEntry.id);
 
-      if (rawState.schemaVersion === PREVIOUS_SCHEMA_VERSION) {
+      if (rawState.schemaVersion !== LEGACY_SCHEMA_VERSION) {
         return { ...defaultEntry, enabled: entry.enabled };
       }
 
@@ -243,6 +261,7 @@
       entries,
       blockedPageHtml: rawState.blockedPageHtml,
       schedule: rawState.schedule,
+      limitReset: DEFAULT_LIMIT_RESET,
       domainLimits: domainLimitsForEntries(entries, Array.isArray(rawState.domainLimits) ? rawState.domainLimits : [])
     };
   }
@@ -550,6 +569,53 @@
         };
       default:
         return invalid([{ index: null, message: `Unknown schedule type: ${schedule.type}` }]);
+    }
+  }
+
+  function normalizeLimitReset(limitReset) {
+    const errors = [];
+
+    if (!isPlainObject(limitReset)) {
+      return invalid([{ index: null, message: "Limit reset must be an object." }]);
+    }
+
+    if (typeof limitReset.type !== "string") {
+      return invalid([{ index: null, message: "Limit reset type must be a string." }]);
+    }
+
+    switch (limitReset.type) {
+      case "rollingWindow":
+        pushUnknownKeyErrors(errors, limitReset, ["type", "windowHours"], "Limit reset");
+
+        if (!Number.isInteger(limitReset.windowHours) || limitReset.windowHours < 1 || limitReset.windowHours > MAX_ROLLING_WINDOW_HOURS) {
+          errors.push({ index: null, message: `Rolling reset window must be between 1 and ${MAX_ROLLING_WINDOW_HOURS} hours.` });
+        }
+
+        if (errors.length > 0) {
+          return invalid(errors);
+        }
+
+        return {
+          type: "valid",
+          limitReset: { type: "rollingWindow", windowHours: limitReset.windowHours }
+        };
+      case "daily":
+        pushUnknownKeyErrors(errors, limitReset, ["type", "resetHour"], "Limit reset");
+
+        if (!Number.isInteger(limitReset.resetHour) || limitReset.resetHour < 0 || limitReset.resetHour > 23) {
+          errors.push({ index: null, message: "Daily reset hour must be between 0 and 23." });
+        }
+
+        if (errors.length > 0) {
+          return invalid(errors);
+        }
+
+        return {
+          type: "valid",
+          limitReset: { type: "daily", resetHour: limitReset.resetHour }
+        };
+      default:
+        return invalid([{ index: null, message: `Unknown limit reset type: ${limitReset.type}` }]);
     }
   }
 
@@ -1149,19 +1215,21 @@
   function stateKeys(schemaVersion) {
     switch (schemaVersion) {
       case SCHEMA_VERSION:
-        return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "domainLimits"];
+        return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "limitReset", "domainLimits"];
       default:
-        return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "domainLimits"];
+        return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "limitReset", "domainLimits"];
     }
   }
 
   const BlockerCore = {
     DEFAULT_LIMIT_MINUTES,
     DEFAULT_BLOCKED_PAGE_HTML,
+    DEFAULT_LIMIT_RESET,
     DEFAULT_SCHEDULE,
     EDITABLE_KIND_LABELS,
     KIND_LABELS,
     MAX_LIMIT_MINUTES,
+    MAX_ROLLING_WINDOW_HOURS,
     MAX_BLOCKED_PAGE_HTML_LENGTH,
     MAX_ENTRIES,
     SCHEMA_VERSION,

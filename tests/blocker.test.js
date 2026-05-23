@@ -61,6 +61,7 @@ test("loads default blocked pages for new installs", () => {
     { type: "default", kind: "url", value: "ycombinator.com", enabled: true }
   ]);
   assert.deepEqual(state.schedule, { type: "dailyWindow", startMinute: 1380, endMinute: 1140 });
+  assert.deepEqual(state.limitReset, { type: "rollingWindow", windowHours: 16 });
   assert.deepEqual(state.domainLimits, [
     { domain: "bsky.app", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
     { domain: "facebook.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
@@ -87,6 +88,7 @@ test("keeps default entries locked but configurable", () => {
     entries: [{ ...defaultEntry, enabled: false }],
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: core.DEFAULT_SCHEDULE,
+    limitReset: core.DEFAULT_LIMIT_RESET,
     domainLimits: [{ domain: "x.com", limitMinutes: 12 }]
   }, defaultBlockedPages.slice(0, 1));
 
@@ -101,6 +103,7 @@ test("keeps default entries locked but configurable", () => {
     entries: [{ ...defaultEntry, value: "example.com" }],
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: core.DEFAULT_SCHEDULE,
+    limitReset: core.DEFAULT_LIMIT_RESET,
     domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
   }, defaultBlockedPages.slice(0, 1));
 
@@ -112,6 +115,7 @@ test("keeps default entries locked but configurable", () => {
     entries: [],
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: core.DEFAULT_SCHEDULE,
+    limitReset: core.DEFAULT_LIMIT_RESET,
     domainLimits: []
   }, defaultBlockedPages.slice(0, 1));
 
@@ -126,6 +130,7 @@ test("normalizes old linkedin feed default entries", () => {
     entries: [{ ...linkedinDefault, value: "linkedin.com/feed" }],
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: core.DEFAULT_SCHEDULE,
+    limitReset: core.DEFAULT_LIMIT_RESET,
     domainLimits: [{ domain: "linkedin.com", limitMinutes: 30 }]
   }, [linkedinDefault]);
 
@@ -159,6 +164,7 @@ test("migrates legacy default entries and deleted defaults", () => {
     { domain: "instagram.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
     { domain: "x.com", limitMinutes: 9 }
   ]);
+  assert.deepEqual(state.limitReset, core.DEFAULT_LIMIT_RESET);
 });
 
 test("migrates schema 7 states to split subreddit feeds from reddit", () => {
@@ -181,6 +187,22 @@ test("migrates schema 7 states to split subreddit feeds from reddit", () => {
     domain: "reddit.com",
     limitMinutes: 12
   });
+  assert.deepEqual(state.limitReset, core.DEFAULT_LIMIT_RESET);
+});
+
+test("migrates schema 8 states to default rolling limit resets", () => {
+  const oldState = validState([
+    { id: ids[0], kind: "domain", value: "example.com" }
+  ]);
+  const state = core.parseStoredState({
+    schemaVersion: 8,
+    entries: oldState.entries,
+    blockedPageHtml: oldState.blockedPageHtml,
+    schedule: oldState.schedule,
+    domainLimits: oldState.domainLimits
+  }, []);
+
+  assert.deepEqual(state.limitReset, core.DEFAULT_LIMIT_RESET);
 });
 
 test("maps URL alias source hosts to permissions", () => {
@@ -225,6 +247,7 @@ test("validates state strictly", () => {
     entries: customEntries([{ id: ids[0], kind: "domain", value: "example.com" }]),
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "always" },
+    limitReset: core.DEFAULT_LIMIT_RESET,
     domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
   }, []);
 
@@ -236,6 +259,7 @@ test("validates state strictly", () => {
     entries: [{ type: "custom", id: ids[0], kind: "domain", value: "example.com", enabled: true }],
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "always" },
+    limitReset: core.DEFAULT_LIMIT_RESET,
     domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
   }, []);
 
@@ -247,6 +271,7 @@ test("validates state strictly", () => {
     entries: [{ type: "custom", id: ids[0], kind: "wildcard", value: "example.com" }],
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "always" },
+    limitReset: core.DEFAULT_LIMIT_RESET,
     domainLimits: []
   }, []);
 
@@ -261,6 +286,7 @@ test("validates state strictly", () => {
     ]),
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "always" },
+    limitReset: core.DEFAULT_LIMIT_RESET,
     domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
   }, []);
 
@@ -282,6 +308,7 @@ test("validates blocked page HTML and rejects old state", () => {
     entries: [],
     blockedPageHtml: " <p><strong>Nope.</strong></p> ",
     schedule: { type: "always" },
+    limitReset: core.DEFAULT_LIMIT_RESET,
     domainLimits: []
   }, []);
 
@@ -293,6 +320,7 @@ test("validates blocked page HTML and rejects old state", () => {
     entries: [],
     blockedPageHtml: "<img src=x onerror=alert(1)>",
     schedule: { type: "always" },
+    limitReset: core.DEFAULT_LIMIT_RESET,
     domainLimits: []
   }, []);
 
@@ -313,11 +341,35 @@ test("validates schedules and detects active windows", () => {
     entries: [],
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "dailyWindow", startMinute: 540, endMinute: 540 },
+    limitReset: core.DEFAULT_LIMIT_RESET,
     domainLimits: []
   }, []);
 
   assert.equal(equalTimes.type, "invalid");
   assert.match(equalTimes.errors[0].message, /different/);
+});
+
+test("validates limit reset settings", () => {
+  assert.deepEqual(validState([], core.DEFAULT_SCHEDULE, [], { type: "rollingWindow", windowHours: 4 }).limitReset, {
+    type: "rollingWindow",
+    windowHours: 4
+  });
+  assert.deepEqual(validState([], core.DEFAULT_SCHEDULE, [], { type: "daily", resetHour: 6 }).limitReset, {
+    type: "daily",
+    resetHour: 6
+  });
+
+  const invalidDailyReset = core.validateState({
+    schemaVersion: core.SCHEMA_VERSION,
+    entries: [],
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: core.DEFAULT_SCHEDULE,
+    limitReset: { type: "daily", resetHour: 6.5 },
+    domainLimits: []
+  }, []);
+
+  assert.equal(invalidDailyReset.type, "invalid");
+  assert.match(invalidDailyReset.errors[0].message, /hour/);
 });
 
 test("matches only when the schedule is active", () => {
@@ -400,6 +452,7 @@ test("validates domain limits against associated domains", () => {
     entries: customEntries([{ id: ids[0], kind: "domain", value: "example.com" }]),
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "always" },
+    limitReset: core.DEFAULT_LIMIT_RESET,
     domainLimits: []
   }, []);
 
@@ -411,6 +464,7 @@ test("validates domain limits against associated domains", () => {
     entries: [],
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "always" },
+    limitReset: core.DEFAULT_LIMIT_RESET,
     domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
   }, []);
 
@@ -440,6 +494,7 @@ test("rejects duplicate entries after normalization", () => {
     ]),
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "always" },
+    limitReset: core.DEFAULT_LIMIT_RESET,
     domainLimits: [{ domain: "x.com", limitMinutes: 30 }]
   }, []);
 
@@ -560,13 +615,14 @@ test("matches regex entries case-insensitively without fragments", () => {
   assert.equal(core.findMatchingEntry(state, "https://not-x.com/home").type, "none");
 });
 
-function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits) {
+function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits, limitReset = core.DEFAULT_LIMIT_RESET) {
   const typedEntries = customEntries(entries);
   const result = core.validateState({
     schemaVersion: core.SCHEMA_VERSION,
     entries: typedEntries,
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule,
+    limitReset,
     domainLimits: domainLimits === undefined ? core.domainLimitsForEntries(typedEntries, []) : domainLimits
   }, []);
 
