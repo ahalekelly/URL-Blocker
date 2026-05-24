@@ -1,10 +1,5 @@
 # AGENTS.md
 
-## Start Here
-
-- Product and architecture spec: [ios_safari_site_blocker_spec.md](ios_safari_site_blocker_spec.md)
-- iPhone build, signing, and install instructions: [ios_build_sign_install.md](ios_build_sign_install.md)
-
 ## Project Shape
 
 - `URLBlockerIOS/`: iOS containing app.
