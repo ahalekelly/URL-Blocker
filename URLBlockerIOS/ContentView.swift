@@ -23,9 +23,11 @@ struct ContentView: View {
                     BlocklistWebView { error in
                         alert = AppAlert(title: "Blocklist Load Failed", error: error)
                     }
-                    syncControls
-                        .padding()
-                        .background(.bar)
+                    if syncState == .signedOut {
+                        syncControls
+                            .padding()
+                            .background(.bar)
+                    }
                 }
                     .navigationTitle("Blocklist")
                     .navigationBarTitleDisplayMode(.inline)
@@ -71,10 +73,10 @@ struct ContentView: View {
                 Button("Open Blocklist Settings", action: openBlocklistSettings)
             }
 
-            Section("Sync") {
-                Text(syncState.message)
-                    .foregroundStyle(.secondary)
-                if syncState == .signedOut {
+            if syncState == .signedOut {
+                Section("Sync") {
+                    Text("Sign in to sync settings and screen time.")
+                        .foregroundStyle(.secondary)
                     signInButton(provider: .google)
                     signInButton(provider: .apple)
                 }
@@ -85,20 +87,18 @@ struct ContentView: View {
 
     private var syncControls: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(syncState.message)
+            Text("Sign in to sync settings and screen time.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
-            if syncState == .signedOut {
-                ViewThatFits(in: .horizontal) {
-                    HStack {
-                        signInButton(provider: .google)
-                        signInButton(provider: .apple)
-                    }
-                    VStack(alignment: .leading) {
-                        signInButton(provider: .google)
-                        signInButton(provider: .apple)
-                    }
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    signInButton(provider: .google)
+                    signInButton(provider: .apple)
+                }
+                VStack(alignment: .leading) {
+                    signInButton(provider: .google)
+                    signInButton(provider: .apple)
                 }
             }
         }
@@ -207,15 +207,6 @@ private enum NativeSyncState {
 
     static var current: NativeSyncState {
         NativeBlocklistStore.loadSupabaseSession() == nil ? .signedOut : .signedIn
-    }
-
-    var message: String {
-        switch self {
-        case .signedOut:
-            return "Sign in to sync settings and screen time."
-        case .signedIn:
-            return "Signed in. Safari will sync the next time URL Blocker runs."
-        }
     }
 }
 
