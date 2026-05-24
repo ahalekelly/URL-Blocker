@@ -710,7 +710,7 @@
   }
 
   async function requestWebsiteAccess(blockerState) {
-    const origins = core.permissionOriginsForState(blockerState);
+    const origins = await missingWebsiteOrigins(core.permissionOriginsForState(blockerState));
 
     if (origins.length === 0) {
       return;
@@ -756,14 +756,19 @@
   }
 
   async function refreshWebsiteAccess(blockerState) {
-    const origins = core.permissionOriginsForState(blockerState);
+    state.missingOrigins = await missingWebsiteOrigins(core.permissionOriginsForState(blockerState));
+  }
 
-    if (origins.length === 0 || await api.permissions.contains({ origins })) {
-      state.missingOrigins = [];
-      return;
+  async function missingWebsiteOrigins(origins) {
+    const missingOrigins = [];
+
+    for (const origin of origins) {
+      if (!await api.permissions.contains({ origins: [origin] })) {
+        missingOrigins.push(origin);
+      }
     }
 
-    state.missingOrigins = origins;
+    return missingOrigins;
   }
 
   async function loadScreenTimeLog() {
