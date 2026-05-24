@@ -9,3 +9,5 @@ Remove the existing save button, make the Save button float in the bottom right 
 Make the title of each block group larger, and make the URLs not bold.
 Make a file with a list of suggested UI improvements
 Make a new page with comprehensive screen time statistics
+The shared code is in the URLBlockerIOSExtension folder, update the folder names so that they reflect their contents and update any required code
+Make `make install` install on all platforms, in parallel where possible to save time
