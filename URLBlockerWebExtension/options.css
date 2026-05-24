@@ -293,6 +293,7 @@ h2 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  grid-column: 1 / -1;
   min-width: 210px;
   min-height: 46px;
   gap: 10px;
@@ -497,15 +498,22 @@ input[readonly] {
   .reset-options,
   .reset-fields,
   .sync-panel,
-  .sync-actions,
   .list-actions {
     display: grid;
   }
 
+  .sync-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .row-toolbar button,
-  .sync-actions button,
   .list-actions button,
   .segments {
+    width: 100%;
+  }
+
+  .sync-actions button {
     width: 100%;
   }
 

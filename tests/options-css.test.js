@@ -14,6 +14,11 @@ test("hidden sync action buttons are not displayed", () => {
   assert.match(rule(".sync-actions button[hidden]"), /display:\s*none;/);
 });
 
+test("sync now and sign out share the mobile action row", () => {
+  assert.match(css, /\.sync-actions\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s);
+  assert.match(rule(".provider-button"), /grid-column:\s*1\s*\/\s*-1;/);
+});
+
 function rule(selector) {
   const match = css.match(new RegExp(`${escapeRegex(selector)}\\s*\\{([^}]+)\\}`));
 
