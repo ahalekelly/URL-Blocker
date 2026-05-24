@@ -23,6 +23,7 @@ struct ContentView: View {
                     BlocklistWebView { error in
                         alert = AppAlert(title: "Blocklist Load Failed", error: error)
                     }
+                    .ignoresSafeArea(.container, edges: .bottom)
                 }
                     .navigationTitle("Blocklist")
                     .navigationBarTitleDisplayMode(.inline)
