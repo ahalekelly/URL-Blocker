@@ -95,13 +95,13 @@ enum NativeBlocklistStore {
             switch type {
             case "loadState":
                 try requireKeys(message, ["type"], "loadState message")
-                return load(.state)
+                return try load(.state)
             case "saveState":
                 try requireKeys(message, ["type", "state"], "saveState message")
                 return try save(message["state"], .state)
             case "loadScreenTimeUsage":
                 try requireKeys(message, ["type"], "loadScreenTimeUsage message")
-                return load(.screenTimeUsage)
+                return try load(.screenTimeUsage)
             case "saveScreenTimeUsage":
                 try requireKeys(message, ["type", "usage"], "saveScreenTimeUsage message")
                 return try save(message["usage"], .screenTimeUsage)
@@ -110,7 +110,7 @@ enum NativeBlocklistStore {
                 return clear(.screenTimeUsage)
             case "loadSettingsSync":
                 try requireKeys(message, ["type"], "loadSettingsSync message")
-                return load(.settingsSync)
+                return try load(.settingsSync)
             case "saveSettingsSync":
                 try requireKeys(message, ["type", "sync"], "saveSettingsSync message")
                 return try save(message["sync"], .settingsSync)
@@ -119,7 +119,7 @@ enum NativeBlocklistStore {
                 return clear(.settingsSync)
             case "loadSupabaseSession":
                 try requireKeys(message, ["type"], "loadSupabaseSession message")
-                return load(.supabaseSession)
+                return try load(.supabaseSession)
             case "saveSupabaseSession":
                 try requireKeys(message, ["type", "session"], "saveSupabaseSession message")
                 return try save(message["session"], .supabaseSession)
@@ -134,11 +134,11 @@ enum NativeBlocklistStore {
         }
     }
 
-    private static func load(_ storedValue: StoredValue) -> [String: Any] {
+    private static func load(_ storedValue: StoredValue) throws -> [String: Any] {
         var response: [String: Any] = ["type": storedValue.loadedResponseType]
 
         if let value = defaults.object(forKey: storedValue.storageKey) {
-            response[storedValue.valueKey] = value
+            response[storedValue.valueKey] = try storedDictionary(value, storedValue.label)
         }
 
         return response
@@ -146,7 +146,7 @@ enum NativeBlocklistStore {
 
     private static func save(_ rawValue: Any?, _ storedValue: StoredValue) throws -> [String: Any] {
         let value = try requireDictionary(rawValue, storedValue.label)
-        defaults.set(value, forKey: storedValue.storageKey)
+        defaults.set(try jsonData(value, storedValue.label), forKey: storedValue.storageKey)
 
         return ["type": storedValue.savedResponseType, storedValue.valueKey: value]
     }
@@ -156,7 +156,11 @@ enum NativeBlocklistStore {
     }
 
     static func loadSupabaseSession() -> [String: Any]? {
-        defaults.object(forKey: StoredValue.supabaseSession.storageKey) as? [String: Any]
+        guard let value = defaults.object(forKey: StoredValue.supabaseSession.storageKey) else {
+            return nil
+        }
+
+        return try? storedDictionary(value, StoredValue.supabaseSession.label)
     }
 
     private static func clear(_ storedValue: StoredValue) -> [String: Any] {
@@ -170,11 +174,26 @@ enum NativeBlocklistStore {
             throw NativeBlocklistError("\(label) must be an object.")
         }
 
-        if !PropertyListSerialization.propertyList(dictionary, isValidFor: .binary) {
-            throw NativeBlocklistError("\(label) must contain only property list values.")
+        return dictionary
+    }
+
+    private static func storedDictionary(_ value: Any, _ label: String) throws -> [String: Any] {
+        if let data = value as? Data {
+            return try requireDictionary(JSONSerialization.jsonObject(with: data), label)
         }
 
+        let dictionary = try requireDictionary(value, label)
+        _ = try jsonData(dictionary, label)
+
         return dictionary
+    }
+
+    private static func jsonData(_ dictionary: [String: Any], _ label: String) throws -> Data {
+        if !JSONSerialization.isValidJSONObject(dictionary) {
+            throw NativeBlocklistError("\(label) must contain only JSON values.")
+        }
+
+        return try JSONSerialization.data(withJSONObject: dictionary)
     }
 
     private static func requireKeys(_ object: [String: Any], _ allowedKeys: Set<String>, _ label: String) throws {
