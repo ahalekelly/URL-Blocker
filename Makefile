@@ -92,6 +92,7 @@ ios-build:
 
 ios-build-unsigned:
 	xcodebuild \
+	  -quiet \
 	  -project "$(PROJECT)" \
 	  -scheme "$(IOS_SCHEME)" \
 	  -configuration Release \
@@ -131,6 +132,7 @@ ios-install: ios-build
 
 macos-build:
 	xcodebuild \
+	  -quiet \
 	  -project "$(PROJECT)" \
 	  -scheme "$(MACOS_SCHEME)" \
 	  -configuration Release \

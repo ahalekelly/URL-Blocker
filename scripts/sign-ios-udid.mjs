@@ -152,6 +152,7 @@ function patchScratchProject(values) {
 
 function buildUnsignedApp() {
   run("xcodebuild", [
+    "-quiet",
     "-project",
     config.project,
     "-scheme",
