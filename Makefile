@@ -37,8 +37,8 @@ help:
 	@printf "Targets:\n"
 	@printf "  make test                    Run JavaScript tests.\n"
 	@printf "  make chrome-extension        Build the unpacked Chrome extension in build/chrome-extension.\n"
-	@printf "  make vivaldi-install         Build and update the Vivaldi main-profile extension.\n"
-	@printf "  make brave-install           Build and update the Brave main-profile extension.\n"
+	@printf "  make vivaldi-install         Build and reload/update the Vivaldi main-profile extension.\n"
+	@printf "  make brave-install           Build and reload/update the Brave main-profile extension.\n"
 	@printf "  make ios-build               Build build/URLBlockerIOS-signed.ipa with UDID Registrations signing.\n"
 	@printf "  make ios-build-unsigned      Build the unsigned iOS device app.\n"
 	@printf "  make ios-signed-ipa          Alias for make ios-build.\n"
@@ -64,18 +64,14 @@ check: test build
 chrome-extension:
 	npm run build-chrome-extension
 
-vivaldi-install: chrome-extension
-	@if [[ "$$(osascript -e 'application "$(VIVALDI_APP)" is running')" == "true" ]]; then \
-	  printf "%s is already running. Quit it, then rerun make vivaldi-install.\n" "$(VIVALDI_APP)" >&2; \
-	  exit 1; \
-	fi
+vivaldi-install:
+	node scripts/install-chromium-extension.mjs --preflight "$(VIVALDI_APP)" "$(VIVALDI_BINARY)" "$(CHROME_EXTENSION_DIR)"
+	npm run build-chrome-extension
 	node scripts/install-chromium-extension.mjs "$(VIVALDI_APP)" "$(VIVALDI_BINARY)" "$(CHROME_EXTENSION_DIR)"
 
-brave-install: chrome-extension
-	@if [[ "$$(osascript -e 'application "$(BRAVE_APP)" is running')" == "true" ]]; then \
-	  printf "%s is already running. Quit it, then rerun make brave-install.\n" "$(BRAVE_APP)" >&2; \
-	  exit 1; \
-	fi
+brave-install:
+	node scripts/install-chromium-extension.mjs --preflight "$(BRAVE_APP)" "$(BRAVE_BINARY)" "$(CHROME_EXTENSION_DIR)"
+	npm run build-chrome-extension
 	node scripts/install-chromium-extension.mjs "$(BRAVE_APP)" "$(BRAVE_BINARY)" "$(CHROME_EXTENSION_DIR)"
 
 ios-build:

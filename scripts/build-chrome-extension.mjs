@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sharedResourcesPath = path.join(repoRoot, "URLBlockerIOSExtension/Resources");
+const chromeResourcesPath = path.join(repoRoot, "ChromeExtension");
 const chromeManifestPath = path.join(repoRoot, "ChromeExtension/manifest.json");
 const defaultPagesPath = path.join(sharedResourcesPath, "default-blocked-pages.json");
 const outputPath = path.join(repoRoot, "build/chrome-extension");
@@ -29,12 +30,24 @@ const requiredFiles = [
   "options.html",
   "options.js"
 ];
+const chromeFiles = [
+  "reload.html",
+  "reload.js"
+];
 
 requiredFiles.forEach((file) => {
   const filePath = path.join(sharedResourcesPath, file);
 
   if (!fs.existsSync(filePath)) {
     throw new Error(`Missing shared extension file: ${file}`);
+  }
+});
+
+chromeFiles.forEach((file) => {
+  const filePath = path.join(chromeResourcesPath, file);
+
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Missing Chrome extension file: ${file}`);
   }
 });
 
@@ -54,5 +67,8 @@ fs.rmSync(outputPath, { recursive: true, force: true });
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 fs.cpSync(sharedResourcesPath, outputPath, { recursive: true });
 fs.copyFileSync(chromeManifestPath, path.join(outputPath, "manifest.json"));
+chromeFiles.forEach((file) => {
+  fs.copyFileSync(path.join(chromeResourcesPath, file), path.join(outputPath, file));
+});
 
 console.log(`Built Chrome extension at ${outputPath}`);

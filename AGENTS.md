@@ -14,7 +14,7 @@
 - `URLBlockerMac/` and `URLBlockerExtensionMac/`: macOS targets.
 - `tests/`: Node tests for extension JavaScript behavior.
 - `scripts/build-chrome-extension.mjs`: builds the unpacked Chrome extension in `build/chrome-extension`.
-- `scripts/install-chromium-extension.mjs`: updates the unpacked Chrome extension in a Chromium-based browser profile.
+- `scripts/install-chromium-extension.mjs`: updates or reloads the unpacked Chrome extension in a Chromium-based browser profile.
 - `scripts/sync-default-blocked-pages.mjs`: syncs/checks default blocked pages.
 
 ## Commands
@@ -51,7 +51,7 @@ Build and update Brave with the unpacked extension in the main profile:
 make brave-install
 ```
 
-Quit the browser before running its install target. The target uses a short-lived DevTools pipe to update the unpacked extension in the `Default` profile, then reopens the browser to `chrome://extensions`.
+When the browser is already open, the install target reloads the existing unpacked extension in the `Default` profile without restarting the browser. That no-restart path requires URL Blocker to already be enabled; Brave may require Developer mode to stay on for unpacked extensions. When the browser is closed, the target uses a short-lived DevTools pipe to install or update the unpacked extension, then opens `chrome://extensions`.
 
 Build the signed iOS IPA, signed macOS app, and unpacked Chrome extension:
 
