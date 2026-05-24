@@ -185,14 +185,6 @@ h2 {
   gap: 6px;
 }
 
-.default-kind {
-  align-items: center;
-  min-height: 34px;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 700;
-}
-
 .default-group {
   padding: 0;
   overflow: hidden;
@@ -270,10 +262,6 @@ h2 {
   align-items: center;
   margin-top: 0;
   cursor: pointer;
-}
-
-.enabled-label[hidden] {
-  display: none;
 }
 
 input[type="checkbox"].enabled-input {

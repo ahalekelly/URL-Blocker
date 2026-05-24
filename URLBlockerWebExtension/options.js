@@ -185,24 +185,29 @@
     const renderedDomains = new Set();
 
     return state.draftEntries.flatMap((entry) => {
-      if (entry.type !== "default") {
-        return [renderRow(entry)];
+      switch (entry.type) {
+        case "custom":
+          return [renderCustomRow(entry)];
+        case "default": {
+          const domain = core.associatedDomainForEntry(entry);
+
+          if (renderedDomains.has(domain)) {
+            return [];
+          }
+
+          const group = groupedDefaults.get(domain);
+
+          if (!group) {
+            throw new Error(`Missing default group: ${domain}.`);
+          }
+
+          renderedDomains.add(domain);
+
+          return [renderDefaultGroup(domain, group)];
+        }
+        default:
+          throw new Error(`Unknown entry type: ${entry.type}`);
       }
-
-      const domain = core.associatedDomainForEntry(entry);
-      const group = groupedDefaults.get(domain);
-
-      if (!group) {
-        return [renderRow(entry)];
-      }
-
-      if (renderedDomains.has(domain)) {
-        return [];
-      }
-
-      renderedDomains.add(domain);
-
-      return [renderDefaultGroup(domain, group)];
     });
   }
 
@@ -333,12 +338,10 @@
     return enabledLabel;
   }
 
-  function renderRow(entry) {
+  function renderCustomRow(entry) {
     const fragment = rowTemplate.content.cloneNode(true);
     const row = fragment.querySelector(".block-row");
     const segments = fragment.querySelector(".segments");
-    const enabledInput = fragment.querySelector(".enabled-input");
-    const enabledLabel = fragment.querySelector(".enabled-label");
     const input = fragment.querySelector(".value-input");
     const limitLabel = fragment.querySelector(".row-limit");
     const limitInput = fragment.querySelector(".limit-input");
@@ -346,45 +349,21 @@
     const rowError = fragment.querySelector(".row-error");
     const error = state.rowErrors.get(entry.id) || "";
 
-    renderEntryControls(entry, segments, enabledInput, enabledLabel, deleteButton);
-
+    renderKindButtons(entry, segments);
     input.value = entry.value;
     input.placeholder = placeholderFor(entry.kind);
-    input.readOnly = entry.type === "default";
-
-    if (entry.type === "custom") {
-      input.addEventListener("input", () => updateValue(entry.id, input.value));
-      input.addEventListener("blur", () => normalizeUrlInput(entry.id));
-    }
-
+    input.addEventListener("input", () => updateValue(entry.id, input.value));
+    input.addEventListener("blur", () => normalizeUrlInput(entry.id));
     limitInput.value = String(entry.limitMinutes);
     limitInput.addEventListener("input", () => updateLimit(entry.id, limitInput.value));
     limitLabel.hidden = timeLimitsAreHidden();
+    deleteButton.disabled = state.defaultEntries.length === 0 && customEntryCount() === 1;
+    deleteButton.addEventListener("click", () => deleteRow(entry.id));
     rowError.hidden = error === "";
     rowError.textContent = error;
     row.dataset.entryId = entry.id;
 
     return fragment;
-  }
-
-  function renderEntryControls(entry, segments, enabledInput, enabledLabel, deleteButton) {
-    switch (entry.type) {
-      case "custom":
-        enabledLabel.hidden = true;
-        deleteButton.disabled = state.defaultEntries.length === 0 && customEntryCount() === 1;
-        deleteButton.addEventListener("click", () => deleteRow(entry.id));
-        renderKindButtons(entry, segments);
-        return;
-      case "default":
-        segments.classList.add("default-kind");
-        segments.textContent = "Default URL";
-        enabledInput.checked = entry.enabled;
-        enabledInput.addEventListener("change", () => updateEnabled(entry.id, enabledInput.checked));
-        deleteButton.hidden = true;
-        return;
-      default:
-        throw new Error(`Unknown entry type: ${entry.type}`);
-    }
   }
 
   function renderKindButtons(entry, segments) {

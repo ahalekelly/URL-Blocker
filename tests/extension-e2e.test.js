@@ -926,9 +926,6 @@ function rowTemplateContent() {
   const row = new TestElement("article", "", "block-row");
   const toolbar = new TestElement("div", "", "row-toolbar");
   const segments = new TestElement("div", "", "segments");
-  const enabledLabel = new TestElement("label", "", "enabled-label");
-  const enabledInput = new TestElement("input", "", "enabled-input");
-  const enabledText = new TestElement("span");
   const deleteButton = new TestElement("button", "", "delete-button");
   const valueLabel = new TestElement("label");
   const valueInput = new TestElement("input", "", "value-input");
@@ -936,8 +933,7 @@ function rowTemplateContent() {
   const limitInput = new TestElement("input", "", "limit-input");
   const rowError = new TestElement("p", "", "row-error");
 
-  enabledLabel.append(enabledInput, enabledText);
-  toolbar.append(segments, enabledLabel, deleteButton);
+  toolbar.append(segments, deleteButton);
   valueLabel.append(valueInput);
   limitLabel.append(limitInput);
   row.append(toolbar, valueLabel, limitLabel, rowError);
