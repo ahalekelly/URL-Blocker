@@ -17,6 +17,7 @@
   const DEFAULT_BLOCKED_PAGE_HTML = "<h1>Blocked</h1><p>This page is on your blocklist.</p>";
   const DEFAULT_SCHEDULE = { type: "dailyWindow", startMinute: 1380, endMinute: 1140 };
   const DEFAULT_LIMIT_RESET = { type: "rollingWindow", windowHours: 16 };
+  const UNSUPPORTED_BLOCKLIST_VERSION_MESSAGE = "Unsupported blocklist version. Reset the blocklist to repair it.";
   const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const URL_ALIASES = [
     { type: "exact", source: "x.com/home", target: "x.com" },
@@ -80,7 +81,7 @@
     }
 
     if (rawState.schemaVersion !== SCHEMA_VERSION) {
-      errors.push({ index: null, message: "Unsupported blocklist version. Reset the blocklist to repair it." });
+      errors.push({ index: null, message: UNSUPPORTED_BLOCKLIST_VERSION_MESSAGE });
     }
 
     pushUnknownKeyErrors(errors, rawState, stateKeys(rawState.schemaVersion), "Blocklist");
@@ -211,13 +212,21 @@
   }
 
   function parseStoredState(rawState, defaultEntries) {
-    const result = validateState(migrateStoredState(rawState, defaultEntries), defaultEntries);
+    const result = validateStoredState(rawState, defaultEntries);
 
     if (result.type === "invalid") {
       throw new Error(result.errors.map((error) => error.message).join("\n"));
     }
 
     return result.state;
+  }
+
+  function validateStoredState(rawState, defaultEntries) {
+    return validateState(migrateStoredState(rawState, defaultEntries), defaultEntries);
+  }
+
+  function hasUnsupportedBlocklistVersion(errors) {
+    return errors.some((error) => error.message === UNSUPPORTED_BLOCKLIST_VERSION_MESSAGE);
   }
 
   function migrateStoredState(rawState, defaultEntries) {
@@ -1259,7 +1268,9 @@
     permissionOriginsForState,
     normalizeUrlEntryValue,
     parseStoredState,
+    hasUnsupportedBlocklistVersion,
     screenTimeDomainForUrl,
+    validateStoredState,
     validateState
   };
 

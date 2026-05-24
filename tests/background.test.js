@@ -56,6 +56,24 @@ test("getState loads default blocked pages when storage is empty", async () => {
   assert.deepEqual(response.state.domainLimits, core.emptyState(defaultBlockedPages).domainLimits);
 });
 
+test("getLocalState resets unsupported stored blocklist versions", async () => {
+  const api = fakeApi();
+  const defaultState = core.emptyState(defaultBlockedPages);
+
+  api.storageData[core.STATE_KEY] = {
+    ...validState([]),
+    schemaVersion: core.SCHEMA_VERSION + 1
+  };
+
+  const response = await createBackgroundController(api).getLocalState();
+
+  assert.equal(response.type, "state");
+  assert.deepEqual(response.state, defaultState);
+  assert.deepEqual(api.storageData[core.STATE_KEY], defaultState);
+  assert.equal(api.storageData.settingsSync.dirty, true);
+  assert.deepEqual(api.registeredScripts[0].matches, core.permissionOriginsForState(defaultState));
+});
+
 test("getState loads default blocked pages without runtime getURL", async () => {
   const api = fakeApi();
   const fetch = globalThis.fetch;
@@ -1090,6 +1108,63 @@ test("getState applies newer remote settings with strict selected columns", asyn
     assert.deepEqual(response.state, remoteState);
     assert.equal(userSettingsUrls.length, 1);
     assert.match(userSettingsUrls[0], /select=user_id,state,updated_at_ms,revision_id,device_id,updated_at/);
+  } finally {
+    globalThis.fetch = fetch;
+  }
+});
+
+test("getState resets unsupported remote blocklist versions", async () => {
+  const fetch = globalThis.fetch;
+  const defaultState = core.emptyState(defaultBlockedPages);
+  const api = fakeApi({
+    now: 20 * 60 * 60 * 1000,
+    supabaseConfig: configuredSupabase()
+  });
+  let savedBody;
+
+  api.storageData.supabaseSession = supabaseSession();
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).includes("/user_settings")) {
+      return jsonResponse([{
+        user_id: "22222222-2222-4222-8222-222222222222",
+        state: {
+          ...validState([]),
+          schemaVersion: core.SCHEMA_VERSION + 1
+        },
+        updated_at_ms: 72000001,
+        revision_id: "remote-revision",
+        device_id: "remote-device",
+        updated_at: "2026-05-23T00:00:00.000Z"
+      }]);
+    }
+
+    if (String(url).includes("/rpc/save_user_settings")) {
+      savedBody = JSON.parse(options.body);
+      return jsonResponse({
+        user_id: "22222222-2222-4222-8222-222222222222",
+        state: savedBody.p_state,
+        updated_at_ms: savedBody.p_updated_at_ms,
+        revision_id: savedBody.p_revision_id,
+        device_id: savedBody.p_device_id,
+        updated_at: "2026-05-23T00:00:01.000Z"
+      });
+    }
+
+    return fetch(url, options);
+  };
+
+  try {
+    const controller = createBackgroundController(api);
+    const response = await controller.getState();
+    const status = await controller.handleMessage({ type: "getSyncStatus" }, {});
+
+    assert.equal(response.type, "state");
+    assert.deepEqual(response.state, defaultState);
+    assert.deepEqual(api.storageData[core.STATE_KEY], defaultState);
+    assert.deepEqual(savedBody.p_state, defaultState);
+    assert.equal(savedBody.p_updated_at_ms, 72000002);
+    assert.equal(api.storageData.settingsSync.dirty, false);
+    assert.equal(status.error, "");
   } finally {
     globalThis.fetch = fetch;
   }

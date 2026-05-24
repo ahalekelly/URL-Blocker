@@ -277,7 +277,20 @@
         return loadDefaultState();
       }
 
-      return core.parseStoredState(stored, await loadDefaultEntries());
+      const defaultEntries = await loadDefaultEntries();
+      const result = core.validateStoredState(stored, defaultEntries);
+
+      if (result.type === "valid") {
+        return result.state;
+      }
+
+      if (core.hasUnsupportedBlocklistVersion(result.errors)) {
+        const repair = await resetBlocklist(defaultEntries, await loadSettingsSync(), currentTimeMs());
+
+        return repair.state;
+      }
+
+      throw new Error(result.errors.map((error) => error.message).join("\n"));
     }
 
     async function saveScreenTimeAndRedirect(state, domain, rawUrl, elapsedMs, sender) {
@@ -578,7 +591,7 @@
         }
 
         if (rawSync === undefined || sync.remoteSettingsAreNewer(settingsSync, remoteSettings)) {
-          await applyRemoteSettings(remoteSettings, settingsSync);
+          await applyRemoteSettings(active, remoteSettings, settingsSync);
           return;
         }
 
@@ -609,7 +622,7 @@
         }
 
         if (sync.remoteSettingsAreNewer(settingsSync, remoteSettings)) {
-          return applyRemoteSettings(remoteSettings, settingsSync);
+          return applyRemoteSettings(active, remoteSettings, settingsSync);
         }
 
         await settingsSyncStorage.saveSync(sync.cleanSettingsSync(settingsSync, remoteSettings, currentTimeMs()));
@@ -621,11 +634,15 @@
       }
     }
 
-    async function applyRemoteSettings(remoteSettings, settingsSync) {
+    async function applyRemoteSettings(active, remoteSettings, settingsSync) {
       const defaultEntries = await loadDefaultEntries();
       const result = core.validateState(remoteSettings.state, defaultEntries);
 
       if (result.type === "invalid") {
+        if (core.hasUnsupportedBlocklistVersion(result.errors)) {
+          return resetRemoteBlocklist(active, remoteSettings, settingsSync, defaultEntries);
+        }
+
         throw codedError("RemoteSettingsInvalid", result.errors.map((error) => error.message).join("\n"));
       }
 
@@ -636,6 +653,28 @@
       lastSyncError = "";
 
       return result.state;
+    }
+
+    async function resetRemoteBlocklist(active, remoteSettings, settingsSync, defaultEntries) {
+      const updatedAtMs = Math.max(currentTimeMs(), remoteSettings.updated_at_ms + 1);
+      const repair = await resetBlocklist(defaultEntries, settingsSync, updatedAtMs);
+      const savedRemoteSettings = await sync.saveRemoteSettings(active.config, active.session, repair.state, repair.dirtySync, fetchJson);
+
+      await settingsSyncStorage.saveSync(sync.cleanSettingsSync(repair.dirtySync, savedRemoteSettings, currentTimeMs()));
+      return repair.state;
+    }
+
+    async function resetBlocklist(defaultEntries, settingsSync, updatedAtMs) {
+      const state = core.emptyState(defaultEntries);
+      const dirtySync = sync.dirtySettingsSync(settingsSync, updatedAtMs, createId);
+
+      await stateStorage.saveState(state);
+      await settingsSyncStorage.saveSync(dirtySync);
+      await syncWebsiteAccessForKnownPermissions(state);
+      await redirectOpenBlockedTabs(state);
+      lastSyncError = "";
+
+      return { state, dirtySync };
     }
 
     async function syncWebsiteAccessForKnownPermissions(state) {
