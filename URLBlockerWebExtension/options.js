@@ -47,7 +47,6 @@
   const scheduleWindowFields = document.getElementById("scheduleWindowFields");
   const scheduleStartInput = document.getElementById("scheduleStartInput");
   const scheduleEndInput = document.getElementById("scheduleEndInput");
-  const screenTimePanel = document.getElementById("screenTimePanel");
   const screenTimeTitle = document.getElementById("screenTimeTitle");
   const rollingResetInput = document.getElementById("rollingResetInput");
   const dailyResetInput = document.getElementById("dailyResetInput");
@@ -151,7 +150,6 @@
     alwaysScheduleInput.checked = state.draftSchedule.type === "always";
     dailyScheduleInput.checked = state.draftSchedule.type === "dailyWindow";
     scheduleWindowFields.hidden = state.draftSchedule.type !== "dailyWindow";
-    screenTimePanel.hidden = timeLimitsAreHidden();
     scheduleStartInput.value = minuteToTime(state.draftSchedule.startMinute);
     scheduleEndInput.value = minuteToTime(state.draftSchedule.endMinute);
     rollingResetInput.checked = state.draftLimitReset.type === "rollingWindow";
