@@ -24,6 +24,26 @@ test("saveState validates, writes storage, and syncs content scripts", async () 
   assert.deepEqual(api.registeredScripts[0].matches, ["*://*.twitter.com/*", "*://*.x.com/*"]);
 });
 
+test("saveState keeps matching content script registration", async () => {
+  const api = fakeApi();
+  const controller = createBackgroundController(api);
+  const state = validState([{ id, kind: "url", value: "https://x.com/home" }]);
+
+  api.registeredScripts = [{
+    id: "url-blocker-content",
+    js: ["content.js"],
+    matches: ["*://*.twitter.com/*", "*://*.x.com/*"],
+    runAt: "document_start"
+  }];
+
+  const response = await controller.handleMessage({ type: "saveState", state }, {});
+
+  assert.equal(response.type, "saved");
+  assert.deepEqual(api.scriptRegistrations, []);
+  assert.deepEqual(api.scriptUnregistrations, []);
+  assert.deepEqual(api.registeredScripts[0].matches, ["*://*.twitter.com/*", "*://*.x.com/*"]);
+});
+
 test("getState loads default blocked pages when storage is empty", async () => {
   const controller = createBackgroundController(fakeApi());
   const response = await controller.getState();
@@ -1165,6 +1185,8 @@ function fakeApi(overrides = {}) {
     grantedOrigins: overrides.grantedOrigins || ["*://*.example.com/*", ...manifest.host_permissions],
     tabsData: overrides.tabs || [],
     registeredScripts: [],
+    scriptRegistrations: [],
+    scriptUnregistrations: [],
     removedOrigins: [],
     updatedTabs: [],
     timers: [],
@@ -1236,9 +1258,11 @@ function fakeApi(overrides = {}) {
         return api.registeredScripts.filter((script) => ids.includes(script.id));
       },
       async unregisterContentScripts({ ids }) {
+        api.scriptUnregistrations.push([...ids]);
         api.registeredScripts = api.registeredScripts.filter((script) => !ids.includes(script.id));
       },
       async registerContentScripts(scripts) {
+        api.scriptRegistrations.push(...scripts);
         api.registeredScripts.push(...scripts);
       }
     },

@@ -58,7 +58,7 @@ button:disabled {
 .shell {
   width: min(960px, 100%);
   margin: 0 auto;
-  padding: 24px 16px 40px;
+  padding: 24px 16px 96px;
 }
 
 .page-header {
@@ -160,8 +160,7 @@ h2 {
 }
 
 .row-toolbar,
-.list-actions,
-.editor-footer {
+.list-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -455,9 +454,17 @@ input[readonly] {
   color: var(--success);
 }
 
-.editor-footer {
-  margin-top: 16px;
-  justify-content: flex-end;
+.floating-save-button {
+  position: fixed;
+  right: calc(16px + env(safe-area-inset-right));
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  z-index: 9;
+  min-width: 112px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
+}
+
+.floating-save-button[hidden] {
+  display: none;
 }
 
 @media (max-width: 640px) {
@@ -468,15 +475,13 @@ input[readonly] {
   .reset-fields,
   .sync-panel,
   .sync-actions,
-  .list-actions,
-  .editor-footer {
+  .list-actions {
     display: grid;
   }
 
   .row-toolbar button,
   .sync-actions button,
   .list-actions button,
-  .editor-footer button,
   .segments {
     width: 100%;
   }

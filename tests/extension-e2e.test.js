@@ -54,13 +54,38 @@ test("options renders local data before startup sync finishes", async () => {
   await app.optionsApi.finishSyncNow();
 });
 
+test("options shows the floating save button only for unsaved drafts", async () => {
+  const app = createExtensionApp();
+  const page = await openOptionsPage(app);
+  const saveButton = page.byId("saveButton");
+  const blockedPageHtmlInput = page.byId("blockedPageHtmlInput");
+  const savedHtml = blockedPageHtmlInput.value;
+
+  assert.equal(saveButton.hidden, true);
+
+  blockedPageHtmlInput.value = `${savedHtml}<p>Extra nudge</p>`;
+  await blockedPageHtmlInput.dispatch("input");
+
+  assert.equal(saveButton.hidden, false);
+
+  blockedPageHtmlInput.value = savedHtml;
+  await blockedPageHtmlInput.dispatch("input");
+
+  assert.equal(saveButton.hidden, true);
+});
+
 test("end-to-end options save blocks a page and renders the blocked view", async () => {
   const app = createExtensionApp({
     tabs: [{ id: 2, url: "https://example.com/focus" }]
   });
   const page = await openOptionsPage(app);
 
+  assert.equal(page.byId("saveButton").hidden, true);
+
   await page.byId("addRowButton").dispatch("click");
+
+  assert.equal(page.byId("saveButton").hidden, false);
+
   page.customRows().at(-1).querySelector(".value-input").value = "https://example.com/focus?ref=feed";
   await page.customRows().at(-1).querySelector(".value-input").dispatch("input");
   await page.byId("alwaysScheduleInput").dispatch("change");
@@ -71,6 +96,7 @@ test("end-to-end options save blocks a page and renders the blocked view", async
   const savedState = app.backgroundApi.storageData[core.STATE_KEY];
 
   assert.equal(page.byId("successMessage").textContent, "Saved.");
+  assert.equal(page.byId("saveButton").hidden, true);
   assert.equal(savedState.entries.at(-1).value, "example.com/focus");
   assert.deepEqual(app.optionsApi.permissionRequests, [["*://*.example.com/*"]]);
   assert.ok(app.backgroundApi.registeredScripts.at(-1).matches.includes("*://*.example.com/*"));

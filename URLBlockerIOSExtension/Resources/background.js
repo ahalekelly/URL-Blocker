@@ -353,6 +353,10 @@
       const origins = core.permissionOriginsForState(state);
       const registered = await api.scripting.getRegisteredContentScripts({ ids: [CONTENT_SCRIPT_ID] });
 
+      if (contentScriptAlreadyRegistered(registered, origins)) {
+        return;
+      }
+
       if (registered.length > 0) {
         await api.scripting.unregisterContentScripts({ ids: [CONTENT_SCRIPT_ID] });
       }
@@ -367,6 +371,28 @@
         matches: origins,
         runAt: "document_start"
       }]);
+    }
+
+    function contentScriptAlreadyRegistered(registered, origins) {
+      if (registered.length !== 1) {
+        return false;
+      }
+
+      const script = registered[0];
+
+      return sameItems(script.js, ["content.js"])
+        && sameItems(script.matches, origins)
+        && script.runAt === "document_start";
+    }
+
+    function sameItems(left, right) {
+      if (left.length !== right.length) {
+        return false;
+      }
+
+      const rightItems = new Set(right);
+
+      return left.every((item) => rightItems.has(item));
     }
 
     async function removeUnusedWebsiteAccess(state) {

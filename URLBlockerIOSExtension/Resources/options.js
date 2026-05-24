@@ -22,7 +22,12 @@
     draftBlockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     draftSchedule: core.DEFAULT_SCHEDULE,
     draftLimitReset: core.DEFAULT_LIMIT_RESET,
-    savedLimitReset: core.DEFAULT_LIMIT_RESET,
+    savedDraft: {
+      entries: [],
+      blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+      schedule: core.DEFAULT_SCHEDULE,
+      limitReset: core.DEFAULT_LIMIT_RESET
+    },
     rowErrors: new Map(),
     pageError: "",
     successMessage: "",
@@ -142,7 +147,7 @@
     editorPanel.hidden = needsWebsiteAccess;
     rowsElement.replaceChildren(...renderBlockItems());
     blockedPageHtmlInput.value = state.draftBlockedPageHtml;
-    screenTimeTitle.textContent = screenTimeTitleText(state.savedLimitReset);
+    screenTimeTitle.textContent = screenTimeTitleText(state.savedDraft.limitReset);
     alwaysScheduleInput.checked = state.draftSchedule.type === "always";
     dailyScheduleInput.checked = state.draftSchedule.type === "dailyWindow";
     scheduleWindowFields.hidden = state.draftSchedule.type !== "dailyWindow";
@@ -154,7 +159,7 @@
     dailyResetFields.hidden = state.draftLimitReset.type !== "daily";
     rollingWindowHoursInput.value = String(rollingWindowHours());
     dailyResetHourSelect.value = String(dailyResetHour());
-    saveButton.disabled = state.isSaving;
+    renderSaveButton();
     grantAccessButton.disabled = state.isRequestingPermissions;
     permissionMessage.textContent = needsWebsiteAccess ? permissionPanelMessage() : "";
     permissionError.hidden = state.pageError === "";
@@ -270,6 +275,35 @@
     group.append(entryList);
 
     return group;
+  }
+
+  function renderSaveButton() {
+    saveButton.hidden = !draftHasUnsavedChanges();
+    saveButton.disabled = state.isSaving;
+  }
+
+  function draftHasUnsavedChanges() {
+    return JSON.stringify(draftSnapshot()) !== JSON.stringify(state.savedDraft);
+  }
+
+  function draftSnapshot() {
+    return {
+      entries: state.draftEntries.map(draftEntrySnapshot),
+      blockedPageHtml: state.draftBlockedPageHtml,
+      schedule: editableSchedule(state.draftSchedule),
+      limitReset: editableLimitReset(state.draftLimitReset)
+    };
+  }
+
+  function draftEntrySnapshot(entry) {
+    switch (entry.type) {
+      case "custom":
+        return { type: "custom", id: entry.id, kind: entry.kind, value: entry.value, limitMinutes: entry.limitMinutes };
+      case "default":
+        return { type: "default", id: entry.id, kind: entry.kind, value: entry.value, enabled: entry.enabled, limitMinutes: entry.limitMinutes };
+      default:
+        throw new Error(`Unknown entry type: ${entry.type}`);
+    }
   }
 
   function renderDefaultGroupEntry(entry) {
@@ -523,6 +557,7 @@
     syncLimitForEntry(entry);
     state.rowErrors.delete(id);
     clearMessages();
+    renderSaveButton();
   }
 
   function syncLimitForEntry(entry) {
@@ -563,6 +598,7 @@
     } catch {
       state.rowErrors.delete(id);
       clearMessages();
+      renderSaveButton();
       return;
     }
 
@@ -584,6 +620,7 @@
   function updateBlockedPageHtml() {
     state.draftBlockedPageHtml = blockedPageHtmlInput.value;
     clearMessages();
+    renderSaveButton();
   }
 
   function updateScheduleType(type) {
@@ -609,6 +646,7 @@
       endMinute: timeToMinute(scheduleEndInput.value)
     };
     clearMessages();
+    renderSaveButton();
   }
 
   function updateLimitResetType(type) {
@@ -633,6 +671,7 @@
       windowHours: Number(rollingWindowHoursInput.value)
     };
     clearMessages();
+    renderSaveButton();
   }
 
   function updateDailyResetHour() {
@@ -641,6 +680,7 @@
       resetHour: Number(dailyResetHourSelect.value)
     };
     clearMessages();
+    renderSaveButton();
   }
 
   function deleteRow(id) {
@@ -1069,7 +1109,7 @@
     state.draftBlockedPageHtml = blockerState.blockedPageHtml;
     state.draftSchedule = editableSchedule(blockerState.schedule);
     state.draftLimitReset = editableLimitReset(blockerState.limitReset);
-    state.savedLimitReset = editableLimitReset(blockerState.limitReset);
+    state.savedDraft = draftSnapshot();
   }
 
   function showValidationErrors(errors) {
