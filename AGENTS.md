@@ -127,6 +127,7 @@ Use [ios_build_sign_install.md](ios_build_sign_install.md) for the complete sign
 - Prefer `if: raise` over broad `try`/catch when a value is expected to exist.
 - Keep changes narrowly scoped. Remove anything not required for the task.
 - Avoid clever abstractions and overly split helper functions.
+- Try not to duplicate code across multiple platforms, keep functionality in the extension Javascript unless it would make the code far more complicated
 
 ## Python Scripts
 
