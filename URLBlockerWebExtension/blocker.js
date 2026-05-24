@@ -494,23 +494,7 @@
       throw new Error("Domain entries must contain only a hostname.");
     }
 
-    const host = stripLeadingWww(url.hostname.toLowerCase());
-
-    if (host === "" || host.startsWith(".") || host.endsWith(".")) {
-      throw new Error("Enter a valid hostname.");
-    }
-
-    if (host.split(".").some((label) => label === "" || label.startsWith("-") || label.endsWith("-"))) {
-      throw new Error("Enter a valid hostname.");
-    }
-
-    if (!/^[a-z0-9.-]+$/.test(host)) {
-      throw new Error("Domain entries must normalize to lowercase ASCII or punycode.");
-    }
-
-    if (isIpAddress(host)) {
-      throw new Error("IP address blocking is not supported in this version.");
-    }
+    const host = normalizeHost(url.hostname);
 
     return host;
   }
@@ -535,7 +519,7 @@
       throw new Error("URL entries cannot include non-default ports.");
     }
 
-    const host = stripLeadingWww(url.hostname.toLowerCase());
+    const host = normalizeHost(url.hostname);
     const path = stripTrailingSlashes(url.pathname);
     const storedPath = path === "/" ? "" : path;
     const value = `${host}${storedPath}`;
@@ -546,6 +530,28 @@
     }
 
     return { value, aliased: false };
+  }
+
+  function normalizeHost(rawHost) {
+    const host = stripLeadingWww(rawHost.toLowerCase());
+
+    if (host === "" || host.startsWith(".") || host.endsWith(".")) {
+      throw new Error("Enter a valid hostname.");
+    }
+
+    if (host.split(".").some((label) => label === "" || label.startsWith("-") || label.endsWith("-"))) {
+      throw new Error("Enter a valid hostname.");
+    }
+
+    if (!/^[a-z0-9.-]+$/.test(host)) {
+      throw new Error("Hostnames must normalize to lowercase ASCII or punycode.");
+    }
+
+    if (isIpAddress(host)) {
+      throw new Error("IP address blocking is not supported in this version.");
+    }
+
+    return host;
   }
 
   function normalizeSchedule(schedule) {

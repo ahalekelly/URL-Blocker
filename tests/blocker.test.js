@@ -288,6 +288,7 @@ test("normalizes URL entries for path-based matching", () => {
   assert.throws(() => core.normalizeUrlEntryValue("ftp://example.com"), /http or https/);
   assert.throws(() => core.normalizeUrlEntryValue("https://user@example.com"), /usernames/);
   assert.throws(() => core.normalizeUrlEntryValue("https://example.com:8443/path"), /non-default ports/);
+  assert.throws(() => core.normalizeUrlEntryValue("exa_mple.com/path"), /lowercase ASCII/);
 });
 
 test("normalizes domain entries and rejects unsupported hosts", () => {
