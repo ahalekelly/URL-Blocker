@@ -207,7 +207,9 @@ h2 {
   display: flex;
   align-items: center;
   overflow-wrap: anywhere;
+  font-size: 20px;
   font-weight: 700;
+  line-height: 1.2;
 }
 
 .default-group-limit {
@@ -237,7 +239,7 @@ h2 {
   align-items: center;
   overflow-wrap: anywhere;
   color: var(--text);
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .default-group-entry .row-error {
