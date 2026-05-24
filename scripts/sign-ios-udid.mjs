@@ -153,6 +153,7 @@ function patchScratchProject(values) {
 function buildUnsignedApp() {
   run("xcodebuild", [
     "-quiet",
+    "-hideShellScriptEnvironment",
     "-project",
     config.project,
     "-scheme",
@@ -322,23 +323,7 @@ function readP12Password() {
     return password;
   }
 
-  if (!process.stdin.isTTY) {
-    throw new Error(`Set P12_PASSWORD, create ${config.p12PasswordPath}, or run make ios-install from an interactive terminal.`);
-  }
-
-  const result = spawnSync("/bin/zsh", [
-    "-c",
-    'read -rsp "UDID .p12 password: " password; printf "\\n" >&2; printf "%s" "$password"',
-  ], {
-    encoding: "utf8",
-    stdio: ["inherit", "pipe", "inherit"],
-  });
-
-  if (result.status !== 0) {
-    throw new Error("Could not read the UDID .p12 password.");
-  }
-
-  return result.stdout;
+  throw new Error(`Set P12_PASSWORD or create ${config.p12PasswordPath}.`);
 }
 
 function readKeychainSearchList() {

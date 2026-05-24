@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 
 const repoRoot = path.resolve(__dirname, "..");
 const projectText = fs.readFileSync(path.join(repoRoot, "URLBlocker.xcodeproj/project.pbxproj"), "utf8");
+const signingScript = fs.readFileSync(path.join(repoRoot, "scripts/sign-ios-udid.mjs"), "utf8");
 const optionsHtml = fs.readFileSync(path.join(repoRoot, "URLBlockerWebExtension/options.html"), "utf8");
 const statsHtml = fs.readFileSync(path.join(repoRoot, "URLBlockerWebExtension/stats.html"), "utf8");
 const webExtensionFiles = [
@@ -40,6 +41,12 @@ test("Xcode references the renamed shared web extension folder", () => {
 test("options and stats pages link to each other", () => {
   assert.match(optionsHtml, /href="stats\.html"/);
   assert.match(statsHtml, /href="options\.html"/);
+});
+
+test("iOS signing does not prompt for the p12 password", () => {
+  assert.doesNotMatch(signingScript, /process\.stdin\.isTTY/);
+  assert.doesNotMatch(signingScript, /read -rsp/);
+  assert.match(signingScript, /Set P12_PASSWORD or create/);
 });
 
 function escapeRegex(value) {

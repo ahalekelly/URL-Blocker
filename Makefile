@@ -93,6 +93,7 @@ ios-build:
 ios-build-unsigned:
 	xcodebuild \
 	  -quiet \
+	  -hideShellScriptEnvironment \
 	  -project "$(PROJECT)" \
 	  -scheme "$(IOS_SCHEME)" \
 	  -configuration Release \
@@ -133,6 +134,7 @@ ios-install: ios-build
 macos-build:
 	xcodebuild \
 	  -quiet \
+	  -hideShellScriptEnvironment \
 	  -project "$(PROJECT)" \
 	  -scheme "$(MACOS_SCHEME)" \
 	  -configuration Release \

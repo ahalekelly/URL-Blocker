@@ -25,7 +25,7 @@ $HOME/Documents/UDIDRegistrations/iOSSigning/Development.p12
 $HOME/Documents/UDIDRegistrations/iOSSigning/Development.mobileprovision
 ```
 
-Optionally save the `.p12` password outside the repo so `make ios-install` can run without prompting:
+Save the `.p12` password outside the repo so `make ios-install` can read it non-interactively:
 
 ```text
 $HOME/Documents/UDIDRegistrations/iOSSigning/Development.p12.password
@@ -36,6 +36,8 @@ Keep that file out of git and restrict it to your user:
 ```sh
 chmod 600 "$HOME/Documents/UDIDRegistrations/iOSSigning/Development.p12.password"
 ```
+
+For one-off runs, set `P12_PASSWORD` instead. `make ios-build` and `make ios-install` do not prompt for the password.
 
 Run from the repo root, then set local shell variables for the guide commands:
 
@@ -187,7 +189,7 @@ This can be required even for a physical-device `iphoneos` build because asset c
 
 # Import the Certificate
 
-`make ios-build` handles this section and prompts for the `.p12` password when needed. For a manual signing run, use a temporary keychain instead of importing into the login keychain:
+`make ios-build` handles this section and reads the `.p12` password from `P12_PASSWORD` or `Development.p12.password`. For a manual signing run, use a temporary keychain instead of importing into the login keychain:
 
 ```sh
 mkdir -p /tmp/urlblocker_signing
