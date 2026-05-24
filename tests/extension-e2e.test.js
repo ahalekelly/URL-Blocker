@@ -54,6 +54,23 @@ test("options renders local data before startup sync finishes", async () => {
   await app.optionsApi.finishSyncNow();
 });
 
+test("options rounds displayed screen time to the nearest minute", async () => {
+  const app = createExtensionApp();
+  const hour = Math.floor(app.backgroundApi.nowValue / (60 * 60 * 1000));
+
+  app.backgroundApi.storageData[core.STATE_KEY] = validState([
+    { id, kind: "domain", value: "x.com" }
+  ]);
+  app.backgroundApi.storageData.screenTimeUsage = screenTimeUsage({
+    "x.com": { [hour]: 90000 }
+  });
+
+  const page = await openOptionsPage(app);
+  const screenTimeTotal = page.byId("screenTimeRows").children[0].querySelector(".screen-time-total");
+
+  assert.equal(screenTimeTotal.textContent, "2m / 30m");
+});
+
 test("options shows the floating save button only for unsaved drafts", async () => {
   const app = createExtensionApp();
   const page = await openOptionsPage(app);
@@ -387,6 +404,25 @@ function matcherKey(entry) {
     default:
       throw new Error(`Unknown matcher kind: ${entry.kind}`);
   }
+}
+
+function screenTimeUsage(totalsByDomain) {
+  const localBuckets = {};
+
+  Object.entries(totalsByDomain).forEach(([domain, hours]) => {
+    localBuckets[domain] = {};
+    Object.entries(hours).forEach(([hour, totalMs]) => {
+      localBuckets[domain][hour] = { totalMs, syncedMs: totalMs };
+    });
+  });
+
+  return {
+    schemaVersion: 2,
+    deviceId: "11111111-1111-4111-8111-000000000001",
+    dirtySinceMs: null,
+    localBuckets,
+    remoteBuckets: {}
+  };
 }
 
 function optionsDocument() {

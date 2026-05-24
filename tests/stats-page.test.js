@@ -45,7 +45,7 @@ test("stats page renders screen time stats", async () => {
 
   assert.equal(messages.length, 1);
   assert.equal(messages[0].type, "getScreenTimeStats");
-  assert.equal(document.elements.totalTime.textContent, "1m 30s");
+  assert.equal(document.elements.totalTime.textContent, "2m");
   assert.equal(document.elements.activeDomains.textContent, "1");
   assert.equal(document.elements.trackedDomains.textContent, "2");
   assert.equal(document.elements.overLimitDomains.textContent, "0");
@@ -54,8 +54,12 @@ test("stats page renders screen time stats", async () => {
   assert.equal(document.elements.emptyHourlyTotals.hidden, true);
   assert.equal(document.elements.domainRows.children.length, 2);
   assert.equal(document.elements.emptyDomains.hidden, true);
+  assert.equal(document.elements.domainRows.children[0].children[0].children[1].children[0].textContent, "2m");
+  assert.equal(document.elements.domainRows.children[0].children[0].children[1].children[2].textContent, "4m left");
+  assert.equal(document.elements.domainRows.children[0].children[2].textContent, "This device 1m · Other devices 1m");
   assert.equal(document.elements.deviceRows.children.length, 1);
   assert.equal(document.elements.emptyDevices.hidden, true);
+  assert.equal(document.elements.deviceRows.children[0].children[1].textContent, "1m");
 });
 
 function screenTimeStatsResponse() {
