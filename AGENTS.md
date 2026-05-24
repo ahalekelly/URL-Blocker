@@ -51,7 +51,7 @@ Build and update Brave with the unpacked extension in the main profile:
 make brave-install
 ```
 
-When the browser is already open, the install target reloads the existing unpacked extension in the `Default` profile without restarting the browser. That no-restart path requires URL Blocker to already be enabled; Brave may require Developer mode to stay on for unpacked extensions. When the browser is closed, the target uses a short-lived DevTools pipe to install or update the unpacked extension, then opens `chrome://extensions`.
+When the browser is already open, the install target reloads the existing unpacked extension in the `Default` profile without restarting the browser. That no-restart path requires URL Blocker to already be enabled. When the browser is closed, the target uses a short-lived DevTools pipe to install or update the unpacked extension, then opens `chrome://extensions`.
 
 Build the signed iOS IPA, signed macOS app, and unpacked Chrome extension:
 

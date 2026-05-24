@@ -6,7 +6,6 @@ import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 
 const rawArgs = process.argv.slice(2);
-const unsupportedDeveloperExtension = 1 << 24;
 const reloadPage = "reload.html";
 const browsers = {
   Vivaldi: {
@@ -100,6 +99,8 @@ async function updateRunningBrowser() {
   const extension = await validateRunningReloadReady();
 
   openRunningBrowser(`chrome-extension://${extension.id}/${reloadPage}`);
+  await wait(1_000);
+  await validateRunningReloadReady();
 
   console.log(`Reloaded URL Blocker in running ${appName} ${browserConfig.profileDirectory}: ${extension.id}`);
 }
@@ -107,7 +108,6 @@ async function updateRunningBrowser() {
 async function validateRunningReloadReady() {
   const extension = await readExtensionByPath();
 
-  await validateDeveloperMode();
   validateEnabled(extension.settings);
 
   return extension;
@@ -291,27 +291,6 @@ async function readExtensionSettings() {
   return extensionRoot.settings;
 }
 
-async function validateDeveloperMode() {
-  const preferences = await readPreferences();
-  const extensionRoot = preferences.extensions;
-
-  if (!extensionRoot || typeof extensionRoot !== "object") {
-    throw new Error(`${appName} saved invalid extension preferences`);
-  }
-
-  if (!extensionRoot.ui || typeof extensionRoot.ui !== "object") {
-    throw new Error(
-      `${appName} has Developer mode off. Open chrome://extensions, turn on Developer mode, enable URL Blocker, then rerun this target.`,
-    );
-  }
-
-  if (extensionRoot.ui.developer_mode !== true) {
-    throw new Error(
-      `${appName} has Developer mode off. Open chrome://extensions, turn on Developer mode, enable URL Blocker, then rerun this target.`,
-    );
-  }
-}
-
 async function readPreferences() {
   return JSON.parse(await readFile(browserConfig.securePreferencesPath, "utf8"));
 }
@@ -327,13 +306,6 @@ function validateEnabled(settings) {
 
   if (!Array.isArray(settings.disable_reasons)) {
     throw new Error(`${appName} saved invalid disable reasons for URL Blocker`);
-  }
-
-  if (settings.disable_reasons.includes(unsupportedDeveloperExtension)) {
-    throw new Error(
-      `${appName} cannot keep URL Blocker enabled because Developer mode is off. ` +
-        `In ${appName}, open chrome://extensions, turn on Developer mode, enable URL Blocker, then rerun this target.`,
-    );
   }
 
   if (settings.disable_reasons.length > 0) {
