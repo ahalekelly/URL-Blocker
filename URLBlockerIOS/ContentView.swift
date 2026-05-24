@@ -1,3 +1,4 @@
+import AuthenticationServices
 import Foundation
 import SafariServices
 import SwiftUI
@@ -104,13 +105,21 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func signInButton(provider: NativeSupabaseAuth.Provider) -> some View {
-        Button {
-            signIn(provider: provider)
-        } label: {
-            SignInButtonLabel(provider: provider)
+    @ViewBuilder private func signInButton(provider: NativeSupabaseAuth.Provider) -> some View {
+        switch provider {
+        case .google:
+            Button {
+                signIn(provider: .google)
+            } label: {
+                GoogleSignInButtonLabel()
+            }
+            .buttonStyle(GoogleSignInButtonStyle())
+        case .apple:
+            AppleSignInButton {
+                signIn(provider: .apple)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44)
         }
-        .buttonStyle(SignInButtonStyle(provider: provider))
     }
 
     private func refreshExtensionState() {
@@ -210,116 +219,65 @@ private enum NativeSyncState {
     }
 }
 
-private struct SignInButtonLabel: View {
-    let provider: NativeSupabaseAuth.Provider
-
+private struct GoogleSignInButtonLabel: View {
     var body: some View {
         HStack(spacing: 10) {
-            icon
+            Image("GoogleG")
+                .resizable()
+                .scaledToFit()
                 .frame(width: 20, height: 20)
-            Text(title)
+            Text("Sign in with Google")
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
         }
-        .font(.system(size: 16, weight: .medium))
-    }
-
-    private var title: String {
-        switch provider {
-        case .google:
-            return "Sign In with Google"
-        case .apple:
-            return "Sign In with Apple"
-        }
-    }
-
-    @ViewBuilder private var icon: some View {
-        switch provider {
-        case .google:
-            GoogleSignInIcon()
-        case .apple:
-            Image(systemName: "apple.logo")
-                .resizable()
-                .scaledToFit()
-        }
+        .font(.system(size: 14, weight: .medium))
     }
 }
 
-private struct SignInButtonStyle: ButtonStyle {
-    let provider: NativeSupabaseAuth.Provider
-
+private struct GoogleSignInButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .frame(maxWidth: .infinity, minHeight: 46)
+            .frame(maxWidth: .infinity, minHeight: 44)
             .padding(.horizontal, 16)
-            .background(background)
-            .foregroundStyle(foreground)
+            .background(Color.white)
+            .foregroundStyle(Color(red: 0.121, green: 0.121, blue: 0.121))
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(border, lineWidth: 1)
+                    .stroke(Color(red: 0.455, green: 0.467, blue: 0.459), lineWidth: 1)
             }
-            .shadow(color: shadow, radius: 2, x: 0, y: 1)
             .opacity(configuration.isPressed ? 0.75 : 1)
-    }
-
-    private var background: Color {
-        switch provider {
-        case .google:
-            return .white
-        case .apple:
-            return .black
-        }
-    }
-
-    private var border: Color {
-        switch provider {
-        case .google:
-            return Color(red: 0.88, green: 0.88, blue: 0.88)
-        case .apple:
-            return .black
-        }
-    }
-
-    private var foreground: Color {
-        switch provider {
-        case .google:
-            return Color(red: 0.42, green: 0.42, blue: 0.42)
-        case .apple:
-            return .white
-        }
-    }
-
-    private var shadow: Color {
-        Color.black.opacity(0.18)
     }
 }
 
-private struct GoogleSignInIcon: View {
-    var body: some View {
-        ZStack {
-            Circle()
-                .trim(from: 0.81, to: 1)
-                .stroke(Color(red: 0.917, green: 0.262, blue: 0.207), style: stroke)
-            Circle()
-                .trim(from: 0, to: 0.31)
-                .stroke(Color(red: 0.259, green: 0.522, blue: 0.957), style: stroke)
-            Circle()
-                .trim(from: 0.31, to: 0.58)
-                .stroke(Color(red: 0.204, green: 0.659, blue: 0.325), style: stroke)
-            Circle()
-                .trim(from: 0.58, to: 0.81)
-                .stroke(Color(red: 0.984, green: 0.737, blue: 0.020), style: stroke)
-            Rectangle()
-                .fill(Color(red: 0.259, green: 0.522, blue: 0.957))
-                .frame(width: 8, height: 3)
-                .offset(x: 4)
-        }
-        .rotationEffect(.degrees(-35))
+private struct AppleSignInButton: UIViewRepresentable {
+    let action: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(action: action)
     }
 
-    private var stroke: StrokeStyle {
-        StrokeStyle(lineWidth: 3, lineCap: .butt)
+    func makeUIView(context: Context) -> ASAuthorizationAppleIDButton {
+        let button = ASAuthorizationAppleIDButton(type: .signIn, style: .black)
+        button.cornerRadius = 12
+        button.addTarget(context.coordinator, action: #selector(Coordinator.signIn), for: .touchUpInside)
+        return button
+    }
+
+    func updateUIView(_ button: ASAuthorizationAppleIDButton, context: Context) {
+        context.coordinator.action = action
+    }
+
+    final class Coordinator: NSObject {
+        var action: () -> Void
+
+        init(action: @escaping () -> Void) {
+            self.action = action
+        }
+
+        @objc func signIn() {
+            action()
+        }
     }
 }
 

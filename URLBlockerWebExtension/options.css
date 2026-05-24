@@ -293,25 +293,27 @@ h2 {
   justify-content: center;
   grid-column: 1 / -1;
   min-width: 210px;
-  min-height: 46px;
+  min-height: 44px;
   gap: 10px;
   border-radius: 12px;
   padding: 0 16px;
-  font-size: 16px;
-  font-weight: 500;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
 }
 
 #googleSignInButton {
   background: #ffffff;
-  border-color: #e0e0e0;
-  color: #6b6b6b;
+  border-color: #747775;
+  color: #1f1f1f;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 #appleSignInButton {
   background: #000000;
   border-color: #000000;
   color: #ffffff;
+  font-size: 19px;
+  font-weight: 600;
 }
 
 .provider-icon {
