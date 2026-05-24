@@ -2,6 +2,7 @@
 Crash report.txt
 
 node_modules/
+supabase/.temp/
 URLBlockerIOSExtension/Resources/supabase-config.local.json
 
 # Xcode
