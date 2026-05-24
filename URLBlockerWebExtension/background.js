@@ -13,7 +13,7 @@
   const sync = root.SupabaseSync || require("./supabase-sync.js");
   const CONTENT_SCRIPT_ID = "url-blocker-content";
   const HOUR_MS = 60 * 60 * 1000;
-  const MAX_SCREEN_TIME_ELAPSED_MS = 10 * 1000;
+  const MAX_SCREEN_TIME_ELAPSED_MS = 30 * 1000;
   const SCREEN_TIME_USAGE_KEY = "screenTimeUsage";
   const SETTINGS_SYNC_KEY = "settingsSync";
   const SUPABASE_SESSION_KEY = "supabaseSession";
@@ -178,7 +178,7 @@
       }
 
       if (elapsedMs > MAX_SCREEN_TIME_ELAPSED_MS) {
-        throw codedError("ScreenTimeElapsedInvalid", "Screen time elapsed time must be no more than 10 seconds.");
+        throw codedError("ScreenTimeElapsedInvalid", "Screen time elapsed time must be no more than 30 seconds.");
       }
 
       const state = await loadState();

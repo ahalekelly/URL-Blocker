@@ -47,7 +47,7 @@ test("content script periodically rechecks unchanged URLs", async () => {
 
   assert.deepEqual(page.messages, [
     { type: "urlChanged", url: "https://x.com/home" },
-    { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 1500 },
+    { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 5000 },
     { type: "urlChanged", url: "https://x.com/home" }
   ]);
 });
@@ -73,7 +73,7 @@ test("content script ignores stale screen time after sleep", async () => {
   assert.deepEqual(page.messages, [
     { type: "urlChanged", url: "https://x.com/home" },
     { type: "urlChanged", url: "https://x.com/home" },
-    { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 1500 },
+    { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 5000 },
     { type: "urlChanged", url: "https://x.com/home" }
   ]);
 });
@@ -107,8 +107,8 @@ function runContentScript(url) {
     },
     clearInterval() {},
     clearTimeout() {},
-    setInterval(listener) {
-      context.intervals.push(listener);
+    setInterval(listener, delay) {
+      context.intervals.push({ listener, delay });
       return context.intervals.length;
     },
     setTimeout(listener) {
@@ -130,9 +130,9 @@ function runContentScript(url) {
       context.document.hidden = hidden;
       this.dispatch("visibilitychange", elapsedMs);
     },
-    tick(elapsedMs = 1500) {
+    tick(elapsedMs = context.intervals[0].delay) {
       context.now += elapsedMs;
-      context.intervals.forEach((listener) => listener());
+      context.intervals.forEach((interval) => interval.listener());
       this.messages = JSON.parse(JSON.stringify(context.messages));
     }
   };

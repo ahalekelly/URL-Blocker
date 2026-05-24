@@ -2,7 +2,8 @@
   "use strict";
 
   const api = root.browser || root.chrome;
-  const MAX_SCREEN_TIME_ELAPSED_MS = 10 * 1000;
+  const SCREEN_TIME_POLL_MS = 5 * 1000;
+  const MAX_SCREEN_TIME_ELAPSED_MS = 30 * 1000;
   let lastSentUrl = "";
   let queuedCheck = 0;
   let screenTimeUrl = "";
@@ -34,7 +35,7 @@
       }
 
       recheckCurrentUrl();
-    }, 1500);
+    }, SCREEN_TIME_POLL_MS);
   }
 
   function teardown() {
