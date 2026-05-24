@@ -6,6 +6,8 @@
   let queuedCheck = 0;
   let screenTimeUrl = "";
   let screenTimeStartedAt = 0;
+  let pollId = 0;
+  let stopped = false;
 
   start();
 
@@ -25,13 +27,25 @@
     root.addEventListener("submit", queueCheck, true);
     root.addEventListener("keydown", queueKeyboardCheck, true);
 
-    root.setInterval(() => {
+    pollId = root.setInterval(() => {
       if (document.hidden) {
         return;
       }
 
       recheckCurrentUrl();
     }, 1500);
+  }
+
+  function teardown() {
+    stopped = true;
+    if (pollId !== 0) {
+      root.clearInterval(pollId);
+      pollId = 0;
+    }
+    if (queuedCheck !== 0) {
+      root.clearTimeout(queuedCheck);
+      queuedCheck = 0;
+    }
   }
 
   function syncVisibility() {
@@ -113,8 +127,10 @@
 
     const url = screenTimeUrl;
     screenTimeStartedAt = now;
-    api.runtime.sendMessage({ type: "screenTimeElapsed", url, elapsedMs })
-      .catch((error) => console.error("URL Blocker could not log screen time.", errorDetails(error)));
+    sendMessage(
+      { type: "screenTimeElapsed", url, elapsedMs },
+      (error) => console.error("URL Blocker could not log screen time.", errorDetails(error)),
+    );
   }
 
   function sendCurrentUrl(force) {
@@ -125,11 +141,32 @@
     }
 
     lastSentUrl = currentUrl;
-    api.runtime.sendMessage({ type: "urlChanged", url: currentUrl })
-      .catch((error) => {
+    sendMessage(
+      { type: "urlChanged", url: currentUrl },
+      (error) => {
         lastSentUrl = "";
         console.error("URL Blocker could not check the current URL.", errorDetails(error));
+      },
+    );
+  }
+
+  function sendMessage(payload, onError) {
+    if (stopped || !api.runtime?.id) {
+      teardown();
+      return;
+    }
+
+    try {
+      api.runtime.sendMessage(payload).catch((error) => {
+        if (!api.runtime?.id) {
+          teardown();
+          return;
+        }
+        onError(error);
       });
+    } catch {
+      teardown();
+    }
   }
 
   function errorDetails(error) {
