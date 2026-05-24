@@ -168,7 +168,6 @@ test("end-to-end options save blocks a page and renders the blocked view", async
 
   const savedState = app.backgroundApi.storageData[core.STATE_KEY];
 
-  assert.equal(page.byId("successMessage").textContent, "Saved.");
   assert.equal(page.byId("saveButton").hidden, true);
   assert.equal(savedState.entries.at(-1).value, "example.com/focus");
   assert.deepEqual(app.optionsApi.permissionRequests, [["*://*.example.com/*"]]);
@@ -201,7 +200,6 @@ test("options hides the save button before saved-state follow-up finishes", asyn
   await page.customRows().at(-1).querySelector(".value-input").dispatch("input");
   await saveButton.dispatch("click");
 
-  assert.equal(page.byId("successMessage").textContent, "Saved.");
   assert.equal(saveButton.hidden, true);
   assert.equal(saveButton.disabled, false);
   assert.ok(messageTypes(app).includes("finishSavedState"));
@@ -652,7 +650,6 @@ function optionsDocument() {
     "rollingWindowHoursInput",
     "dailyResetHourSelect",
     "errorSummary",
-    "successMessage",
     "screenTimeRows",
     "emptyScreenTime",
     "syncStatusText",

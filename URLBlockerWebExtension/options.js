@@ -30,7 +30,6 @@
     },
     rowErrors: new Map(),
     pageError: "",
-    successMessage: "",
     isSaving: false,
     isRequestingPermissions: false,
     missingOrigins: [],
@@ -56,7 +55,6 @@
   const rollingWindowHoursInput = document.getElementById("rollingWindowHoursInput");
   const dailyResetHourSelect = document.getElementById("dailyResetHourSelect");
   const errorSummary = document.getElementById("errorSummary");
-  const successMessage = document.getElementById("successMessage");
   const screenTimeRows = document.getElementById("screenTimeRows");
   const emptyScreenTime = document.getElementById("emptyScreenTime");
   const syncStatusText = document.getElementById("syncStatusText");
@@ -166,8 +164,6 @@
     permissionError.textContent = state.pageError;
     errorSummary.hidden = state.pageError === "";
     errorSummary.textContent = state.pageError;
-    successMessage.hidden = state.successMessage === "";
-    successMessage.textContent = state.successMessage;
     renderScreenTimeLog();
     renderSyncStatus();
   }
@@ -754,7 +750,7 @@
     switch (response.type) {
       case "saved":
         finishSavedState();
-        await applySavedState(response.state, "Saved.");
+        await applySavedState(response.state);
         return;
       case "validationError":
         showValidationErrors(response.errors);
@@ -805,7 +801,6 @@
 
       state.isRequestingPermissions = false;
       state.missingOrigins = [];
-      state.successMessage = "Website access granted.";
       render();
     } catch (error) {
       state.isRequestingPermissions = false;
@@ -868,7 +863,6 @@
       case "signedIn":
         await loadSyncStatus();
         await loadScreenTimeLog("getScreenTimeLog");
-        state.successMessage = "Signed in.";
         render();
         return;
       case "nativeSignInRequired":
@@ -900,7 +894,6 @@
       case "synced":
         state.syncStatus = normalizeSyncStatus(response.status);
         await loadLocalState();
-        state.successMessage = "Synced.";
         render();
         return;
       case "error":
@@ -920,7 +913,6 @@
     switch (response.type) {
       case "signedOut":
         await loadSyncStatus();
-        state.successMessage = "Signed out.";
         render();
         return;
       case "error":
@@ -945,7 +937,6 @@
     switch (response.type) {
       case "signedIn":
         root.history.replaceState(null, "", root.location.pathname);
-        state.successMessage = "Signed in.";
         return;
       case "error":
         throw errorFromResponse(response);
@@ -1084,7 +1075,7 @@
       case "saved":
         resetButton.disabled = false;
         finishSavedState();
-        await applySavedState(response.state, "Reset.");
+        await applySavedState(response.state);
         return;
       case "validationError":
         showRepair(codedError("ValidationError", response.errors.map((error) => error.message).join("\n")));
@@ -1097,9 +1088,8 @@
     }
   }
 
-  async function applySavedState(savedState, message) {
+  async function applySavedState(savedState) {
     setDraftState(savedState);
-    state.successMessage = message;
     render();
 
     await loadScreenTimeLog("getScreenTimeLog");
@@ -1219,7 +1209,6 @@
 
   function clearMessages() {
     state.pageError = "";
-    state.successMessage = "";
   }
 
   function findDraftEntry(id) {

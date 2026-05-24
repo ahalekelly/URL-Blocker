@@ -10,7 +10,6 @@
   --danger: #b42318;
   --danger-surface: #fff0ed;
   --scrim: rgba(23, 23, 23, 0.45);
-  --success: #16703c;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
 }
 
@@ -104,8 +103,7 @@ h2 {
 .settings-panel,
 .repair-panel,
 .permission-dialog,
-.error-summary,
-.success-message {
+.error-summary {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -463,7 +461,6 @@ input[readonly] {
 }
 
 .error-summary,
-.success-message,
 .repair-panel {
   margin-bottom: 12px;
   padding: 12px 14px;
@@ -472,10 +469,6 @@ input[readonly] {
 
 .error-summary {
   background: var(--danger-surface);
-}
-
-.success-message {
-  color: var(--success);
 }
 
 .floating-save-button {
