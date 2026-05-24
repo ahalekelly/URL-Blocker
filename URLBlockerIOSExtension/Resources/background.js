@@ -265,7 +265,18 @@
     }
 
     async function loadScreenTimeUsage() {
-      return sync.parseScreenTimeUsage(await screenTimeStorage.loadUsage(), createId, core);
+      try {
+        return sync.parseScreenTimeUsage(await screenTimeStorage.loadUsage(), createId, core);
+      } catch (error) {
+        if (!sync.isUnsupportedScreenTimeUsage(error)) {
+          throw error;
+        }
+
+        const usage = sync.emptyScreenTimeUsage(createId());
+
+        await screenTimeStorage.saveUsage(usage);
+        return usage;
+      }
     }
 
     async function loadDefaultState() {

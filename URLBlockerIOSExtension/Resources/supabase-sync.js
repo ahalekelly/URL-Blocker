@@ -29,11 +29,11 @@
       throw new Error("Screen time usage must be an object.");
     }
 
-    requireKeys(rawUsage, ["schemaVersion", "deviceId", "dirtySinceMs", "localBuckets", "remoteBuckets"], "Screen time usage");
-
     if (rawUsage.schemaVersion !== SCREEN_TIME_USAGE_SCHEMA_VERSION) {
       throw new Error("Unsupported screen time usage version.");
     }
+
+    requireKeys(rawUsage, ["schemaVersion", "deviceId", "dirtySinceMs", "localBuckets", "remoteBuckets"], "Screen time usage");
 
     if (typeof rawUsage.deviceId !== "string" || rawUsage.deviceId.trim() === "") {
       throw new Error("Screen time device ID must be a string.");
@@ -50,6 +50,10 @@
       localBuckets: parseLocalBuckets(rawUsage.localBuckets, core),
       remoteBuckets: parseRemoteBuckets(rawUsage.remoteBuckets, core)
     };
+  }
+
+  function isUnsupportedScreenTimeUsage(error) {
+    return error instanceof Error && error.message === "Unsupported screen time usage version.";
   }
 
   function parseLocalBuckets(rawBuckets, core) {
@@ -646,6 +650,7 @@
     parseSettingsSync,
     refreshSession,
     remoteSettingsAreNewer,
+    isUnsupportedScreenTimeUsage,
     saveRemoteScreenTime,
     saveRemoteSettings,
     screenTimeSyncDelayMs,

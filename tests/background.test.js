@@ -321,7 +321,7 @@ test("screenTimeElapsed logs time into the current hour bucket", async () => {
   });
 });
 
-test("screenTimeElapsed rejects old screen time usage schemas", async () => {
+test("screenTimeElapsed resets unsupported old screen time usage schemas", async () => {
   const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
   api.storageData[core.STATE_KEY] = validState([
     { id, kind: "domain", value: "example.com" }
@@ -334,11 +334,20 @@ test("screenTimeElapsed rejects old screen time usage schemas", async () => {
   };
   const controller = createBackgroundController(api);
 
-  await assert.rejects(() => controller.handleMessage({
+  assert.deepEqual(await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://www.example.com/path",
     elapsedMs: 2500
-  }, {}), /Screen time usage/);
+  }, {}), { type: "logged", domain: "example.com", totalMs: 2500, limitMinutes: 30, isOverLimit: false });
+  assert.deepEqual(api.storageData.screenTimeUsage, {
+    schemaVersion: 2,
+    deviceId: "11111111-1111-4111-8111-000000000001",
+    dirtySinceMs: 72000000,
+    localBuckets: {
+      "example.com": { 20: { totalMs: 2500, syncedMs: 0 } }
+    },
+    remoteBuckets: {}
+  });
 });
 
 test("screenTimeElapsed stores usage through native storage on iOS", async () => {
