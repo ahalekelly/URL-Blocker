@@ -20,11 +20,17 @@ create table if not exists public.screen_time_buckets (
 alter table public.user_settings enable row level security;
 alter table public.screen_time_buckets enable row level security;
 
+drop policy if exists "Users can read their settings"
+on public.user_settings;
+
 create policy "Users can read their settings"
 on public.user_settings
 for select
 to authenticated
 using (auth.uid() = user_id);
+
+drop policy if exists "Users can write their settings"
+on public.user_settings;
 
 create policy "Users can write their settings"
 on public.user_settings
@@ -33,11 +39,17 @@ to authenticated
 using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
 
+drop policy if exists "Users can read their screen time"
+on public.screen_time_buckets;
+
 create policy "Users can read their screen time"
 on public.screen_time_buckets
 for select
 to authenticated
 using (auth.uid() = user_id);
+
+drop policy if exists "Users can write their screen time"
+on public.screen_time_buckets;
 
 create policy "Users can write their screen time"
 on public.screen_time_buckets
@@ -164,3 +176,14 @@ begin
   select * from saved;
 end;
 $$;
+
+grant usage on schema public to authenticated;
+
+grant select, insert, update on public.user_settings to authenticated;
+grant select, insert, update on public.screen_time_buckets to authenticated;
+
+revoke execute on function public.save_user_settings(jsonb, bigint, text, text) from public;
+revoke execute on function public.sync_screen_time_buckets(jsonb) from public;
+
+grant execute on function public.save_user_settings(jsonb, bigint, text, text) to authenticated;
+grant execute on function public.sync_screen_time_buckets(jsonb) to authenticated;
