@@ -16,6 +16,8 @@
     "ycombinator.com": "Hacker News",
     "youtube.com": "YouTube"
   };
+  const NATIVE_APP_SIGN_IN_URL = "urlblocker://open";
+  const NATIVE_APP_SIGN_IN_TEXT = "Sign in to sync screen time limits and settings";
   const state = {
     defaultEntries: [],
     draftEntries: [],
@@ -91,6 +93,8 @@
   signOutButton.addEventListener("click", signOut);
   root.addEventListener("error", (event) => showFatalError(event.error || codedError("WindowError", event.message)));
   root.addEventListener("unhandledrejection", (event) => showFatalError(errorFromReason(event.reason)));
+  root.addEventListener("focus", refreshNativeSignInStatus);
+  document.addEventListener("visibilitychange", refreshVisibleNativeSignInStatus);
 
   completeOAuthRedirect()
     .then(loadLocalState)
@@ -432,7 +436,7 @@
         signOutButton.hidden = false;
         return;
       case "nativeSignInRequired":
-        syncStatusText.textContent = "Open the URL Blocker app to sign in.";
+        renderNativeSignInLink();
         googleSignInButton.hidden = true;
         appleSignInButton.hidden = true;
         syncNowButton.hidden = true;
@@ -456,6 +460,32 @@
     }
 
     return `${text} Last sync error: ${state.syncStatus.error}`;
+  }
+
+  function renderNativeSignInLink() {
+    const link = document.createElement("a");
+
+    link.href = NATIVE_APP_SIGN_IN_URL;
+    link.textContent = NATIVE_APP_SIGN_IN_TEXT;
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      root.location.href = NATIVE_APP_SIGN_IN_URL;
+    });
+    syncStatusText.replaceChildren(link);
+  }
+
+  function refreshVisibleNativeSignInStatus() {
+    if (document.hidden) { return; }
+
+    refreshNativeSignInStatus();
+  }
+
+  function refreshNativeSignInStatus() {
+    if (state.syncStatus.status !== "nativeSignInRequired") { return; }
+
+    loadSyncStatus()
+      .then(render)
+      .catch(showFatalError);
   }
 
   function signedOutSyncStatusText() {

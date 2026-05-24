@@ -23,6 +23,7 @@ struct ContentView: View {
                     BlocklistWebView { error in
                         alert = AppAlert(title: "Blocklist Load Failed", error: error)
                     }
+                    .id(syncState)
                     .ignoresSafeArea(.container, edges: .bottom)
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         if syncState == .signedOut {
@@ -204,7 +205,7 @@ struct ContentView: View {
     }
 }
 
-private enum NativeSyncState {
+private enum NativeSyncState: Hashable {
     case signedOut
     case signedIn
 
@@ -330,6 +331,25 @@ private struct BlocklistWebView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
             onError(error)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        ) {
+            guard let url = navigationAction.request.url else {
+                decisionHandler(.allow)
+                return
+            }
+
+            if url.scheme != "urlblocker" {
+                decisionHandler(.allow)
+                return
+            }
+
+            decisionHandler(.cancel)
+            UIApplication.shared.open(url)
         }
 
         private func reply(id: String, response: [String: Any]) {

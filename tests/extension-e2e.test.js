@@ -145,12 +145,32 @@ test("options hides provider sign-in buttons on iOS", async () => {
   app.backgroundApi.nativeData[core.STATE_KEY] = validState([]);
 
   const page = await openOptionsPage(app);
+  const signInLink = page.byId("syncStatusText").children[0];
 
-  assert.equal(page.byId("syncStatusText").textContent, "Open the URL Blocker app to sign in.");
+  assert.equal(signInLink.tagName, "a");
+  assert.equal(signInLink.href, "urlblocker://open");
+  assert.equal(signInLink.textContent, "Sign in to sync screen time limits and settings");
   assert.equal(page.byId("googleSignInButton").hidden, true);
   assert.equal(page.byId("appleSignInButton").hidden, true);
   assert.equal(page.byId("syncNowButton").hidden, true);
   assert.equal(page.byId("signOutButton").hidden, true);
+});
+
+test("options refreshes iOS sync status after native sign-in", async () => {
+  const app = createExtensionApp({
+    delaySyncNow: true,
+    nativeStorage: true,
+    supabaseConfig: configuredSupabase()
+  });
+
+  app.backgroundApi.nativeData[core.STATE_KEY] = validState([]);
+  const page = await openOptionsPage(app);
+
+  app.backgroundApi.nativeData.supabaseSession = supabaseSession();
+  app.backgroundApi.nativeData.settingsSync = settingsSync(app.backgroundApi.nowValue - 2 * 60 * 1000);
+  await page.dispatchWindow("focus");
+
+  assert.equal(page.byId("syncStatusText").textContent, "Last synced 2 minutes ago.");
 });
 
 test("options hides provider sign-in buttons when iOS sync is signed in", async () => {
@@ -307,6 +327,7 @@ test("end-to-end stats page renders background screen time totals", async () => 
 
 async function openOptionsPage(app) {
   const document = optionsDocument();
+  const listeners = new Map();
   const context = {
     BlockerCore: core,
     browser: app.optionsApi,
@@ -318,7 +339,9 @@ async function openOptionsPage(app) {
       pathname: "/options.html"
     },
     history: { replaceState() {} },
-    addEventListener() {},
+    addEventListener(type, listener) {
+      listeners.set(type, [...(listeners.get(type) || []), listener]);
+    },
     scrollY: 0,
     scrollTo() {}
   };
@@ -326,7 +349,7 @@ async function openOptionsPage(app) {
   vm.runInNewContext(optionsScript, context, { filename: "options.js" });
   await settle();
 
-  return page(document);
+  return page(document, listeners);
 }
 
 async function openStatsPage(app) {
@@ -802,6 +825,8 @@ function testDocument(ids) {
 
   return {
     elements,
+    hidden: false,
+    addEventListener() {},
     createElement(tagName) {
       return new TestElement(tagName);
     },
@@ -842,7 +867,7 @@ function rowTemplateContent() {
   return fragment;
 }
 
-function page(document) {
+function page(document, listeners = new Map()) {
   return {
     document,
     byId(id) {
@@ -850,6 +875,10 @@ function page(document) {
     },
     customRows() {
       return document.getElementById("rows").children.filter((row) => row.querySelector(".value-input"));
+    },
+    async dispatchWindow(type) {
+      await Promise.all((listeners.get(type) || []).map((listener) => listener()));
+      await settle();
     }
   };
 }
@@ -898,7 +927,7 @@ class TestElement {
   async dispatch(type, event = {}) {
     const listeners = this.listeners.get(type) || [];
 
-    await Promise.all(listeners.map((listener) => listener({ target: this, ...event })));
+    await Promise.all(listeners.map((listener) => listener({ target: this, preventDefault() {}, ...event })));
     await settle();
   }
 
