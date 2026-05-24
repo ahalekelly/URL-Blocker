@@ -338,6 +338,23 @@ h2 {
   margin-top: 12px;
 }
 
+.screen-time-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.secondary-link {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.secondary-link:hover {
+  text-decoration: underline;
+}
+
 .screen-time-row {
   align-items: center;
   justify-content: space-between;

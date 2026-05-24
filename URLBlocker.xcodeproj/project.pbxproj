@@ -19,6 +19,9 @@
 		01A00000000000000000000A /* options.html in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000A /* options.html */; };
 		01A00000000000000000000B /* options.css in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000B /* options.css */; };
 		01A00000000000000000000C /* options.js in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000C /* options.js */; };
+		01A000000000000000000015 /* stats.html in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000016 /* stats.html */; };
+		01A000000000000000000016 /* stats.css in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000017 /* stats.css */; };
+		01A000000000000000000017 /* stats.js in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000018 /* stats.js */; };
 		01A00000000000000000000D /* blocked.html in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000D /* blocked.html */; };
 		01A00000000000000000000E /* blocked.css in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000E /* blocked.css */; };
 		01A00000000000000000000F /* blocked.js in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000F /* blocked.js */; };
@@ -40,6 +43,9 @@
 		02A00000000000000000000B /* options.html in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000A /* options.html */; };
 		02A00000000000000000000C /* options.css in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000B /* options.css */; };
 		02A00000000000000000000D /* options.js in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000C /* options.js */; };
+		02A000000000000000000015 /* stats.html in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000016 /* stats.html */; };
+		02A000000000000000000016 /* stats.css in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000017 /* stats.css */; };
+		02A000000000000000000017 /* stats.js in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000018 /* stats.js */; };
 		02A00000000000000000000E /* blocked.html in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000D /* blocked.html */; };
 		02A00000000000000000000F /* blocked.css in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000E /* blocked.css */; };
 		02A000000000000000000010 /* blocked.js in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000F /* blocked.js */; };
@@ -112,6 +118,9 @@
 		01B00000000000000000000A /* options.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = options.html; sourceTree = "<group>"; };
 		01B00000000000000000000B /* options.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = options.css; sourceTree = "<group>"; };
 		01B00000000000000000000C /* options.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = options.js; sourceTree = "<group>"; };
+		01B000000000000000000016 /* stats.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = stats.html; sourceTree = "<group>"; };
+		01B000000000000000000017 /* stats.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = stats.css; sourceTree = "<group>"; };
+		01B000000000000000000018 /* stats.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = stats.js; sourceTree = "<group>"; };
 		01B00000000000000000000D /* blocked.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = blocked.html; sourceTree = "<group>"; };
 		01B00000000000000000000E /* blocked.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = blocked.css; sourceTree = "<group>"; };
 		01B00000000000000000000F /* blocked.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = blocked.js; sourceTree = "<group>"; };
@@ -218,6 +227,9 @@
 				01B00000000000000000000A /* options.html */,
 				01B00000000000000000000B /* options.css */,
 				01B00000000000000000000C /* options.js */,
+				01B000000000000000000016 /* stats.html */,
+				01B000000000000000000017 /* stats.css */,
+				01B000000000000000000018 /* stats.js */,
 				01B00000000000000000000D /* blocked.html */,
 				01B00000000000000000000E /* blocked.css */,
 				01B00000000000000000000F /* blocked.js */,
@@ -417,6 +429,9 @@
 				01A00000000000000000000A /* options.html in Resources */,
 				01A00000000000000000000B /* options.css in Resources */,
 				01A00000000000000000000C /* options.js in Resources */,
+				01A000000000000000000015 /* stats.html in Resources */,
+				01A000000000000000000016 /* stats.css in Resources */,
+				01A000000000000000000017 /* stats.js in Resources */,
 				01A00000000000000000000D /* blocked.html in Resources */,
 				01A00000000000000000000E /* blocked.css in Resources */,
 				01A00000000000000000000F /* blocked.js in Resources */,
@@ -447,6 +462,9 @@
 				02A00000000000000000000B /* options.html in Resources */,
 				02A00000000000000000000C /* options.css in Resources */,
 				02A00000000000000000000D /* options.js in Resources */,
+				02A000000000000000000015 /* stats.html in Resources */,
+				02A000000000000000000016 /* stats.css in Resources */,
+				02A000000000000000000017 /* stats.js in Resources */,
 				02A00000000000000000000E /* blocked.html in Resources */,
 				02A00000000000000000000F /* blocked.css in Resources */,
 				02A000000000000000000010 /* blocked.js in Resources */,

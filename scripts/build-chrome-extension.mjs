@@ -32,6 +32,9 @@ const requiredFiles = [
   "options.css",
   "options.html",
   "options.js",
+  "stats.css",
+  "stats.html",
+  "stats.js",
   "supabase-config.json",
   "supabase-sync.js"
 ];

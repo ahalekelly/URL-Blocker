@@ -469,6 +469,73 @@ test("getScreenTimeLog uses the configured rolling reset window", async () => {
   });
 });
 
+test("getScreenTimeStats returns summary, hourly, device, and zero-domain rows", async () => {
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "domain", value: "example.com" },
+    { id: "22222222-2222-4222-8222-222222222222", kind: "domain", value: "unused.example" }
+  ], core.DEFAULT_SCHEDULE, [
+    { domain: "example.com", limitMinutes: 1 },
+    { domain: "unused.example", limitMinutes: 5 }
+  ], { type: "rollingWindow", windowHours: 2 });
+  api.storageData.screenTimeUsage = screenTimeUsage({
+    "example.com": {
+      18: 1000,
+      19: 2000
+    }
+  }, {
+    "other-device": {
+      "example.com": {
+        20: 3000
+      }
+    }
+  });
+  const controller = createBackgroundController(api);
+
+  assert.deepEqual(await controller.handleMessage({ type: "getScreenTimeStats" }, {}), {
+    type: "screenTimeStats",
+    stats: {
+      generatedAtMs: 20 * 60 * 60 * 1000,
+      limitReset: { type: "rollingWindow", windowHours: 2 },
+      window: { startHour: 19, endHour: 20 },
+      totalMs: 5000,
+      trackedDomainCount: 2,
+      activeDomainCount: 1,
+      overLimitCount: 0,
+      entries: [
+        {
+          domain: "example.com",
+          totalMs: 5000,
+          localMs: 2000,
+          remoteMs: 3000,
+          limitMinutes: 1,
+          remainingMs: 55000,
+          usedPercent: 8,
+          isOverLimit: false
+        },
+        {
+          domain: "unused.example",
+          totalMs: 0,
+          localMs: 0,
+          remoteMs: 0,
+          limitMinutes: 5,
+          remainingMs: 300000,
+          usedPercent: 0,
+          isOverLimit: false
+        }
+      ],
+      hourlyTotals: [
+        { hour: 19, startedAtMs: 19 * 60 * 60 * 1000, totalMs: 2000 },
+        { hour: 20, startedAtMs: 20 * 60 * 60 * 1000, totalMs: 3000 }
+      ],
+      deviceTotals: [
+        { label: "This Device", totalMs: 2000 },
+        { label: "Other Device 1", totalMs: 3000 }
+      ]
+    }
+  });
+});
+
 test("getScreenTimeLog uses the latest daily reset hour", async () => {
   const now = new Date(2026, 0, 2, 10, 30).getTime();
   const resetHour = hourNumber(new Date(2026, 0, 2, 6));

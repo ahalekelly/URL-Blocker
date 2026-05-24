@@ -1,0 +1,148 @@
+.stats-shell {
+  max-width: 1120px;
+}
+
+.stats-header,
+.stats-section-header,
+.stats-row-main,
+.stats-row-values,
+.stats-device-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stats-header {
+  margin-bottom: 16px;
+}
+
+.stats-header h1 {
+  margin-top: 6px;
+}
+
+.stats-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.stats-metric,
+.stats-domain-row,
+.stats-device-row {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.stats-metric {
+  display: grid;
+  gap: 8px;
+  min-height: 92px;
+  padding: 14px;
+}
+
+.stats-metric span,
+.stats-muted,
+.stats-domain-limit,
+.stats-domain-detail,
+.stats-device-row span {
+  color: var(--muted);
+}
+
+.stats-metric strong {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.stats-panel {
+  margin-top: 12px;
+}
+
+.hourly-bars {
+  display: grid;
+  grid-auto-columns: 14px;
+  grid-auto-flow: column;
+  align-items: end;
+  gap: 4px;
+  min-height: 160px;
+  margin-top: 12px;
+  overflow-x: auto;
+  padding-top: 12px;
+}
+
+.hourly-bar {
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
+  background: var(--accent);
+}
+
+.hourly-bar.is-empty {
+  background: var(--border);
+}
+
+.stats-domain-rows,
+.stats-device-rows {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.stats-domain-row {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.stats-domain-name {
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.stats-row-values {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.stats-progress {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.stats-progress-fill {
+  width: var(--progress);
+  height: 100%;
+  background: var(--accent);
+}
+
+.stats-domain-row.is-over-limit .stats-progress-fill {
+  background: var(--danger);
+}
+
+.stats-domain-row.is-over-limit .stats-domain-used {
+  color: var(--danger);
+}
+
+.stats-device-row {
+  min-height: 56px;
+  padding: 12px;
+}
+
+@media (max-width: 760px) {
+  .stats-header,
+  .stats-section-header,
+  .stats-row-main,
+  .stats-device-row {
+    display: grid;
+  }
+
+  .stats-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stats-row-values {
+    justify-content: flex-start;
+  }
+}

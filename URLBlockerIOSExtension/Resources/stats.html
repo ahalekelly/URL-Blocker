@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Screen Time</title>
+  <link rel="stylesheet" href="options.css">
+  <link rel="stylesheet" href="stats.css">
+</head>
+<body>
+  <main class="shell stats-shell">
+    <header class="page-header stats-header">
+      <div>
+        <a class="secondary-link" href="options.html">Blocklist</a>
+        <h1>Screen Time</h1>
+      </div>
+      <button id="refreshButton" type="button">Refresh</button>
+    </header>
+
+    <div id="errorSummary" class="error-summary" hidden></div>
+
+    <section class="stats-summary" aria-label="Screen time summary">
+      <article class="stats-metric">
+        <span>Total</span>
+        <strong id="totalTime">0s</strong>
+      </article>
+      <article class="stats-metric">
+        <span>Active</span>
+        <strong id="activeDomains">0</strong>
+      </article>
+      <article class="stats-metric">
+        <span>Tracked</span>
+        <strong id="trackedDomains">0</strong>
+      </article>
+      <article class="stats-metric">
+        <span>Over Limit</span>
+        <strong id="overLimitDomains">0</strong>
+      </article>
+    </section>
+
+    <section class="settings-panel stats-panel">
+      <div class="stats-section-header">
+        <h2 id="windowTitle">Current Window</h2>
+        <p id="updatedAt" class="stats-muted"></p>
+      </div>
+      <div id="hourlyBars" class="hourly-bars" aria-label="Hourly screen time totals"></div>
+      <p id="emptyHourlyTotals" class="empty-screen-time">No usage logged in this window.</p>
+    </section>
+
+    <section class="settings-panel stats-panel">
+      <h2>Domains</h2>
+      <div id="domainRows" class="stats-domain-rows"></div>
+      <p id="emptyDomains" class="empty-screen-time">No tracked domains.</p>
+    </section>
+
+    <section class="settings-panel stats-panel">
+      <h2>Devices</h2>
+      <div id="deviceRows" class="stats-device-rows"></div>
+      <p id="emptyDevices" class="empty-screen-time">No usage logged by any device.</p>
+    </section>
+  </main>
+
+  <script src="stats.js"></script>
+</body>
+</html>

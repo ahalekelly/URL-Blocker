@@ -62,6 +62,9 @@
         case "getLocalScreenTimeLog":
           requireKeys(message, ["type"], "getLocalScreenTimeLog message");
           return getLocalScreenTimeLog();
+        case "getScreenTimeStats":
+          requireKeys(message, ["type"], "getScreenTimeStats message");
+          return getScreenTimeStats();
         case "getSyncStatus":
           requireKeys(message, ["type"], "getSyncStatus message");
           return getSyncStatus();
@@ -196,6 +199,17 @@
       return {
         type: "screenTimeLog",
         entries: screenTimeEntries(state, await loadScreenTimeUsage(), currentTimeMs())
+      };
+    }
+
+    async function getScreenTimeStats() {
+      const state = await loadState();
+      const nowMs = currentTimeMs();
+      await syncScreenTimeIfReady(state, { force: false });
+
+      return {
+        type: "screenTimeStats",
+        stats: screenTimeStats(state, await loadScreenTimeUsage(), nowMs)
       };
     }
 
@@ -773,6 +787,7 @@
       getLocalScreenTimeLog,
       getLocalState,
       getScreenTimeLog,
+      getScreenTimeStats,
       getState,
       getDefaultState,
       handleMessage,
@@ -805,6 +820,105 @@
       })
       .filter((entry) => entry.totalMs > 0)
       .sort((left, right) => right.totalMs - left.totalMs || left.domain.localeCompare(right.domain));
+  }
+
+  function screenTimeStats(state, usage, nowMs) {
+    const window = usageWindow(state.limitReset, nowMs);
+    const entries = activeDomainLimits(state)
+      .map((limit) => screenTimeStatsEntry(usage, limit, window))
+      .sort((left, right) => right.totalMs - left.totalMs || left.domain.localeCompare(right.domain));
+    const domains = entries.map((entry) => entry.domain);
+
+    return {
+      generatedAtMs: nowMs,
+      limitReset: state.limitReset,
+      window,
+      totalMs: entries.reduce((total, entry) => total + entry.totalMs, 0),
+      trackedDomainCount: entries.length,
+      activeDomainCount: entries.filter((entry) => entry.totalMs > 0).length,
+      overLimitCount: entries.filter((entry) => entry.isOverLimit).length,
+      entries,
+      hourlyTotals: screenTimeHourlyTotals(usage, domains, window),
+      deviceTotals: screenTimeDeviceTotals(usage, domains, window)
+    };
+  }
+
+  function screenTimeStatsEntry(usage, limit, window) {
+    const limitMs = limit.limitMinutes * 60 * 1000;
+    const localMs = screenTimeBucketTotal(usage.localBuckets[limit.domain] || {}, window);
+    const remoteMs = remoteScreenTimeBucketTotal(usage.remoteBuckets, limit.domain, window);
+    const totalMs = localMs + remoteMs;
+
+    return {
+      domain: limit.domain,
+      totalMs,
+      localMs,
+      remoteMs,
+      limitMinutes: limit.limitMinutes,
+      remainingMs: Math.max(0, limitMs - totalMs),
+      usedPercent: Math.min(100, Math.round((totalMs / limitMs) * 100)),
+      isOverLimit: totalMs >= limitMs
+    };
+  }
+
+  function screenTimeHourlyTotals(usage, domains, window) {
+    const totals = [];
+
+    for (let hour = window.startHour; hour <= window.endHour; hour += 1) {
+      totals.push({
+        hour,
+        startedAtMs: hour * HOUR_MS,
+        totalMs: domains.reduce((total, domain) => total + screenTimeHourTotal(usage, domain, hour), 0)
+      });
+    }
+
+    return totals;
+  }
+
+  function screenTimeDeviceTotals(usage, domains, window) {
+    return [
+      {
+        label: "This Device",
+        totalMs: domains.reduce((total, domain) => total + screenTimeBucketTotal(usage.localBuckets[domain] || {}, window), 0)
+      },
+      ...Object.values(usage.remoteBuckets).map((deviceBuckets, index) => ({
+        label: `Other Device ${index + 1}`,
+        totalMs: domains.reduce((total, domain) => total + screenTimeBucketTotal(deviceBuckets[domain] || {}, window), 0)
+      }))
+    ].filter((entry) => entry.totalMs > 0);
+  }
+
+  function screenTimeHourTotal(usage, domain, hour) {
+    return screenTimeBucketValue(usage.localBuckets[domain] && usage.localBuckets[domain][String(hour)])
+      + Object.values(usage.remoteBuckets).reduce((total, deviceBuckets) => (
+        total + screenTimeBucketValue(deviceBuckets[domain] && deviceBuckets[domain][String(hour)])
+      ), 0);
+  }
+
+  function remoteScreenTimeBucketTotal(remoteBuckets, domain, window) {
+    return Object.values(remoteBuckets).reduce((total, deviceBuckets) => (
+      total + screenTimeBucketTotal(deviceBuckets[domain] || {}, window)
+    ), 0);
+  }
+
+  function screenTimeBucketTotal(buckets, window) {
+    return Object.entries(buckets).reduce((total, [hour, bucket]) => {
+      const bucketHour = Number(hour);
+
+      if (bucketHour < window.startHour || bucketHour > window.endHour) {
+        return total;
+      }
+
+      return total + screenTimeBucketValue(bucket);
+    }, 0);
+  }
+
+  function screenTimeBucketValue(bucket) {
+    if (bucket === undefined) {
+      return 0;
+    }
+
+    return typeof bucket === "number" ? bucket : bucket.totalMs;
   }
 
   function activeDomainLimits(state) {
