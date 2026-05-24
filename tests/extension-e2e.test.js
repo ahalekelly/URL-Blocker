@@ -55,6 +55,26 @@ test("options renders local data before startup sync finishes", async () => {
   await app.optionsApi.finishSyncNow();
 });
 
+test("options keeps the editor hidden until local data loads", async () => {
+  const app = createExtensionApp({ delayGetLocalState: true });
+
+  app.backgroundApi.storageData[core.STATE_KEY] = validState([
+    { id, kind: "domain", value: "example.com" }
+  ]);
+  app.backgroundApi.grantedOrigins.push("*://*.example.com/*");
+
+  const page = await openOptionsPage(app);
+
+  assert.deepEqual(messageTypes(app), ["getLocalState"]);
+  assert.equal(page.byId("editorPanel").hidden, true);
+  assert.equal(page.byId("rows").children.length, 0);
+
+  await app.optionsApi.finishGetLocalState();
+
+  assert.equal(page.byId("editorPanel").hidden, false);
+  assert.equal(page.customRows().at(-1).querySelector(".value-input").value, "example.com");
+});
+
 test("options rounds displayed screen time to the nearest minute", async () => {
   const app = createExtensionApp();
   const hour = Math.floor(app.backgroundApi.nowValue / (60 * 60 * 1000));
@@ -436,12 +456,21 @@ async function runContentScript(app, url, tabId) {
 function createExtensionApp(overrides = {}) {
   const backgroundApi = fakeBackgroundApi(overrides);
   const controller = createBackgroundController(backgroundApi);
+  let finishDelayedLocalState;
   let finishDelayedSync;
   let finishDelayedSavedState;
   let finishDelayedSignInWithProvider;
   const optionsApi = {
     messages: [],
     permissionRequests: [],
+    async finishGetLocalState() {
+      if (!finishDelayedLocalState) {
+        throw new Error("No delayed local-state load is pending.");
+      }
+
+      await finishDelayedLocalState();
+      await settle();
+    },
     async finishSyncNow() {
       if (!finishDelayedSync) {
         throw new Error("No delayed sync is pending.");
@@ -469,6 +498,12 @@ function createExtensionApp(overrides = {}) {
     runtime: {
       sendMessage(message) {
         optionsApi.messages.push(message);
+
+        if (overrides.delayGetLocalState && message.type === "getLocalState") {
+          return new Promise((resolve, reject) => {
+            finishDelayedLocalState = () => controller.handleMessage(message, {}).then(resolve, reject);
+          });
+        }
 
         if (overrides.delaySyncNow && message.type === "syncNow") {
           return new Promise((resolve, reject) => {
@@ -792,6 +827,7 @@ function optionsDocument() {
   ]);
 
   document.elements.rowTemplate.content = { cloneNode: rowTemplateContent };
+  document.elements.editorPanel.hidden = true;
 
   return document;
 }
