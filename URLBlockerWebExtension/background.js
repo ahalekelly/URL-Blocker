@@ -44,6 +44,9 @@
         case "saveState":
           requireKeys(message, ["type", "state"], "saveState message");
           return saveState(message.state);
+        case "finishSavedState":
+          requireKeys(message, ["type"], "finishSavedState message");
+          return finishSavedState();
         case "syncWebsiteAccess":
           requireKeys(message, ["type"], "syncWebsiteAccess message");
           return syncWebsiteAccess();
@@ -131,15 +134,19 @@
         throw errorFromResponse(storageResponse);
       }
 
-      let savedState = storageResponse.state;
       const settingsSync = await loadSettingsSync();
 
       await settingsSyncStorage.saveSync(sync.dirtySettingsSync(settingsSync, currentTimeMs(), createId));
-      savedState = await syncSettingsIfPossible(savedState);
+      return { type: "saved", state: storageResponse.state };
+    }
+
+    async function finishSavedState() {
+      const savedState = await syncSettingsIfPossible(await loadState());
+
       await redirectOpenBlockedTabs(savedState);
       await removeUnusedWebsiteAccess(savedState);
 
-      return { type: "saved", state: savedState };
+      return { type: "finishedSavedState", state: savedState };
     }
 
     async function openOptions() {
@@ -799,6 +806,7 @@
       logScreenTime,
       openOptions,
       redirectBlockedUrl,
+      finishSavedState,
       saveState,
       signInWithProvider,
       signOut,

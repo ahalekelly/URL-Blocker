@@ -124,8 +124,10 @@ test("saveState removes access for sites no longer blocked", async () => {
     { id, kind: "domain", value: "reddit.com" },
     { id: "22222222-2222-4222-8222-222222222222", kind: "url", value: "https://x.com/home" }
   ]));
+  const finishResponse = await controller.finishSavedState();
 
   assert.equal(response.type, "saved");
+  assert.equal(finishResponse.type, "finishedSavedState");
   assert.deepEqual(api.registeredScripts[0].matches, ["*://*.reddit.com/*", "*://*.twitter.com/*", "*://*.x.com/*"]);
   assert.deepEqual(api.removedOrigins, ["*://*.example.com/*"]);
 });
@@ -134,8 +136,10 @@ test("saveState keeps install-time permissions when they are no longer blocked",
   const api = fakeApi({ grantedOrigins: ["*://*.example.com/*", "*://*.youtube.com/*"] });
   const controller = createBackgroundController(api);
   const response = await controller.saveState(validState([]));
+  const finishResponse = await controller.finishSavedState();
 
   assert.equal(response.type, "saved");
+  assert.equal(finishResponse.type, "finishedSavedState");
   assert.deepEqual(api.removedOrigins, ["*://*.example.com/*"]);
   assert.deepEqual(api.grantedOrigins, ["*://*.youtube.com/*"]);
 });
@@ -184,8 +188,10 @@ test("saveState registers the literal regex host", async () => {
   const response = await controller.saveState(validState([
     { id, kind: "regex", value: "^https://x\\.com/(home|explore)/?$" }
   ]));
+  const finishResponse = await controller.finishSavedState();
 
   assert.equal(response.type, "saved");
+  assert.equal(finishResponse.type, "finishedSavedState");
   assert.deepEqual(api.registeredScripts[0].matches, ["*://*.x.com/*"]);
   assert.deepEqual(api.removedOrigins, ["*://*.example.com/*"]);
 });
@@ -943,7 +949,7 @@ test("Supabase HTTP failures include response details", async () => {
   }
 });
 
-test("saveState applies newer remote settings when Supabase wins", async () => {
+test("saveState returns after local write before Supabase follow-up", async () => {
   const fetch = globalThis.fetch;
   const api = fakeApi({
     now: 20 * 60 * 60 * 1000,
@@ -975,12 +981,19 @@ test("saveState applies newer remote settings when Supabase wins", async () => {
 
   try {
     const controller = createBackgroundController(api);
-    const response = await controller.saveState(validState([
+    const localState = validState([
       { id, kind: "domain", value: "example.com" }
-    ]));
+    ]);
+    const response = await controller.saveState(localState);
 
     assert.equal(response.type, "saved");
-    assert.deepEqual(response.state, remoteState);
+    assert.deepEqual(response.state, localState);
+    assert.deepEqual(api.storageData[core.STATE_KEY], localState);
+    assert.equal(api.storageData.settingsSync.dirty, true);
+
+    const finishResponse = await controller.finishSavedState();
+
+    assert.equal(finishResponse.type, "finishedSavedState");
     assert.deepEqual(api.storageData[core.STATE_KEY], remoteState);
     assert.equal(api.storageData.settingsSync.dirty, false);
   } finally {
@@ -1100,8 +1113,10 @@ test("saveState redirects open tabs that match the new state", async () => {
   const response = await controller.saveState(validState([
     { id, kind: "url", value: "https://x.com/home" }
   ], { type: "always" }));
+  const finishResponse = await controller.finishSavedState();
 
   assert.equal(response.type, "saved");
+  assert.equal(finishResponse.type, "finishedSavedState");
   assert.deepEqual(api.updatedTabs, [{
     tabId: 7,
     url: "safari-web-extension://extension/blocked.html#https%3A%2F%2Fx.com%2Fhome"

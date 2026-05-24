@@ -753,6 +753,7 @@
 
     switch (response.type) {
       case "saved":
+        finishSavedState();
         await applySavedState(response.state, "Saved.");
         return;
       case "validationError":
@@ -1082,6 +1083,7 @@
     switch (response.type) {
       case "saved":
         resetButton.disabled = false;
+        finishSavedState();
         await applySavedState(response.state, "Reset.");
         return;
       case "validationError":
@@ -1097,10 +1099,40 @@
 
   async function applySavedState(savedState, message) {
     setDraftState(savedState);
-    await loadScreenTimeLog("getScreenTimeLog");
-    await loadSyncStatus();
     state.successMessage = message;
     render();
+
+    await loadScreenTimeLog("getScreenTimeLog");
+    await loadSyncStatus();
+    render();
+  }
+
+  function finishSavedState() {
+    api.runtime.sendMessage({ type: "finishSavedState" })
+      .then(handleFinishedSavedState)
+      .catch((error) => {
+        state.pageError = errorMessage(error);
+        render();
+      });
+  }
+
+  async function handleFinishedSavedState(response) {
+    switch (response.type) {
+      case "finishedSavedState":
+        if (!draftHasUnsavedChanges()) {
+          setDraftState(response.state);
+        }
+
+        await loadSyncStatus();
+        render();
+        return;
+      case "error":
+        state.pageError = errorMessage(errorFromResponse(response));
+        render();
+        return;
+      default:
+        throw codedError("UnexpectedFinishSavedStateResponse", `Unknown finishSavedState response: ${response.type}`);
+    }
   }
 
   function setDraftState(blockerState) {

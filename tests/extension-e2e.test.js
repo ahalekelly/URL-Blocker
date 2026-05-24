@@ -191,6 +191,24 @@ test("end-to-end options save blocks a page and renders the blocked view", async
   assert.equal(blocked.byId("blockedTarget").textContent, "https://example.com/focus");
 });
 
+test("options hides the save button before saved-state follow-up finishes", async () => {
+  const app = createExtensionApp({ delayFinishSavedState: true });
+  const page = await openOptionsPage(app);
+  const saveButton = page.byId("saveButton");
+
+  await page.byId("addRowButton").dispatch("click");
+  page.customRows().at(-1).querySelector(".value-input").value = "example.com";
+  await page.customRows().at(-1).querySelector(".value-input").dispatch("input");
+  await saveButton.dispatch("click");
+
+  assert.equal(page.byId("successMessage").textContent, "Saved.");
+  assert.equal(saveButton.hidden, true);
+  assert.equal(saveButton.disabled, false);
+  assert.ok(messageTypes(app).includes("finishSavedState"));
+
+  await app.optionsApi.finishSavedState();
+});
+
 test("end-to-end stats page renders background screen time totals", async () => {
   const app = createExtensionApp();
   const hour = Math.floor(app.backgroundApi.nowValue / (60 * 60 * 1000));
@@ -325,6 +343,7 @@ function createExtensionApp(overrides = {}) {
   const backgroundApi = fakeBackgroundApi(overrides);
   const controller = createBackgroundController(backgroundApi);
   let finishDelayedSync;
+  let finishDelayedSavedState;
   const optionsApi = {
     messages: [],
     permissionRequests: [],
@@ -336,6 +355,14 @@ function createExtensionApp(overrides = {}) {
       await finishDelayedSync();
       await settle();
     },
+    async finishSavedState() {
+      if (!finishDelayedSavedState) {
+        throw new Error("No delayed saved-state follow-up is pending.");
+      }
+
+      await finishDelayedSavedState();
+      await settle();
+    },
     runtime: {
       sendMessage(message) {
         optionsApi.messages.push(message);
@@ -343,6 +370,12 @@ function createExtensionApp(overrides = {}) {
         if (overrides.delaySyncNow && message.type === "syncNow") {
           return new Promise((resolve, reject) => {
             finishDelayedSync = () => controller.handleMessage(message, {}).then(resolve, reject);
+          });
+        }
+
+        if (overrides.delayFinishSavedState && message.type === "finishSavedState") {
+          return new Promise((resolve, reject) => {
+            finishDelayedSavedState = () => controller.handleMessage(message, {}).then(resolve, reject);
           });
         }
 
