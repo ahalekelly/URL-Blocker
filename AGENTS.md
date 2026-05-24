@@ -125,6 +125,34 @@ Use [ios_build_sign_install.md](ios_build_sign_install.md) for the complete sign
 - After finishing and testing each change, commit all changes for that completed work.
 - Save any important or useful information to this file, make sure it update it when information changes, you learn new things, or you are given new general instructions
 
+## Supabase Sync
+
+- Supabase project ref: `YOUR_PROJECT_REF`.
+- Runtime config is bundled from `URLBlockerIOSExtension/Resources/supabase-config.json`. It must contain the project URL, publishable anon key, `redirectScheme: "urlblocker"`, and `screenTimeSyncAgeMs`.
+- Backend schema lives in `supabase/001_url_blocker_sync.sql`.
+- Run Supabase CLI commands outside the Codex sandbox. The CLI writes local metadata under `supabase/.temp/` and `~/.supabase`.
+- `supabase/.temp/` is generated local CLI state and must not be committed.
+- Confirm linked CLI access with:
+
+```sh
+supabase db query --linked "select 1 as ok;"
+```
+
+- Apply small SQL fixes with `supabase db query --linked -f /private/tmp/file.sql` instead of rerunning the full schema file. The schema file contains `create policy` statements, and rerunning the whole file can fail when policies already exist.
+- To replace a function safely, put the exact `create or replace function ...` block in a temp SQL file and run it with `supabase db query --linked -f`.
+- If the browser reports `Supabase request failed: 400`, check the detailed message now shown in the options UI. A previous RPC bug was `column reference "device_id" is ambiguous`, fixed by using `on conflict on constraint screen_time_buckets_pkey`.
+- With Data API auto-expose disabled, keep these grants present:
+
+```sql
+grant usage on schema public to authenticated;
+grant select, insert, update on public.user_settings to authenticated;
+grant select, insert, update on public.screen_time_buckets to authenticated;
+grant execute on function public.save_user_settings(jsonb, bigint, text, text) to authenticated;
+grant execute on function public.sync_screen_time_buckets(jsonb) to authenticated;
+```
+
+- Google sign-in is configured. Apple sign-in is intentionally not configured yet.
+
 ## Coding Preferences
 
 - Keep code extremely easy to skim.
