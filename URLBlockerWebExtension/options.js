@@ -34,7 +34,7 @@
     isRequestingPermissions: false,
     missingOrigins: [],
     screenTimeEntries: [],
-    syncStatus: { status: "checking", error: "" }
+    syncStatus: { status: "checking", error: "", lastSuccessfulSyncAgeMs: null }
   };
 
   const rowsElement = document.getElementById("rows");
@@ -434,7 +434,7 @@
         signOutButton.hidden = true;
         return;
       case "signedIn":
-        syncStatusText.textContent = syncStatusErrorText("Sync is on.");
+        syncStatusText.textContent = syncStatusErrorText(signedInSyncStatusText());
         googleSignInButton.hidden = true;
         appleSignInButton.hidden = true;
         syncNowButton.hidden = false;
@@ -465,6 +465,38 @@
     }
 
     return `${text} Last sync error: ${state.syncStatus.error}`;
+  }
+
+  function signedInSyncStatusText() {
+    if (state.syncStatus.lastSuccessfulSyncAgeMs === null) {
+      return "No successful sync yet.";
+    }
+
+    if (state.syncStatus.lastSuccessfulSyncAgeMs < 60 * 1000) {
+      return "Last synced just now.";
+    }
+
+    return `Last synced ${formatSyncAge(state.syncStatus.lastSuccessfulSyncAgeMs)} ago.`;
+  }
+
+  function formatSyncAge(ageMs) {
+    const minutes = Math.floor(ageMs / (60 * 1000));
+
+    if (minutes < 60) {
+      return pluralize(minutes, "minute");
+    }
+
+    const hours = Math.floor(minutes / 60);
+
+    if (hours < 24) {
+      return pluralize(hours, "hour");
+    }
+
+    return pluralize(Math.floor(hours / 24), "day");
+  }
+
+  function pluralize(value, unit) {
+    return value === 1 ? `1 ${unit}` : `${value} ${unit}s`;
   }
 
   function renderScreenTimeRow(entry) {
@@ -872,14 +904,14 @@
         render();
         return;
       case "nativeSignInRequired":
-        state.syncStatus = { status: "nativeSignInRequired", error: "" };
+        state.syncStatus = { status: "nativeSignInRequired", error: "", lastSuccessfulSyncAgeMs: null };
         render();
         return;
       case "openOAuth":
         root.location.href = response.url;
         return;
       case "syncUnavailable":
-        state.syncStatus = { status: "unconfigured", error: "" };
+        state.syncStatus = { status: "unconfigured", error: "", lastSuccessfulSyncAgeMs: null };
         render();
         return;
       case "error":
@@ -987,7 +1019,11 @@
   function syncStatusFromError(error) {
     const status = state.syncStatus.status === "signedIn" ? "signedIn" : "error";
 
-    return { status, error: errorMessage(error) };
+    return {
+      status,
+      error: errorMessage(error),
+      lastSuccessfulSyncAgeMs: status === "signedIn" ? state.syncStatus.lastSuccessfulSyncAgeMs : null
+    };
   }
 
   function normalizeAndValidateDraft() {
@@ -1441,7 +1477,7 @@
   }
 
   function normalizeSyncStatus(response) {
-    requireKeys(response, ["type", "status", "userId", "error"], "Sync status");
+    requireKeys(response, ["type", "status", "userId", "lastSuccessfulSyncAgeMs", "error"], "Sync status");
 
     switch (response.status) {
       case "unconfigured":
@@ -1449,9 +1485,18 @@
       case "signedIn":
       case "nativeSignInRequired":
       case "error":
+        if (response.status === "signedIn") {
+          const ageMs = response.lastSuccessfulSyncAgeMs;
+
+          if (ageMs !== null && (!Number.isInteger(ageMs) || ageMs < 0)) {
+            throw new Error("Sync status last successful sync age must be null or a non-negative integer.");
+          }
+        }
+
         return {
           status: response.status,
-          error: typeof response.error === "string" ? response.error : ""
+          error: typeof response.error === "string" ? response.error : "",
+          lastSuccessfulSyncAgeMs: response.status === "signedIn" ? response.lastSuccessfulSyncAgeMs : null
         };
       default:
         throw new Error(`Unknown sync status: ${response.status}`);

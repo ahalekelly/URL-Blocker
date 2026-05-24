@@ -447,10 +447,13 @@
           return { type: "syncStatus", status: "signedOut", error: lastSyncError };
         }
 
+        const settingsSync = await loadSettingsSync();
+
         return {
           type: "syncStatus",
           status: "signedIn",
           userId: sync.sessionUserId(sessionResult.session),
+          lastSuccessfulSyncAgeMs: lastSuccessfulSyncAgeMs(settingsSync),
           error: lastSyncError
         };
       } catch (error) {
@@ -569,12 +572,18 @@
         const remoteSettings = await sync.loadRemoteSettings(active.config, active.session, fetchJson);
 
         if (!remoteSettings) {
+          await markSyncSuccessful(settingsSync);
+          lastSyncError = "";
           return;
         }
 
         if (rawSync === undefined || sync.remoteSettingsAreNewer(settingsSync, remoteSettings)) {
           await applyRemoteSettings(remoteSettings, settingsSync);
+          return;
         }
+
+        await markSyncSuccessful(settingsSync);
+        lastSyncError = "";
       } catch (error) {
         rememberSyncError(error);
       }
@@ -594,6 +603,8 @@
           : await sync.loadRemoteSettings(active.config, active.session, fetchJson);
 
         if (!remoteSettings) {
+          await markSyncSuccessful(settingsSync);
+          lastSyncError = "";
           return localState;
         }
 
@@ -601,7 +612,7 @@
           return applyRemoteSettings(remoteSettings, settingsSync);
         }
 
-        await settingsSyncStorage.saveSync(sync.cleanSettingsSync(settingsSync, remoteSettings));
+        await settingsSyncStorage.saveSync(sync.cleanSettingsSync(settingsSync, remoteSettings, currentTimeMs()));
         lastSyncError = "";
         return localState;
       } catch (error) {
@@ -619,7 +630,7 @@
       }
 
       await stateStorage.saveState(result.state);
-      await settingsSyncStorage.saveSync(sync.cleanSettingsSync(settingsSync, remoteSettings));
+      await settingsSyncStorage.saveSync(sync.cleanSettingsSync(settingsSync, remoteSettings, currentTimeMs()));
       await syncWebsiteAccessForKnownPermissions(result.state);
       await redirectOpenBlockedTabs(result.state);
       lastSyncError = "";
@@ -675,6 +686,7 @@
 
         sync.mergeRemoteScreenTimeBuckets(usage, sync.normalizeRemoteScreenTimeRows(remoteRows, core));
         await screenTimeStorage.saveUsage(usage);
+        await markSyncSuccessful(await loadSettingsSync());
         lastSyncError = "";
       } catch (error) {
         rememberSyncError(error);
@@ -729,6 +741,18 @@
 
     async function loadSettingsSync() {
       return sync.parseSettingsSync(await settingsSyncStorage.loadSync(), createId, currentTimeMs());
+    }
+
+    async function markSyncSuccessful(settingsSync) {
+      await settingsSyncStorage.saveSync(sync.markSuccessfulSync(settingsSync, currentTimeMs()));
+    }
+
+    function lastSuccessfulSyncAgeMs(settingsSync) {
+      if (settingsSync.lastSuccessfulSyncMs === null) {
+        return null;
+      }
+
+      return Math.max(0, currentTimeMs() - settingsSync.lastSuccessfulSyncMs);
     }
 
     async function loadSupabaseConfig() {

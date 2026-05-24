@@ -5,7 +5,7 @@
   const SCREEN_TIME_SYNC_AGE_MS = 60 * 1000;
   const SCREEN_TIME_USAGE_SCHEMA_VERSION = 2;
   const SUPABASE_SESSION_SCHEMA_VERSION = 1;
-  const SETTINGS_SYNC_SCHEMA_VERSION = 1;
+  const SETTINGS_SYNC_SCHEMA_VERSION = 2;
   const CONFIG_SCHEMA_VERSION = 1;
   const CLOCK_SKEW_MS = 60 * 1000;
   const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -246,7 +246,8 @@
         deviceId: createDeviceId(),
         updatedAtMs: nowMs,
         revisionId: createDeviceId(),
-        dirty: false
+        dirty: false,
+        lastSuccessfulSyncMs: null
       };
     }
 
@@ -254,11 +255,16 @@
       throw new Error("Settings sync metadata must be an object.");
     }
 
-    requireKeys(rawSync, ["schemaVersion", "deviceId", "updatedAtMs", "revisionId", "dirty"], "Settings sync metadata");
-
-    if (rawSync.schemaVersion !== SETTINGS_SYNC_SCHEMA_VERSION) {
+    if (rawSync.schemaVersion !== 1 && rawSync.schemaVersion !== SETTINGS_SYNC_SCHEMA_VERSION) {
       throw new Error("Unsupported settings sync metadata version.");
     }
+
+    const isVersion1 = rawSync.schemaVersion === 1;
+    const allowedKeys = isVersion1
+      ? ["schemaVersion", "deviceId", "updatedAtMs", "revisionId", "dirty"]
+      : ["schemaVersion", "deviceId", "updatedAtMs", "revisionId", "dirty", "lastSuccessfulSyncMs"];
+
+    requireKeys(rawSync, allowedKeys, "Settings sync metadata");
 
     if (typeof rawSync.deviceId !== "string" || rawSync.deviceId.trim() === "") {
       throw new Error("Settings sync device ID must be a string.");
@@ -276,12 +282,21 @@
       throw new Error("Settings sync dirty value must be a boolean.");
     }
 
+    if (!isVersion1) {
+      const lastSuccessfulSyncMs = rawSync.lastSuccessfulSyncMs;
+
+      if (lastSuccessfulSyncMs !== null && (!Number.isInteger(lastSuccessfulSyncMs) || lastSuccessfulSyncMs < 0)) {
+        throw new Error("Settings sync success timestamp must be null or a non-negative integer.");
+      }
+    }
+
     return {
       schemaVersion: SETTINGS_SYNC_SCHEMA_VERSION,
       deviceId: rawSync.deviceId,
       updatedAtMs: rawSync.updatedAtMs,
       revisionId: rawSync.revisionId,
-      dirty: rawSync.dirty
+      dirty: rawSync.dirty,
+      lastSuccessfulSyncMs: isVersion1 ? null : rawSync.lastSuccessfulSyncMs
     };
   }
 
@@ -291,17 +306,30 @@
       deviceId: sync.deviceId,
       updatedAtMs: nowMs,
       revisionId: createRevisionId(),
-      dirty: true
+      dirty: true,
+      lastSuccessfulSyncMs: sync.lastSuccessfulSyncMs
     };
   }
 
-  function cleanSettingsSync(sync, remoteRow) {
+  function cleanSettingsSync(sync, remoteRow, nowMs) {
     return {
       schemaVersion: SETTINGS_SYNC_SCHEMA_VERSION,
       deviceId: sync.deviceId,
       updatedAtMs: remoteRow.updated_at_ms,
       revisionId: remoteRow.revision_id,
-      dirty: false
+      dirty: false,
+      lastSuccessfulSyncMs: nowMs
+    };
+  }
+
+  function markSuccessfulSync(sync, nowMs) {
+    return {
+      schemaVersion: SETTINGS_SYNC_SCHEMA_VERSION,
+      deviceId: sync.deviceId,
+      updatedAtMs: sync.updatedAtMs,
+      revisionId: sync.revisionId,
+      dirty: sync.dirty,
+      lastSuccessfulSyncMs: nowMs
     };
   }
 
@@ -640,6 +668,7 @@
     loadRemoteScreenTime,
     loadRemoteSettings,
     markScreenTimeSynced,
+    markSuccessfulSync,
     mergeRemoteScreenTimeBuckets,
     normalizeRemoteScreenTimeRows,
     normalizeSyncedScreenTimeRows,

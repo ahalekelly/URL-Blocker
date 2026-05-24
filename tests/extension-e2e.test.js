@@ -80,10 +80,11 @@ test("options hides provider sign-in buttons when sync is signed in", async () =
 
   app.backgroundApi.storageData[core.STATE_KEY] = validState([]);
   app.backgroundApi.storageData.supabaseSession = supabaseSession();
+  app.backgroundApi.storageData.settingsSync = settingsSync(app.backgroundApi.nowValue - 2 * 60 * 1000);
 
   const page = await openOptionsPage(app);
 
-  assert.equal(page.byId("syncStatusText").textContent, "Sync is on.");
+  assert.equal(page.byId("syncStatusText").textContent, "Last synced 2 minutes ago.");
   assert.equal(page.byId("googleSignInButton").hidden, true);
   assert.equal(page.byId("appleSignInButton").hidden, true);
   assert.equal(page.byId("syncNowButton").hidden, false);
@@ -117,10 +118,11 @@ test("options hides provider sign-in buttons when iOS sync is signed in", async 
 
   app.backgroundApi.nativeData[core.STATE_KEY] = validState([]);
   app.backgroundApi.nativeData.supabaseSession = supabaseSession();
+  app.backgroundApi.nativeData.settingsSync = settingsSync(app.backgroundApi.nowValue - 2 * 60 * 1000);
 
   const page = await openOptionsPage(app);
 
-  assert.equal(page.byId("syncStatusText").textContent, "Sync is on.");
+  assert.equal(page.byId("syncStatusText").textContent, "Last synced 2 minutes ago.");
   assert.equal(page.byId("googleSignInButton").hidden, true);
   assert.equal(page.byId("appleSignInButton").hidden, true);
   assert.equal(page.byId("syncNowButton").hidden, false);
@@ -647,6 +649,17 @@ function supabaseSession() {
     accessToken: jwtForUser("22222222-2222-4222-8222-222222222222"),
     refreshToken: "refresh-token",
     expiresAtMs: Date.now() + 60 * 60 * 1000
+  };
+}
+
+function settingsSync(lastSuccessfulSyncMs) {
+  return {
+    schemaVersion: 2,
+    deviceId: "11111111-1111-4111-8111-000000000001",
+    updatedAtMs: lastSuccessfulSyncMs,
+    revisionId: "22222222-2222-4222-8222-000000000001",
+    dirty: false,
+    lastSuccessfulSyncMs
   };
 }
 

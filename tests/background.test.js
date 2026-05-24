@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const core = require("../URLBlockerWebExtension/blocker.js");
 const defaultBlockedPages = require("../URLBlockerWebExtension/default-blocked-pages.json");
 const manifest = require("../URLBlockerWebExtension/manifest.json");
+const sync = require("../URLBlockerWebExtension/supabase-sync.js");
 const { createBackgroundController } = require("../URLBlockerWebExtension/background.js");
 
 const id = "11111111-1111-4111-8111-111111111111";
@@ -946,6 +947,58 @@ test("Supabase HTTP failures include response details", async () => {
   } finally {
     globalThis.fetch = fetch;
     console.error = consoleError;
+  }
+});
+
+test("settings sync metadata migrates missing last sync timestamp", () => {
+  const metadata = sync.parseSettingsSync({
+    schemaVersion: 1,
+    deviceId: "device-id",
+    updatedAtMs: 7000,
+    revisionId: "revision-id",
+    dirty: false
+  }, () => "new-id", 8000);
+
+  assert.deepEqual(metadata, {
+    schemaVersion: 2,
+    deviceId: "device-id",
+    updatedAtMs: 7000,
+    revisionId: "revision-id",
+    dirty: false,
+    lastSuccessfulSyncMs: null
+  });
+});
+
+test("syncNow records the last successful sync time", async () => {
+  const fetch = globalThis.fetch;
+  const api = fakeApi({
+    now: 20 * 60 * 60 * 1000,
+    supabaseConfig: configuredSupabase()
+  });
+
+  api.storageData.supabaseSession = supabaseSession();
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).includes("/user_settings") || String(url).includes("/screen_time_buckets")) {
+      return jsonResponse([]);
+    }
+
+    return fetch(url, options);
+  };
+
+  try {
+    const controller = createBackgroundController(api);
+    const syncResponse = await controller.syncNow();
+
+    assert.equal(syncResponse.status.lastSuccessfulSyncAgeMs, 0);
+    assert.equal(api.storageData.settingsSync.lastSuccessfulSyncMs, 72000000);
+
+    api.nowValue += 2 * 60 * 1000;
+
+    const statusResponse = await controller.handleMessage({ type: "getSyncStatus" }, {});
+
+    assert.equal(statusResponse.lastSuccessfulSyncAgeMs, 2 * 60 * 1000);
+  } finally {
+    globalThis.fetch = fetch;
   }
 });
 
