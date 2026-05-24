@@ -71,12 +71,8 @@ struct ContentView: View {
             Section("Sync") {
                 Text(syncMessage)
                     .foregroundStyle(.secondary)
-                Button("Sign in with Google") {
-                    signIn(provider: .google)
-                }
-                Button("Sign in with Apple ID") {
-                    signIn(provider: .apple)
-                }
+                signInButton(provider: .google)
+                signInButton(provider: .apple)
             }
         }
         .navigationTitle("URL Blocker")
@@ -88,16 +84,26 @@ struct ContentView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
-            HStack {
-                Button("Google") {
-                    signIn(provider: .google)
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    signInButton(provider: .google)
+                    signInButton(provider: .apple)
                 }
-                Button("Apple ID") {
-                    signIn(provider: .apple)
+                VStack(alignment: .leading) {
+                    signInButton(provider: .google)
+                    signInButton(provider: .apple)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func signInButton(provider: NativeSupabaseAuth.Provider) -> some View {
+        Button {
+            signIn(provider: provider)
+        } label: {
+            SignInButtonLabel(provider: provider)
+        }
     }
 
     private func refreshExtensionState() {
@@ -172,6 +178,66 @@ struct ContentView: View {
                 alert = AppAlert(title: "Sign In Failed", error: error)
             }
         }
+    }
+}
+
+private struct SignInButtonLabel: View {
+    let provider: NativeSupabaseAuth.Provider
+
+    var body: some View {
+        HStack(spacing: 8) {
+            icon
+                .frame(width: 18, height: 18)
+            Text(title)
+        }
+    }
+
+    private var title: String {
+        switch provider {
+        case .google:
+            return "Sign in with Google"
+        case .apple:
+            return "Sign in with Apple"
+        }
+    }
+
+    @ViewBuilder private var icon: some View {
+        switch provider {
+        case .google:
+            GoogleSignInIcon()
+        case .apple:
+            Image(systemName: "apple.logo")
+                .resizable()
+                .scaledToFit()
+        }
+    }
+}
+
+private struct GoogleSignInIcon: View {
+    var body: some View {
+        ZStack {
+            Circle()
+                .trim(from: 0.81, to: 1)
+                .stroke(Color(red: 0.917, green: 0.262, blue: 0.207), style: stroke)
+            Circle()
+                .trim(from: 0, to: 0.31)
+                .stroke(Color(red: 0.259, green: 0.522, blue: 0.957), style: stroke)
+            Circle()
+                .trim(from: 0.31, to: 0.58)
+                .stroke(Color(red: 0.204, green: 0.659, blue: 0.325), style: stroke)
+            Circle()
+                .trim(from: 0.58, to: 0.81)
+                .stroke(Color(red: 0.984, green: 0.737, blue: 0.020), style: stroke)
+            Rectangle()
+                .fill(Color(red: 0.259, green: 0.522, blue: 0.957))
+                .frame(width: 8, height: 3)
+                .offset(x: 4)
+        }
+        .rotationEffect(.degrees(-35))
+    }
+
+    private var stroke: StrokeStyle {
+        StrokeStyle(lineWidth: 3, lineCap: .butt)
     }
 }
 
