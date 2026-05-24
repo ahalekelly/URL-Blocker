@@ -257,6 +257,48 @@ test("options shows the floating save button only for unsaved drafts", async () 
   assert.equal(saveButton.hidden, true);
 });
 
+test("options clears validation messages while editing invalid rows", async () => {
+  const app = createExtensionApp();
+  const page = await openOptionsPage(app);
+
+  await page.byId("addRowButton").dispatch("click");
+  await page.byId("saveButton").dispatch("click");
+
+  let row = page.customRows().at(-1);
+
+  assert.equal(page.byId("errorSummary").hidden, false);
+  assert.equal(row.querySelector(".row-error").textContent, "Enter a value.");
+
+  row.querySelector(".value-input").value = "example.com";
+  await row.querySelector(".value-input").dispatch("input");
+
+  row = page.customRows().at(-1);
+
+  assert.equal(page.byId("errorSummary").hidden, true);
+  assert.equal(row.querySelector(".row-error").hidden, true);
+});
+
+test("options restores saved mode details after temporary mode changes", async () => {
+  const app = createExtensionApp();
+  const savedState = validState([], { type: "dailyWindow", startMinute: 60, endMinute: 120 });
+
+  savedState.limitReset = { type: "rollingWindow", windowHours: 16 };
+  app.backgroundApi.storageData[core.STATE_KEY] = savedState;
+
+  const page = await openOptionsPage(app);
+
+  await page.byId("alwaysScheduleInput").dispatch("change");
+  await page.byId("dailyScheduleInput").dispatch("change");
+
+  assert.equal(page.byId("scheduleStartInput").value, "01:00");
+  assert.equal(page.byId("scheduleEndInput").value, "02:00");
+
+  await page.byId("dailyResetInput").dispatch("change");
+  await page.byId("rollingResetInput").dispatch("change");
+
+  assert.equal(page.byId("rollingWindowHoursInput").value, "16");
+});
+
 test("end-to-end options save blocks a page and renders the blocked view", async () => {
   const app = createExtensionApp({
     tabs: [{ id: 2, url: "https://example.com/focus" }]
@@ -843,6 +885,7 @@ function statsDocument() {
   return testDocument([
     "refreshButton",
     "errorSummary",
+    "totalMetric",
     "totalTime",
     "activeDomains",
     "trackedDomains",
@@ -956,7 +999,7 @@ class TestElement {
   }
 
   replaceChildren(...children) {
-    this.children = children;
+    this.children = children.flatMap((child) => child.tagName === "fragment" ? child.children : [child]);
   }
 
   addEventListener(type, listener) {

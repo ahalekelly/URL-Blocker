@@ -627,7 +627,7 @@
 
     entry.value = value;
     syncLimitForEntry(entry);
-    state.rowErrors.delete(id);
+    clearRowError(id);
     clearMessages();
     renderSaveButton();
   }
@@ -1314,6 +1314,23 @@
 
   function clearMessages() {
     state.pageError = "";
+    errorSummary.hidden = true;
+    errorSummary.textContent = "";
+    permissionError.hidden = true;
+    permissionError.textContent = "";
+  }
+
+  function clearRowError(id) {
+    state.rowErrors.delete(id);
+
+    const row = Array.from(rowsElement.children).find((child) => child.dataset.entryId === id);
+
+    if (!row) { return; }
+
+    const rowError = row.querySelector(".row-error");
+
+    rowError.hidden = true;
+    rowError.textContent = "";
   }
 
   function findDraftEntry(id) {
@@ -1392,6 +1409,10 @@
       return state.draftSchedule;
     }
 
+    if (state.savedDraft.schedule.type === "dailyWindow") {
+      return state.savedDraft.schedule;
+    }
+
     return core.DEFAULT_SCHEDULE;
   }
 
@@ -1400,12 +1421,20 @@
       return state.draftLimitReset;
     }
 
+    if (state.savedDraft.limitReset.type === "rollingWindow") {
+      return state.savedDraft.limitReset;
+    }
+
     return core.DEFAULT_LIMIT_RESET;
   }
 
   function existingDailyReset() {
     if (state.draftLimitReset.type === "daily") {
       return state.draftLimitReset;
+    }
+
+    if (state.savedDraft.limitReset.type === "daily") {
+      return state.savedDraft.limitReset;
     }
 
     return { type: "daily", resetHour: 0 };

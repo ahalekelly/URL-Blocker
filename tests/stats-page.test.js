@@ -18,6 +18,7 @@ test("stats page renders screen time stats", async () => {
   assert.equal(messages.length, 1);
   assert.equal(messages[0].type, "getScreenTimeStats");
   assert.equal(document.elements.totalTime.textContent, "2m");
+  assert.equal(document.elements.totalMetric.hidden, false);
   assert.equal(document.elements.activeDomains.textContent, "1");
   assert.equal(document.elements.trackedDomains.textContent, "2");
   assert.equal(document.elements.overLimitMetric.hidden, false);
@@ -49,6 +50,7 @@ test("stats page hides limits when block schedule is always", async () => {
   const row = document.elements.domainRows.children[0];
   const values = row.children[0].children[1];
 
+  assert.equal(document.elements.totalMetric.hidden, false);
   assert.equal(document.elements.overLimitMetric.hidden, true);
   assert.equal(row.className, "stats-domain-row");
   assert.equal(row.children.length, 2);
@@ -145,6 +147,7 @@ function statsDocument() {
   return testDocument([
     "refreshButton",
     "errorSummary",
+    "totalMetric",
     "totalTime",
     "activeDomains",
     "trackedDomains",
