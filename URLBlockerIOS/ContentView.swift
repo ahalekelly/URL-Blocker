@@ -104,6 +104,7 @@ struct ContentView: View {
         } label: {
             SignInButtonLabel(provider: provider)
         }
+        .buttonStyle(SignInButtonStyle(provider: provider))
     }
 
     private func refreshExtensionState() {
@@ -185,19 +186,22 @@ private struct SignInButtonLabel: View {
     let provider: NativeSupabaseAuth.Provider
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 16) {
             icon
-                .frame(width: 18, height: 18)
+                .frame(width: 26, height: 26)
             Text(title)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
         }
+        .font(.system(size: 21, weight: .medium))
     }
 
     private var title: String {
         switch provider {
         case .google:
-            return "Sign in with Google"
+            return "Sign In with Google"
         case .apple:
-            return "Sign in with Apple"
+            return "Sign In with Apple"
         }
     }
 
@@ -210,6 +214,56 @@ private struct SignInButtonLabel: View {
                 .resizable()
                 .scaledToFit()
         }
+    }
+}
+
+private struct SignInButtonStyle: ButtonStyle {
+    let provider: NativeSupabaseAuth.Provider
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(maxWidth: .infinity, minHeight: 58)
+            .padding(.horizontal, 24)
+            .background(background)
+            .foregroundStyle(foreground)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(border, lineWidth: 1)
+            }
+            .shadow(color: shadow, radius: 4, x: 0, y: 2)
+            .opacity(configuration.isPressed ? 0.75 : 1)
+    }
+
+    private var background: Color {
+        switch provider {
+        case .google:
+            return .white
+        case .apple:
+            return .black
+        }
+    }
+
+    private var border: Color {
+        switch provider {
+        case .google:
+            return Color(red: 0.88, green: 0.88, blue: 0.88)
+        case .apple:
+            return .black
+        }
+    }
+
+    private var foreground: Color {
+        switch provider {
+        case .google:
+            return Color(red: 0.42, green: 0.42, blue: 0.42)
+        case .apple:
+            return .white
+        }
+    }
+
+    private var shadow: Color {
+        Color.black.opacity(0.18)
     }
 }
 

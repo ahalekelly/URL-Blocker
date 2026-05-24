@@ -287,17 +287,37 @@ h2 {
 .provider-button {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  min-width: 260px;
+  min-height: 58px;
+  gap: 16px;
+  border-radius: 12px;
+  padding: 0 24px;
+  font-size: 21px;
+  font-weight: 500;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+
+#googleSignInButton {
+  background: #ffffff;
+  border-color: #e0e0e0;
+  color: #6b6b6b;
+}
+
+#appleSignInButton {
+  background: #000000;
+  border-color: #000000;
+  color: #ffffff;
 }
 
 .provider-icon {
-  width: 18px;
-  height: 18px;
+  width: 26px;
+  height: 26px;
   flex: none;
 }
 
-.apple-icon {
-  color: var(--text);
+#appleSignInButton .apple-icon {
+  color: #ffffff;
 }
 
 .schedule-window-fields[hidden],
@@ -454,6 +474,7 @@ input[readonly] {
   }
 
   .row-toolbar button,
+  .sync-actions button,
   .list-actions button,
   .editor-footer button,
   .segments {
