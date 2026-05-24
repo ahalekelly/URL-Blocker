@@ -164,7 +164,7 @@ macos-verify:
 	$(MAKE) macos-plugin-check
 
 macos-plugin-check:
-	@output=$$(pluginkit -m -A -D -p "$(SAFARI_EXTENSION_SDK)"); \
+	@output=$$(pluginkit -m -A -D -vvv -p "$(SAFARI_EXTENSION_SDK)"); \
 	printf "%s\n" "$$output"; \
 	count=$$(printf "%s\n" "$$output" | grep -c "$(SAFARI_EXTENSION_ID)" || true); \
 	if [[ "$$count" -ne 1 ]]; then \
