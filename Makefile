@@ -18,7 +18,9 @@ P12_PASSWORD_FILE ?= $(IOS_SIGNING_ASSETS)/Development.p12.password
 MACOS_DERIVED_DATA ?= /tmp/urlblocker_macos_build
 MACOS_CODE_SIGN_IDENTITY ?= Apple Development
 VIVALDI_APP ?= Vivaldi
+VIVALDI_BINARY ?= /Applications/Vivaldi.app/Contents/MacOS/Vivaldi
 BRAVE_APP ?= Brave Browser
+BRAVE_BINARY ?= /Applications/Brave Browser.app/Contents/MacOS/Brave Browser
 CHROME_EXTENSION_DIR := $(CURDIR)/build/chrome-extension
 
 MACOS_BUILD_APP := $(MACOS_DERIVED_DATA)/Build/Products/Release/URLBlockerMac.app
@@ -35,8 +37,8 @@ help:
 	@printf "Targets:\n"
 	@printf "  make test                    Run JavaScript tests.\n"
 	@printf "  make chrome-extension        Build the unpacked Chrome extension in build/chrome-extension.\n"
-	@printf "  make vivaldi-install         Build and launch Vivaldi with the extension loaded.\n"
-	@printf "  make brave-install           Build and launch Brave with the extension loaded.\n"
+	@printf "  make vivaldi-install         Build and update the Vivaldi main-profile extension.\n"
+	@printf "  make brave-install           Build and update the Brave main-profile extension.\n"
 	@printf "  make ios-build               Build build/URLBlockerIOS-signed.ipa with UDID Registrations signing.\n"
 	@printf "  make ios-build-unsigned      Build the unsigned iOS device app.\n"
 	@printf "  make ios-signed-ipa          Alias for make ios-build.\n"
@@ -63,24 +65,18 @@ chrome-extension:
 	npm run build-chrome-extension
 
 vivaldi-install: chrome-extension
-	@if pgrep -x "$(VIVALDI_APP)" >/dev/null; then \
-	  printf "%s is already running. Quit it, then rerun make vivaldi-install so --load-extension applies at startup.\n" "$(VIVALDI_APP)" >&2; \
+	@if [[ "$$(osascript -e 'application "$(VIVALDI_APP)" is running')" == "true" ]]; then \
+	  printf "%s is already running. Quit it, then rerun make vivaldi-install.\n" "$(VIVALDI_APP)" >&2; \
 	  exit 1; \
 	fi
-	@printf "Opening %s with URL Blocker loaded from %s\n" "$(VIVALDI_APP)" "$(CHROME_EXTENSION_DIR)"
-	open -na "$(VIVALDI_APP)" --args \
-	  --load-extension="$(CHROME_EXTENSION_DIR)" \
-	  chrome://extensions
+	node scripts/install-chromium-extension.mjs "$(VIVALDI_APP)" "$(VIVALDI_BINARY)" "$(CHROME_EXTENSION_DIR)"
 
 brave-install: chrome-extension
-	@if pgrep -x "$(BRAVE_APP)" >/dev/null; then \
-	  printf "%s is already running. Quit it, then rerun make brave-install so --load-extension applies at startup.\n" "$(BRAVE_APP)" >&2; \
+	@if [[ "$$(osascript -e 'application "$(BRAVE_APP)" is running')" == "true" ]]; then \
+	  printf "%s is already running. Quit it, then rerun make brave-install.\n" "$(BRAVE_APP)" >&2; \
 	  exit 1; \
 	fi
-	@printf "Opening %s with URL Blocker loaded from %s\n" "$(BRAVE_APP)" "$(CHROME_EXTENSION_DIR)"
-	open -na "$(BRAVE_APP)" --args \
-	  --load-extension="$(CHROME_EXTENSION_DIR)" \
-	  chrome://extensions
+	node scripts/install-chromium-extension.mjs "$(BRAVE_APP)" "$(BRAVE_BINARY)" "$(CHROME_EXTENSION_DIR)"
 
 ios-build:
 	IOS_APP_GROUP="$(IOS_APP_GROUP)" \

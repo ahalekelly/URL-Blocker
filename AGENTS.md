@@ -14,6 +14,7 @@
 - `URLBlockerMac/` and `URLBlockerExtensionMac/`: macOS targets.
 - `tests/`: Node tests for extension JavaScript behavior.
 - `scripts/build-chrome-extension.mjs`: builds the unpacked Chrome extension in `build/chrome-extension`.
+- `scripts/install-chromium-extension.mjs`: updates the unpacked Chrome extension in a Chromium-based browser profile.
 - `scripts/sync-default-blocked-pages.mjs`: syncs/checks default blocked pages.
 
 ## Commands
@@ -38,19 +39,19 @@ Build the unpacked Chrome extension:
 make chrome-extension
 ```
 
-Build and launch Vivaldi with the unpacked extension loaded in the main profile:
+Build and update Vivaldi with the unpacked extension in the main profile:
 
 ```sh
 make vivaldi-install
 ```
 
-Build and launch Brave with the unpacked extension loaded in the main profile:
+Build and update Brave with the unpacked extension in the main profile:
 
 ```sh
 make brave-install
 ```
 
-Current Google Chrome ignores `--load-extension` from the command line, so use Vivaldi or Brave for command-line extension loading.
+Quit the browser before running its install target. The target uses a short-lived DevTools pipe to update the unpacked extension in the `Default` profile, then reopens the browser to `chrome://extensions`.
 
 Build the signed iOS IPA, signed macOS app, and unpacked Chrome extension:
 
