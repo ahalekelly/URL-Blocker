@@ -8,6 +8,8 @@ const projectText = fs.readFileSync(path.join(repoRoot, "URLBlocker.xcodeproj/pr
 const signingScript = fs.readFileSync(path.join(repoRoot, "scripts/sign-ios-udid.mjs"), "utf8");
 const optionsHtml = fs.readFileSync(path.join(repoRoot, "URLBlockerWebExtension/options.html"), "utf8");
 const statsHtml = fs.readFileSync(path.join(repoRoot, "URLBlockerWebExtension/stats.html"), "utf8");
+const sharedManifest = require("../URLBlockerWebExtension/manifest.json");
+const chromeManifest = require("../ChromeExtension/manifest.json");
 const webExtensionFiles = [
   "manifest.json",
   "blocker.js",
@@ -51,6 +53,11 @@ test("limit reset settings follow the block schedule settings", () => {
   assert.notEqual(limitResetIndex, -1);
   assert.ok(blockScheduleIndex < limitResetIndex);
   assert.doesNotMatch(optionsHtml, /<h2>Schedule<\/h2>/);
+});
+
+test("blocked page is not exposed to every website", () => {
+  assert.equal(sharedManifest.web_accessible_resources, undefined);
+  assert.equal(chromeManifest.web_accessible_resources, undefined);
 });
 
 test("iOS signing does not prompt for the p12 password", () => {
