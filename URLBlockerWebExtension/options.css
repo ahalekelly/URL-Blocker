@@ -285,6 +285,10 @@ h2 {
   justify-content: flex-end;
 }
 
+.sync-actions button[hidden] {
+  display: none;
+}
+
 .provider-button {
   display: inline-flex;
   align-items: center;

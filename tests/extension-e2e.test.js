@@ -71,6 +71,42 @@ test("options rounds displayed screen time to the nearest minute", async () => {
   assert.equal(screenTimeTotal.textContent, "2m / 30m");
 });
 
+test("options hides provider sign-in buttons when sync is signed in", async () => {
+  const app = createExtensionApp({
+    delaySyncNow: true,
+    supabaseConfig: configuredSupabase()
+  });
+
+  app.backgroundApi.storageData[core.STATE_KEY] = validState([]);
+  app.backgroundApi.storageData.supabaseSession = supabaseSession();
+
+  const page = await openOptionsPage(app);
+
+  assert.equal(page.byId("syncStatusText").textContent, "Sync is on.");
+  assert.equal(page.byId("googleSignInButton").hidden, true);
+  assert.equal(page.byId("appleSignInButton").hidden, true);
+  assert.equal(page.byId("syncNowButton").hidden, false);
+  assert.equal(page.byId("signOutButton").hidden, false);
+});
+
+test("options hides provider sign-in buttons on iOS", async () => {
+  const app = createExtensionApp({
+    delaySyncNow: true,
+    nativeStorage: true,
+    supabaseConfig: configuredSupabase()
+  });
+
+  app.backgroundApi.nativeData[core.STATE_KEY] = validState([]);
+
+  const page = await openOptionsPage(app);
+
+  assert.equal(page.byId("syncStatusText").textContent, "Open the URL Blocker app to sign in.");
+  assert.equal(page.byId("googleSignInButton").hidden, true);
+  assert.equal(page.byId("appleSignInButton").hidden, true);
+  assert.equal(page.byId("syncNowButton").hidden, true);
+  assert.equal(page.byId("signOutButton").hidden, true);
+});
+
 test("options shows the floating save button only for unsaved drafts", async () => {
   const app = createExtensionApp();
   const page = await openOptionsPage(app);
@@ -267,6 +303,7 @@ function messageTypes(app) {
 function fakeBackgroundApi(overrides) {
   const api = {
     storageData: {},
+    nativeData: {},
     grantedOrigins: [...manifest.host_permissions],
     tabsData: overrides.tabs || [],
     registeredScripts: [],
@@ -290,7 +327,7 @@ function fakeBackgroundApi(overrides) {
         }
 
         if (resourcePath === "supabase-config.json") {
-          return dataJsonUrl({
+          return dataJsonUrl(overrides.supabaseConfig || {
             schemaVersion: 1,
             supabaseUrl: "",
             publishableKey: "",
@@ -353,6 +390,42 @@ function fakeBackgroundApi(overrides) {
       }
     }
   };
+
+  if (overrides.nativeStorage) {
+    api.runtime.getPlatformInfo = async () => ({ os: "ios" });
+    api.runtime.sendNativeMessage = async (_applicationId, message) => {
+      switch (message.type) {
+        case "loadState":
+          return { type: "storedState", state: api.nativeData[core.STATE_KEY] };
+        case "saveState":
+          api.nativeData[core.STATE_KEY] = message.state;
+          return { type: "savedState", state: message.state };
+        case "loadScreenTimeUsage":
+          return { type: "storedScreenTimeUsage", usage: api.nativeData.screenTimeUsage };
+        case "saveScreenTimeUsage":
+          api.nativeData.screenTimeUsage = message.usage;
+          return { type: "savedScreenTimeUsage", usage: message.usage };
+        case "loadSettingsSync":
+          return { type: "storedSettingsSync", sync: api.nativeData.settingsSync };
+        case "saveSettingsSync":
+          api.nativeData.settingsSync = message.sync;
+          return { type: "savedSettingsSync", sync: message.sync };
+        case "clearSettingsSync":
+          delete api.nativeData.settingsSync;
+          return { type: "clearedSettingsSync" };
+        case "loadSupabaseSession":
+          return { type: "storedSupabaseSession", session: api.nativeData.supabaseSession };
+        case "saveSupabaseSession":
+          api.nativeData.supabaseSession = message.session;
+          return { type: "savedSupabaseSession", session: message.session };
+        case "clearSupabaseSession":
+          delete api.nativeData.supabaseSession;
+          return { type: "clearedSupabaseSession" };
+        default:
+          return { type: "error", error: `Unknown native message type: ${message.type}.`, errorCode: "NativeTestUnknownMessage" };
+      }
+    };
+  }
 
   return api;
 }
@@ -423,6 +496,41 @@ function screenTimeUsage(totalsByDomain) {
     localBuckets,
     remoteBuckets: {}
   };
+}
+
+function configuredSupabase() {
+  return {
+    schemaVersion: 1,
+    supabaseUrl: "https://project.supabase.co",
+    publishableKey: "publishable",
+    redirectScheme: "urlblocker",
+    screenTimeSyncAgeMs: 60000
+  };
+}
+
+function supabaseSession() {
+  return {
+    schemaVersion: 1,
+    accessToken: jwtForUser("22222222-2222-4222-8222-222222222222"),
+    refreshToken: "refresh-token",
+    expiresAtMs: Date.now() + 60 * 60 * 1000
+  };
+}
+
+function jwtForUser(userId) {
+  return [
+    base64Url(JSON.stringify({ alg: "none", typ: "JWT" })),
+    base64Url(JSON.stringify({ sub: userId })),
+    "signature"
+  ].join(".");
+}
+
+function base64Url(value) {
+  return Buffer.from(value, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
 }
 
 function optionsDocument() {

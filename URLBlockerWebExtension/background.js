@@ -433,6 +433,10 @@
         const sessionResult = sync.parseSession(await sessionStorage.loadSession());
 
         if (sessionResult.type === "signedOut") {
+          if (await usesNativeStorage(api)) {
+            return { type: "syncStatus", status: "nativeSignInRequired", error: lastSyncError };
+          }
+
           return { type: "syncStatus", status: "signedOut", error: lastSyncError };
         }
 

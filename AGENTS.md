@@ -47,11 +47,11 @@ Build and update Brave with the unpacked extension in the main profile:
 make brave-install
 ```
 
-Use Vivaldi as the Chromium install/check target before committing. Do not install or reload Brave unless explicitly requested.
+Use Brave as the Chromium UI verification target. Do not use Vivaldi for browser UI testing unless explicitly requested.
 
 The Chromium install targets first verify URL Blocker is already installed from `build/chrome-extension` in the `Default` profile. They then rebuild `build/chrome-extension`. When the browser is open, the target reloads the existing unpacked extension without restarting the browser. When the browser is closed, the target only updates the files and does not open the browser. The reload path requires URL Blocker to already be enabled.
 
-The Codex in-app browser does not work for local URL Blocker extension UI checks. It rejects the local extension/options page, so use Vivaldi for browser UI verification instead.
+The Codex in-app browser does not work for local URL Blocker extension UI checks. It rejects the local extension/options page, so use Brave for browser UI verification instead.
 
 Build the signed iOS IPA, signed macOS app, and unpacked Chrome extension:
 

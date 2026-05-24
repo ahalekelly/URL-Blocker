@@ -1074,6 +1074,21 @@ test("signInWithProvider returns an OAuth URL when browser identity is unavailab
   assert.match(response.url, /redirect_to=safari-web-extension/);
 });
 
+test("getSyncStatus requires native sign-in on iOS when signed out", async () => {
+  const api = fakeApi({
+    nativeStorage: true,
+    supabaseConfig: configuredSupabase()
+  });
+  const controller = createBackgroundController(api);
+  const response = await controller.handleMessage({ type: "getSyncStatus" }, {});
+
+  assert.deepEqual(response, {
+    type: "syncStatus",
+    status: "nativeSignInRequired",
+    error: ""
+  });
+});
+
 test("saveState redirects open tabs that match the new state", async () => {
   const api = fakeApi({
     tabs: [

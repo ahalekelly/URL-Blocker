@@ -10,6 +10,10 @@ test("default block group titles are larger than URL entries", () => {
   assert.match(rule(".default-group-entry-value"), /font-weight:\s*400;/);
 });
 
+test("hidden sync action buttons are not displayed", () => {
+  assert.match(rule(".sync-actions button[hidden]"), /display:\s*none;/);
+});
+
 function rule(selector) {
   const match = css.match(new RegExp(`${escapeRegex(selector)}\\s*\\{([^}]+)\\}`));
 

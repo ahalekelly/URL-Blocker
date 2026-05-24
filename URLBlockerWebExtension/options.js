@@ -1409,6 +1409,7 @@
       case "unconfigured":
       case "signedOut":
       case "signedIn":
+      case "nativeSignInRequired":
       case "error":
         return {
           status: response.status,
