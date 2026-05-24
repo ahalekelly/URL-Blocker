@@ -37,6 +37,8 @@
       case "screenTimeStats":
         renderStats(normalizeStats(response.stats));
         return;
+      case "error":
+        throw errorFromResponse(response);
       default:
         throw new Error(`Unknown screen time stats response: ${response.type}`);
     }
@@ -206,8 +208,27 @@
 
   function showFatalError(error) {
     elements.errorSummary.hidden = false;
-    elements.errorSummary.textContent = error.message;
+    elements.errorSummary.textContent = errorMessage(error);
     elements.refreshButton.disabled = false;
+  }
+
+  function errorFromResponse(response) {
+    const error = new Error(response.error || `Unexpected response: ${response.type}`);
+
+    error.errorCode = response.errorCode || response.type;
+    return error;
+  }
+
+  function errorMessage(error) {
+    if (error instanceof Error && typeof error.errorCode === "string") {
+      return `${error.message}\n\nCode: ${error.errorCode}`;
+    }
+
+    if (error instanceof Error) {
+      return error.message;
+    }
+
+    return String(error);
   }
 
   function errorFromReason(reason) {

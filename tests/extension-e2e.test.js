@@ -13,6 +13,7 @@ const resourcesPath = path.join(__dirname, "../URLBlockerWebExtension");
 const optionsScript = fs.readFileSync(path.join(resourcesPath, "options.js"), "utf8");
 const contentScript = fs.readFileSync(path.join(resourcesPath, "content.js"), "utf8");
 const blockedScript = fs.readFileSync(path.join(resourcesPath, "blocked.js"), "utf8");
+const statsScript = fs.readFileSync(path.join(resourcesPath, "stats.js"), "utf8");
 const id = "11111111-1111-4111-8111-111111111111";
 
 test("options requests only missing website access for saved states", async () => {
@@ -107,6 +108,25 @@ test("options hides provider sign-in buttons on iOS", async () => {
   assert.equal(page.byId("signOutButton").hidden, true);
 });
 
+test("options hides provider sign-in buttons when iOS sync is signed in", async () => {
+  const app = createExtensionApp({
+    delaySyncNow: true,
+    nativeStorage: true,
+    supabaseConfig: configuredSupabase()
+  });
+
+  app.backgroundApi.nativeData[core.STATE_KEY] = validState([]);
+  app.backgroundApi.nativeData.supabaseSession = supabaseSession();
+
+  const page = await openOptionsPage(app);
+
+  assert.equal(page.byId("syncStatusText").textContent, "Sync is on.");
+  assert.equal(page.byId("googleSignInButton").hidden, true);
+  assert.equal(page.byId("appleSignInButton").hidden, true);
+  assert.equal(page.byId("syncNowButton").hidden, false);
+  assert.equal(page.byId("signOutButton").hidden, false);
+});
+
 test("options shows the floating save button only for unsaved drafts", async () => {
   const app = createExtensionApp();
   const page = await openOptionsPage(app);
@@ -171,6 +191,37 @@ test("end-to-end options save blocks a page and renders the blocked view", async
   assert.equal(blocked.byId("blockedTarget").textContent, "https://example.com/focus");
 });
 
+test("end-to-end stats page renders background screen time totals", async () => {
+  const app = createExtensionApp();
+  const hour = Math.floor(app.backgroundApi.nowValue / (60 * 60 * 1000));
+  const usage = screenTimeUsage({
+    "example.com": { [hour]: 90000 }
+  });
+
+  usage.remoteBuckets = {
+    "remote-device": {
+      "example.com": { [hour]: 30000 }
+    }
+  };
+  app.backgroundApi.storageData[core.STATE_KEY] = validState([
+    { id, kind: "domain", value: "example.com" }
+  ]);
+  app.backgroundApi.storageData.screenTimeUsage = usage;
+
+  const page = await openStatsPage(app);
+
+  assert.deepEqual(messageTypes(app), ["getScreenTimeStats"]);
+  assert.equal(page.byId("totalTime").textContent, "2m");
+  assert.equal(page.byId("activeDomains").textContent, "1");
+  assert.equal(page.byId("trackedDomains").textContent, "1");
+  assert.equal(page.byId("overLimitDomains").textContent, "0");
+  assert.equal(page.byId("domainRows").children[0].children[0].children[1].children[0].textContent, "2m");
+  assert.equal(page.byId("domainRows").children[0].children[0].children[1].children[2].textContent, "28m left");
+  assert.equal(page.byId("domainRows").children[0].children[2].textContent, "This device 2m · Other devices 1m");
+  assert.equal(page.byId("deviceRows").children[0].children[1].textContent, "2m");
+  assert.equal(page.byId("deviceRows").children[1].children[1].textContent, "1m");
+});
+
 async function openOptionsPage(app) {
   const document = optionsDocument();
   const context = {
@@ -188,6 +239,21 @@ async function openOptionsPage(app) {
   };
 
   vm.runInNewContext(optionsScript, context, { filename: "options.js" });
+  await settle();
+
+  return page(document);
+}
+
+async function openStatsPage(app) {
+  const document = statsDocument();
+  const context = {
+    browser: app.optionsApi,
+    console,
+    document,
+    addEventListener() {}
+  };
+
+  vm.runInNewContext(statsScript, context, { filename: "stats.js" });
   await settle();
 
   return page(document);
@@ -580,6 +646,25 @@ function blockedDocument() {
   return testDocument(["blockedMessage", "blockedTarget", "closeButton"]);
 }
 
+function statsDocument() {
+  return testDocument([
+    "refreshButton",
+    "errorSummary",
+    "totalTime",
+    "activeDomains",
+    "trackedDomains",
+    "overLimitDomains",
+    "windowTitle",
+    "updatedAt",
+    "hourlyBars",
+    "emptyHourlyTotals",
+    "domainRows",
+    "emptyDomains",
+    "deviceRows",
+    "emptyDevices"
+  ]);
+}
+
 function testDocument(ids) {
   const elements = Object.fromEntries(ids.map((id) => [id, new TestElement("div", id)]));
 
@@ -639,6 +724,12 @@ function page(document) {
 
 class TestElement {
   constructor(tagName, id = "", className = "") {
+    const style = {};
+
+    style.setProperty = (name, value) => {
+      style[name] = value;
+    };
+
     this.tagName = tagName;
     this.id = id;
     this.className = className;
@@ -651,6 +742,8 @@ class TestElement {
     this.checked = false;
     this.textContent = "";
     this.innerHTML = "";
+    this.title = "";
+    this.style = style;
     this.classList = {
       add: (...classNames) => {
         this.className = [...new Set([...this.className.split(" ").filter(Boolean), ...classNames])].join(" ");

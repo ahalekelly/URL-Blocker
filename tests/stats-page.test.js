@@ -8,40 +8,7 @@ const resourcesPath = path.join(__dirname, "../URLBlockerWebExtension");
 const statsScript = fs.readFileSync(path.join(resourcesPath, "stats.js"), "utf8");
 
 test("stats page renders screen time stats", async () => {
-  const document = testDocument([
-    "refreshButton",
-    "errorSummary",
-    "totalTime",
-    "activeDomains",
-    "trackedDomains",
-    "overLimitDomains",
-    "windowTitle",
-    "updatedAt",
-    "hourlyBars",
-    "emptyHourlyTotals",
-    "domainRows",
-    "emptyDomains",
-    "deviceRows",
-    "emptyDevices"
-  ]);
-  const messages = [];
-  const context = {
-    browser: {
-      runtime: {
-        async sendMessage(message) {
-          messages.push(message);
-
-          return screenTimeStatsResponse();
-        }
-      }
-    },
-    document,
-    addEventListener() {}
-  };
-
-  context.globalThis = context;
-  vm.runInNewContext(statsScript, context, { filename: "stats.js" });
-  await settle();
+  const { document, messages } = await openStatsPage(screenTimeStatsResponse());
 
   assert.equal(messages.length, 1);
   assert.equal(messages[0].type, "getScreenTimeStats");
@@ -61,6 +28,42 @@ test("stats page renders screen time stats", async () => {
   assert.equal(document.elements.emptyDevices.hidden, true);
   assert.equal(document.elements.deviceRows.children[0].children[1].textContent, "1m");
 });
+
+test("stats page shows background errors", async () => {
+  const { document } = await openStatsPage({
+    type: "error",
+    error: "Screen time could not be loaded.",
+    errorCode: "ScreenTimeTestError"
+  });
+
+  assert.equal(document.elements.errorSummary.hidden, false);
+  assert.equal(document.elements.errorSummary.textContent, "Screen time could not be loaded.\n\nCode: ScreenTimeTestError");
+  assert.equal(document.elements.refreshButton.disabled, false);
+});
+
+async function openStatsPage(response) {
+  const document = statsDocument();
+  const messages = [];
+  const context = {
+    browser: {
+      runtime: {
+        async sendMessage(message) {
+          messages.push(message);
+
+          return response;
+        }
+      }
+    },
+    document,
+    addEventListener() {}
+  };
+
+  context.globalThis = context;
+  vm.runInNewContext(statsScript, context, { filename: "stats.js" });
+  await settle();
+
+  return { document, messages };
+}
 
 function screenTimeStatsResponse() {
   return {
@@ -103,6 +106,25 @@ function screenTimeStatsResponse() {
       ]
     }
   };
+}
+
+function statsDocument() {
+  return testDocument([
+    "refreshButton",
+    "errorSummary",
+    "totalTime",
+    "activeDomains",
+    "trackedDomains",
+    "overLimitDomains",
+    "windowTitle",
+    "updatedAt",
+    "hourlyBars",
+    "emptyHourlyTotals",
+    "domainRows",
+    "emptyDomains",
+    "deviceRows",
+    "emptyDevices"
+  ]);
 }
 
 function testDocument(ids) {
