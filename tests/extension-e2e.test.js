@@ -69,10 +69,27 @@ test("options rounds displayed screen time to the nearest minute", async () => {
   const page = await openOptionsPage(app);
   const screenTimeTotal = page.byId("screenTimeRows").children[0].querySelector(".screen-time-total");
 
+  assert.equal(page.byId("screenTimeTitle").textContent, "Last 24 Hours");
   assert.equal(screenTimeTotal.textContent, "2m / 30m");
 });
 
-test("options hides time limit settings when block schedule is always", async () => {
+test("options updates the stats summary from draft limit reset settings", async () => {
+  const app = createExtensionApp();
+  const page = await openOptionsPage(app);
+
+  assert.equal(page.byId("screenTimeTitle").textContent, "Last 24 Hours");
+
+  page.byId("rollingWindowHoursInput").value = "6";
+  await page.byId("rollingWindowHoursInput").dispatch("input");
+
+  assert.equal(page.byId("screenTimeTitle").textContent, "Last 6 Hours");
+
+  await page.byId("dailyResetInput").dispatch("change");
+
+  assert.equal(page.byId("screenTimeTitle").textContent, "Today");
+});
+
+test("options keeps limit reset visible when block schedule is always", async () => {
   const app = createExtensionApp({ supabaseConfig: configuredSupabase() });
 
   app.backgroundApi.storageData[core.STATE_KEY] = validState([
@@ -82,7 +99,7 @@ test("options hides time limit settings when block schedule is always", async ()
   const page = await openOptionsPage(app);
 
   assert.equal(page.byId("screenTimePanel").hidden, true);
-  assert.equal(page.byId("limitResetPanel").hidden, true);
+  assert.equal(page.byId("limitResetPanel").hidden, false);
   assert.equal(page.customRows().at(-1).querySelector(".row-limit").hidden, true);
   assert.equal(page.byId("syncStatusText").textContent, "Sign in to sync settings.");
 

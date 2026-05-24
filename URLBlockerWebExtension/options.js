@@ -49,7 +49,6 @@
   const scheduleEndInput = document.getElementById("scheduleEndInput");
   const screenTimePanel = document.getElementById("screenTimePanel");
   const screenTimeTitle = document.getElementById("screenTimeTitle");
-  const limitResetPanel = document.getElementById("limitResetPanel");
   const rollingResetInput = document.getElementById("rollingResetInput");
   const dailyResetInput = document.getElementById("dailyResetInput");
   const rollingResetFields = document.getElementById("rollingResetFields");
@@ -148,12 +147,11 @@
     editorPanel.hidden = needsWebsiteAccess;
     rowsElement.replaceChildren(...renderBlockItems());
     blockedPageHtmlInput.value = state.draftBlockedPageHtml;
-    screenTimeTitle.textContent = screenTimeTitleText(state.savedDraft.limitReset);
+    renderScreenTimeTitle();
     alwaysScheduleInput.checked = state.draftSchedule.type === "always";
     dailyScheduleInput.checked = state.draftSchedule.type === "dailyWindow";
     scheduleWindowFields.hidden = state.draftSchedule.type !== "dailyWindow";
     screenTimePanel.hidden = timeLimitsAreHidden();
-    limitResetPanel.hidden = timeLimitsAreHidden();
     scheduleStartInput.value = minuteToTime(state.draftSchedule.startMinute);
     scheduleEndInput.value = minuteToTime(state.draftSchedule.endMinute);
     rollingResetInput.checked = state.draftLimitReset.type === "rollingWindow";
@@ -398,6 +396,10 @@
     emptyScreenTime.hidden = state.screenTimeEntries.length !== 0;
   }
 
+  function renderScreenTimeTitle() {
+    screenTimeTitle.textContent = screenTimeTitleText(state.draftLimitReset);
+  }
+
   function renderSyncStatus() {
     googleSignInButton.disabled = false;
     appleSignInButton.disabled = false;
@@ -529,13 +531,13 @@
         const hours = limitReset.windowHours;
 
         if (!Number.isInteger(hours)) {
-          return "Screen Time:";
+          return "Screen Time";
         }
 
-        return `Last ${hours} ${hours === 1 ? "Hour" : "Hours"}:`;
+        return `Last ${hours} ${hours === 1 ? "Hour" : "Hours"}`;
       }
       case "daily":
-        return `Since ${minuteToTime(limitReset.resetHour * 60)}:`;
+        return "Today";
       default:
         throw new Error(`Unknown limit reset type: ${limitReset.type}`);
     }
@@ -705,6 +707,7 @@
       windowHours: Number(rollingWindowHoursInput.value)
     };
     clearMessages();
+    renderScreenTimeTitle();
     renderSaveButton();
   }
 
@@ -714,6 +717,7 @@
       resetHour: Number(dailyResetHourSelect.value)
     };
     clearMessages();
+    renderScreenTimeTitle();
     renderSaveButton();
   }
 
