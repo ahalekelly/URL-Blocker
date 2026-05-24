@@ -2,11 +2,13 @@
   "use strict";
 
   const STATE_KEY = "blockerState";
-  const SCHEMA_VERSION = 9;
+  const SCHEMA_VERSION = 10;
   const LEGACY_SCHEMA_VERSION = 6;
   const SUBREDDIT_SCHEMA_VERSION = 7;
   const LIMIT_RESET_SCHEMA_VERSION = 8;
+  const FACEBOOK_HOME_SCHEMA_VERSION = 9;
   const SUBREDDIT_FEEDS_VALUE = "reddit.com/r/*";
+  const REMOVED_DEFAULT_IDS = new Set(["10000000-0000-4000-8000-000000000016"]);
   const MAX_ENTRIES = 1000;
   const MAX_BLOCKED_PAGE_HTML_LENGTH = 4000;
   const DEFAULT_LIMIT_MINUTES = 30;
@@ -22,6 +24,7 @@
     { type: "exact", source: "twitter.com/home", target: "x.com" },
     { type: "exact", source: "ycombinator.com/news", target: "ycombinator.com" },
     { type: "exact", source: "linkedin.com/feed", target: "linkedin.com" },
+    { type: "exact", source: "facebook.com/home.php", target: "facebook.com" },
     {
       type: "pathRegex",
       host: "reddit.com",
@@ -218,34 +221,38 @@
   }
 
   function migrateStoredState(rawState, defaultEntries) {
-    if (!isPlainObject(rawState) || ![LEGACY_SCHEMA_VERSION, SUBREDDIT_SCHEMA_VERSION, LIMIT_RESET_SCHEMA_VERSION].includes(rawState.schemaVersion) || !Array.isArray(rawState.entries)) {
+    if (!isPlainObject(rawState) || ![LEGACY_SCHEMA_VERSION, SUBREDDIT_SCHEMA_VERSION, LIMIT_RESET_SCHEMA_VERSION, FACEBOOK_HOME_SCHEMA_VERSION].includes(rawState.schemaVersion) || !Array.isArray(rawState.entries)) {
       return rawState;
     }
 
     const defaultCatalog = defaultEntryCatalog(defaultEntries);
     const seenDefaultIds = new Set();
-    const entries = rawState.entries.map((entry) => {
+    const entries = rawState.entries.flatMap((entry) => {
       if (!isPlainObject(entry) || typeof entry.id !== "string") {
-        return entry;
+        return [entry];
+      }
+
+      if (REMOVED_DEFAULT_IDS.has(entry.id.toLowerCase())) {
+        return [];
       }
 
       const defaultEntry = defaultCatalog.byId.get(entry.id.toLowerCase());
 
       if (!defaultEntry) {
         if (rawState.schemaVersion !== LEGACY_SCHEMA_VERSION) {
-          return entry;
+          return [entry];
         }
 
-        return { type: "custom", id: entry.id, kind: entry.kind, value: entry.value };
+        return [{ type: "custom", id: entry.id, kind: entry.kind, value: entry.value }];
       }
 
       seenDefaultIds.add(defaultEntry.id);
 
       if (rawState.schemaVersion !== LEGACY_SCHEMA_VERSION) {
-        return { ...defaultEntry, enabled: entry.enabled };
+        return [{ ...defaultEntry, enabled: entry.enabled }];
       }
 
-      return { ...defaultEntry, enabled: true };
+      return [{ ...defaultEntry, enabled: true }];
     });
 
     defaultCatalog.entries.forEach((entry) => {

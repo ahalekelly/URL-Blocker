@@ -42,7 +42,6 @@ test("loads default blocked pages for new installs", () => {
     { type: "default", kind: "url", value: "tiktok.com/following", enabled: true },
     { type: "default", kind: "url", value: "tiktok.com/explore", enabled: true },
     { type: "default", kind: "url", value: "facebook.com", enabled: true },
-    { type: "default", kind: "url", value: "facebook.com/home.php", enabled: true },
     { type: "default", kind: "url", value: "facebook.com/watch", enabled: true },
     { type: "default", kind: "url", value: "facebook.com/reel", enabled: true },
     { type: "default", kind: "url", value: "facebook.com/reels", enabled: true },
@@ -191,6 +190,28 @@ test("migrates schema 7 states to split subreddit feeds from reddit", () => {
     limitMinutes: 12
   });
   assert.deepEqual(state.limitReset, core.DEFAULT_LIMIT_RESET);
+});
+
+test("migrates schema 9 states to drop the removed facebook.com/home.php default", () => {
+  const removedId = "10000000-0000-4000-8000-000000000016";
+  const previousDefaults = [
+    ...defaultBlockedPages.slice(0, defaultBlockedPages.findIndex((entry) => entry.value === "facebook.com") + 1),
+    { type: "default", id: removedId, kind: "url", value: "facebook.com/home.php", enabled: true },
+    ...defaultBlockedPages.slice(defaultBlockedPages.findIndex((entry) => entry.value === "facebook.com") + 1)
+  ];
+  const previousEntries = previousDefaults.map((entry) => ({ ...entry, enabled: true }));
+  const state = core.parseStoredState({
+    schemaVersion: 9,
+    entries: previousEntries,
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: core.DEFAULT_SCHEDULE,
+    limitReset: core.DEFAULT_LIMIT_RESET,
+    domainLimits: core.domainLimitsForEntries(previousEntries, [])
+  }, defaultBlockedPages);
+
+  assert.equal(state.schemaVersion, core.SCHEMA_VERSION);
+  assert.equal(state.entries.find((entry) => entry.id === removedId), undefined);
+  assert.ok(state.entries.find((entry) => entry.value === "facebook.com"));
 });
 
 test("migrates schema 8 states to default rolling limit resets", () => {
@@ -571,7 +592,8 @@ test("matches hardcoded URL aliases as their root URLs", () => {
   const state = validState([
     { id: ids[0], kind: "url", value: "x.com" },
     { id: ids[1], kind: "url", value: "ycombinator.com" },
-    { id: ids[2], kind: "url", value: "linkedin.com" }
+    { id: ids[2], kind: "url", value: "linkedin.com" },
+    { id: ids[3], kind: "url", value: "facebook.com" }
   ]);
 
   assert.equal(core.findMatchingEntry(state, "https://x.com/home").type, "match");
@@ -580,9 +602,12 @@ test("matches hardcoded URL aliases as their root URLs", () => {
   assert.equal(core.findMatchingEntry(state, "https://news.ycombinator.com/news").type, "match");
   assert.equal(core.findMatchingEntry(state, "https://ycombinator.com/news").type, "match");
   assert.equal(core.findMatchingEntry(state, "https://www.linkedin.com/feed?trk=nav").type, "match");
+  assert.equal(core.findMatchingEntry(state, "https://facebook.com/home.php").type, "match");
+  assert.equal(core.findMatchingEntry(state, "https://www.facebook.com/home.php?ref=nav").type, "match");
   assert.equal(core.findMatchingEntry(state, "https://x.com/messages").type, "none");
   assert.equal(core.findMatchingEntry(state, "https://twitter.com/messages").type, "none");
   assert.equal(core.findMatchingEntry(state, "https://linkedin.com/jobs").type, "none");
+  assert.equal(core.findMatchingEntry(state, "https://facebook.com/messages").type, "none");
 });
 
 test("maps blocklist entries to host permissions", () => {

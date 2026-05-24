@@ -64,13 +64,6 @@
   },
   {
     "type": "default",
-    "id": "10000000-0000-4000-8000-000000000016",
-    "kind": "url",
-    "value": "facebook.com/home.php",
-    "enabled": true
-  },
-  {
-    "type": "default",
     "id": "10000000-0000-4000-8000-000000000017",
     "kind": "url",
     "value": "facebook.com/watch",
