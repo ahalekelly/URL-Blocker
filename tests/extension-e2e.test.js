@@ -337,6 +337,7 @@ async function runContentScript(app, url, tabId) {
   const context = {
     browser: {
       runtime: {
+        id: "test-extension",
         sendMessage(message) {
           const result = app.controller.handleMessage(message, { tab: { id: tabId } });
 
@@ -349,8 +350,11 @@ async function runContentScript(app, url, tabId) {
     document: { hidden: false },
     location: { href: url },
     addEventListener() {},
+    clearInterval() {},
     clearTimeout() {},
-    setInterval() {},
+    setInterval() {
+      return 1;
+    },
     setTimeout(listener) {
       listener();
       return 1;

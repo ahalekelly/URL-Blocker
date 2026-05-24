@@ -68,6 +68,7 @@ function runContentScript(url) {
   const context = {
     browser: {
       runtime: {
+        id: "test-extension",
         async sendMessage(message) {
           context.messages.push(message);
 
@@ -90,9 +91,11 @@ function runContentScript(url) {
     addEventListener(type, listener) {
       context.listeners.set(type, listener);
     },
+    clearInterval() {},
     clearTimeout() {},
     setInterval(listener) {
       context.intervals.push(listener);
+      return context.intervals.length;
     },
     setTimeout(listener) {
       listener();
