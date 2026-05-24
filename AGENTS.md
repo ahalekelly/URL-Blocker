@@ -171,6 +171,7 @@ grant execute on function public.sync_screen_time_buckets(jsonb) to authenticate
 - Try not to duplicate code across multiple platforms, keep functionality in the extension Javascript unless it would make the code far more complicated
 - If an issue is reported on one platform, be aware that the issue could affect multiple platforms, make sure to check for this and don't just make a fix for the one platform it was reported on.
 - More generally, if you find a bug in one place in the code, look for other places where that same bug could have occured
+- If I give you steering instructions mid task, you should still complete the original task unless I said otherwise
 
 ## Python Scripts
 
