@@ -10,7 +10,7 @@ struct ContentView: View {
     @State private var appScreen = AppScreen.setup
     @State private var extensionState = ExtensionState.checking
     @State private var alert: AppAlert?
-    @State private var syncMessage = "Sign in to sync settings and screen time."
+    @State private var syncState = NativeSyncState.current
 
     var body: some View {
         NavigationStack {
@@ -35,11 +35,13 @@ struct ContentView: View {
         }
         .task {
             refreshExtensionState()
+            refreshSyncState()
         }
         .onChange(of: scenePhase) { phase in
             if phase != .active { return }
 
             refreshExtensionState()
+            refreshSyncState()
         }
         .alert(item: $alert) { alert in
             Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("OK")))
@@ -69,10 +71,12 @@ struct ContentView: View {
             }
 
             Section("Sync") {
-                Text(syncMessage)
+                Text(syncState.message)
                     .foregroundStyle(.secondary)
-                signInButton(provider: .google)
-                signInButton(provider: .apple)
+                if syncState == .signedOut {
+                    signInButton(provider: .google)
+                    signInButton(provider: .apple)
+                }
             }
         }
         .navigationTitle("URL Blocker")
@@ -80,18 +84,20 @@ struct ContentView: View {
 
     private var syncControls: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(syncMessage)
+            Text(syncState.message)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
-            ViewThatFits(in: .horizontal) {
-                HStack {
-                    signInButton(provider: .google)
-                    signInButton(provider: .apple)
-                }
-                VStack(alignment: .leading) {
-                    signInButton(provider: .google)
-                    signInButton(provider: .apple)
+            if syncState == .signedOut {
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        signInButton(provider: .google)
+                        signInButton(provider: .apple)
+                    }
+                    VStack(alignment: .leading) {
+                        signInButton(provider: .google)
+                        signInButton(provider: .apple)
+                    }
                 }
             }
         }
@@ -125,6 +131,10 @@ struct ContentView: View {
 
             extensionState = .disabled
         }
+    }
+
+    private func refreshSyncState() {
+        syncState = NativeSyncState.current
     }
 
     private func openExtensionSettings() {
@@ -174,10 +184,28 @@ struct ContentView: View {
                     extensionBundleName: Safari.extensionBundleName,
                     anchor: anchor
                 )
-                syncMessage = "Signed in. Safari will sync the next time URL Blocker runs."
+                syncState = .signedIn
             } catch {
                 alert = AppAlert(title: "Sign In Failed", error: error)
             }
+        }
+    }
+}
+
+private enum NativeSyncState {
+    case signedOut
+    case signedIn
+
+    static var current: NativeSyncState {
+        NativeBlocklistStore.loadSupabaseSession() == nil ? .signedOut : .signedIn
+    }
+
+    var message: String {
+        switch self {
+        case .signedOut:
+            return "Sign in to sync settings and screen time."
+        case .signedIn:
+            return "Signed in. Safari will sync the next time URL Blocker runs."
         }
     }
 }
@@ -186,14 +214,14 @@ private struct SignInButtonLabel: View {
     let provider: NativeSupabaseAuth.Provider
 
     var body: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 10) {
             icon
-                .frame(width: 26, height: 26)
+                .frame(width: 20, height: 20)
             Text(title)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
         }
-        .font(.system(size: 21, weight: .medium))
+        .font(.system(size: 16, weight: .medium))
     }
 
     private var title: String {
@@ -222,8 +250,8 @@ private struct SignInButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .frame(maxWidth: .infinity, minHeight: 58)
-            .padding(.horizontal, 24)
+            .frame(maxWidth: .infinity, minHeight: 46)
+            .padding(.horizontal, 16)
             .background(background)
             .foregroundStyle(foreground)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -231,7 +259,7 @@ private struct SignInButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(border, lineWidth: 1)
             }
-            .shadow(color: shadow, radius: 4, x: 0, y: 2)
+            .shadow(color: shadow, radius: 2, x: 0, y: 1)
             .opacity(configuration.isPressed ? 0.75 : 1)
     }
 

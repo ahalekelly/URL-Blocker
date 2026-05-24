@@ -793,7 +793,7 @@
         state.syncStatus = normalizeSyncStatus(response);
         return;
       case "error":
-        state.syncStatus = { status: "error", error: errorMessage(errorFromResponse(response)) };
+        state.syncStatus = syncStatusFromError(errorFromResponse(response));
         return;
       default:
         throw codedError("UnexpectedSyncStatusResponse", `Unknown getSyncStatus response: ${response.type}`);
@@ -824,7 +824,7 @@
         render();
         return;
       case "error":
-        state.syncStatus = { status: "error", error: errorMessage(errorFromResponse(response)) };
+        state.syncStatus = syncStatusFromError(errorFromResponse(response));
         render();
         return;
       default:
@@ -845,7 +845,7 @@
         render();
         return;
       case "error":
-        state.syncStatus = { status: "error", error: errorMessage(errorFromResponse(response)) };
+        state.syncStatus = syncStatusFromError(errorFromResponse(response));
         render();
         return;
       default:
@@ -865,7 +865,7 @@
         render();
         return;
       case "error":
-        state.syncStatus = { status: "error", error: errorMessage(errorFromResponse(response)) };
+        state.syncStatus = syncStatusFromError(errorFromResponse(response));
         render();
         return;
       default:
@@ -915,6 +915,12 @@
     }
 
     return `URL Blocker needs access to these ${state.missingOrigins.length} websites before blocking can run.`;
+  }
+
+  function syncStatusFromError(error) {
+    const status = state.syncStatus.status === "signedIn" ? "signedIn" : "error";
+
+    return { status, error: errorMessage(error) };
   }
 
   function normalizeAndValidateDraft() {
