@@ -4,11 +4,13 @@
   "description": "Block websites and SPA routes from a private local blocklist.",
   "version": "1.0",
   "permissions": [
+    "identity",
     "scripting",
     "storage",
     "tabs"
   ],
   "host_permissions": [
+    "https://*.supabase.co/*",
     "*://*.bsky.app/*",
     "*://*.facebook.com/*",
     "*://*.instagram.com/*",

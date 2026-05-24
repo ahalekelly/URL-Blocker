@@ -13,7 +13,10 @@ const manifestPaths = [
 const core = require(path.join(repoRoot, "URLBlockerIOSExtension/Resources/blocker.js"));
 const defaultPages = JSON.parse(fs.readFileSync(defaultPagesPath, "utf8"));
 const state = core.emptyState(defaultPages);
-const hostPermissions = core.permissionOriginsForState(state);
+const hostPermissions = [
+  "https://*.supabase.co/*",
+  ...core.permissionOriginsForState(state)
+];
 
 manifestPaths.forEach((manifestPath) => {
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));

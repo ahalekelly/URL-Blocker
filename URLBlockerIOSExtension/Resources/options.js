@@ -29,7 +29,8 @@
     isSaving: false,
     isRequestingPermissions: false,
     missingOrigins: [],
-    screenTimeEntries: []
+    screenTimeEntries: [],
+    syncStatus: { status: "checking", error: "" }
   };
 
   const rowsElement = document.getElementById("rows");
@@ -53,6 +54,11 @@
   const successMessage = document.getElementById("successMessage");
   const screenTimeRows = document.getElementById("screenTimeRows");
   const emptyScreenTime = document.getElementById("emptyScreenTime");
+  const syncStatusText = document.getElementById("syncStatusText");
+  const googleSignInButton = document.getElementById("googleSignInButton");
+  const appleSignInButton = document.getElementById("appleSignInButton");
+  const syncNowButton = document.getElementById("syncNowButton");
+  const signOutButton = document.getElementById("signOutButton");
   const repairPanel = document.getElementById("repairPanel");
   const repairMessage = document.getElementById("repairMessage");
   const resetButton = document.getElementById("resetButton");
@@ -76,10 +82,16 @@
   dailyResetHourSelect.addEventListener("change", updateDailyResetHour);
   resetButton.addEventListener("click", resetBlocklist);
   grantAccessButton.addEventListener("click", requestMissingWebsiteAccess);
+  googleSignInButton.addEventListener("click", () => signInWithProvider("google"));
+  appleSignInButton.addEventListener("click", () => signInWithProvider("apple"));
+  syncNowButton.addEventListener("click", syncNow);
+  signOutButton.addEventListener("click", signOut);
   root.addEventListener("error", (event) => showFatalError(event.error || codedError("WindowError", event.message)));
   root.addEventListener("unhandledrejection", (event) => showFatalError(errorFromReason(event.reason)));
 
-  loadState().catch(showFatalError);
+  completeOAuthRedirect()
+    .then(loadState)
+    .catch(showFatalError);
 
   async function loadState() {
     const response = await api.runtime.sendMessage({ type: "getState" });
@@ -89,6 +101,7 @@
         setDraftState(response.state);
         await refreshWebsiteAccess(response.state);
         await loadScreenTimeLog();
+        await loadSyncStatus();
         render();
         return;
       case "stateError":
@@ -133,6 +146,7 @@
     successMessage.hidden = state.successMessage === "";
     successMessage.textContent = state.successMessage;
     renderScreenTimeLog();
+    renderSyncStatus();
   }
 
   function renderBlockItems() {
@@ -343,6 +357,63 @@
   function renderScreenTimeLog() {
     screenTimeRows.replaceChildren(...state.screenTimeEntries.map(renderScreenTimeRow));
     emptyScreenTime.hidden = state.screenTimeEntries.length !== 0;
+  }
+
+  function renderSyncStatus() {
+    switch (state.syncStatus.status) {
+      case "checking":
+        syncStatusText.textContent = "Checking sync.";
+        googleSignInButton.hidden = true;
+        appleSignInButton.hidden = true;
+        syncNowButton.hidden = true;
+        signOutButton.hidden = true;
+        return;
+      case "unconfigured":
+        syncStatusText.textContent = "Sync is not configured on this build.";
+        googleSignInButton.hidden = true;
+        appleSignInButton.hidden = true;
+        syncNowButton.hidden = true;
+        signOutButton.hidden = true;
+        return;
+      case "signedOut":
+        syncStatusText.textContent = syncStatusErrorText("Sign in to sync settings and screen time.");
+        googleSignInButton.hidden = false;
+        appleSignInButton.hidden = false;
+        syncNowButton.hidden = true;
+        signOutButton.hidden = true;
+        return;
+      case "signedIn":
+        syncStatusText.textContent = syncStatusErrorText("Sync is on.");
+        googleSignInButton.hidden = true;
+        appleSignInButton.hidden = true;
+        syncNowButton.hidden = false;
+        signOutButton.hidden = false;
+        return;
+      case "nativeSignInRequired":
+        syncStatusText.textContent = "Open the URL Blocker app to sign in.";
+        googleSignInButton.hidden = true;
+        appleSignInButton.hidden = true;
+        syncNowButton.hidden = true;
+        signOutButton.hidden = true;
+        return;
+      case "error":
+        syncStatusText.textContent = state.syncStatus.error;
+        googleSignInButton.hidden = false;
+        appleSignInButton.hidden = false;
+        syncNowButton.hidden = true;
+        signOutButton.hidden = true;
+        return;
+      default:
+        throw new Error(`Unknown sync status: ${state.syncStatus.status}`);
+    }
+  }
+
+  function syncStatusErrorText(text) {
+    if (!state.syncStatus.error) {
+      return text;
+    }
+
+    return `${text} Last sync error: ${state.syncStatus.error}`;
   }
 
   function renderScreenTimeRow(entry) {
@@ -709,6 +780,116 @@
     }
   }
 
+  async function loadSyncStatus() {
+    const response = await api.runtime.sendMessage({ type: "getSyncStatus" });
+
+    switch (response.type) {
+      case "syncStatus":
+        state.syncStatus = normalizeSyncStatus(response);
+        return;
+      case "error":
+        state.syncStatus = { status: "error", error: errorMessage(errorFromResponse(response)) };
+        return;
+      default:
+        throw codedError("UnexpectedSyncStatusResponse", `Unknown getSyncStatus response: ${response.type}`);
+    }
+  }
+
+  async function signInWithProvider(provider) {
+    clearMessages();
+
+    const response = await api.runtime.sendMessage({ type: "signInWithProvider", provider });
+
+    switch (response.type) {
+      case "signedIn":
+        await loadSyncStatus();
+        await loadScreenTimeLog();
+        state.successMessage = "Signed in.";
+        render();
+        return;
+      case "nativeSignInRequired":
+        state.syncStatus = { status: "nativeSignInRequired", error: "" };
+        render();
+        return;
+      case "openOAuth":
+        root.location.href = response.url;
+        return;
+      case "syncUnavailable":
+        state.syncStatus = { status: "unconfigured", error: "" };
+        render();
+        return;
+      case "error":
+        state.syncStatus = { status: "error", error: errorMessage(errorFromResponse(response)) };
+        render();
+        return;
+      default:
+        throw codedError("UnexpectedSignInResponse", `Unknown signInWithProvider response: ${response.type}`);
+    }
+  }
+
+  async function syncNow() {
+    clearMessages();
+
+    const response = await api.runtime.sendMessage({ type: "syncNow" });
+
+    switch (response.type) {
+      case "synced":
+        state.syncStatus = normalizeSyncStatus(response.status);
+        await loadScreenTimeLog();
+        state.successMessage = "Synced.";
+        render();
+        return;
+      case "error":
+        state.syncStatus = { status: "error", error: errorMessage(errorFromResponse(response)) };
+        render();
+        return;
+      default:
+        throw codedError("UnexpectedSyncNowResponse", `Unknown syncNow response: ${response.type}`);
+    }
+  }
+
+  async function signOut() {
+    clearMessages();
+
+    const response = await api.runtime.sendMessage({ type: "signOut" });
+
+    switch (response.type) {
+      case "signedOut":
+        await loadSyncStatus();
+        state.successMessage = "Signed out.";
+        render();
+        return;
+      case "error":
+        state.syncStatus = { status: "error", error: errorMessage(errorFromResponse(response)) };
+        render();
+        return;
+      default:
+        throw codedError("UnexpectedSignOutResponse", `Unknown signOut response: ${response.type}`);
+    }
+  }
+
+  async function completeOAuthRedirect() {
+    if (!root.location.hash.includes("access_token=")) {
+      return;
+    }
+
+    const response = await api.runtime.sendMessage({
+      type: "completeOAuthRedirect",
+      url: root.location.href
+    });
+
+    switch (response.type) {
+      case "signedIn":
+        root.history.replaceState(null, "", root.location.pathname);
+        state.successMessage = "Signed in.";
+        return;
+      case "error":
+        throw errorFromResponse(response);
+      default:
+        throw codedError("UnexpectedOAuthRedirectResponse", `Unknown completeOAuthRedirect response: ${response.type}`);
+    }
+  }
+
   async function loadDefaultStateForReset() {
     const response = await api.runtime.sendMessage({ type: "getDefaultState" });
 
@@ -848,6 +1029,7 @@
   async function applySavedState(savedState, message) {
     setDraftState(savedState);
     await loadScreenTimeLog();
+    await loadSyncStatus();
     state.successMessage = message;
     render();
   }
@@ -1154,6 +1336,23 @@
         isOverLimit: entry.isOverLimit
       };
     });
+  }
+
+  function normalizeSyncStatus(response) {
+    requireKeys(response, ["type", "status", "userId", "error"], "Sync status");
+
+    switch (response.status) {
+      case "unconfigured":
+      case "signedOut":
+      case "signedIn":
+      case "error":
+        return {
+          status: response.status,
+          error: typeof response.error === "string" ? response.error : ""
+        };
+      default:
+        throw new Error(`Unknown sync status: ${response.status}`);
+    }
   }
 
   function requireKeys(object, allowedKeys, label) {

@@ -4,6 +4,8 @@ enum NativeBlocklistStore {
     private enum StoredValue {
         case state
         case screenTimeUsage
+        case settingsSync
+        case supabaseSession
 
         var storageKey: String {
             switch self {
@@ -11,6 +13,10 @@ enum NativeBlocklistStore {
                 return "blockerState"
             case .screenTimeUsage:
                 return "screenTimeUsage"
+            case .settingsSync:
+                return "settingsSync"
+            case .supabaseSession:
+                return "supabaseSession"
             }
         }
 
@@ -20,6 +26,10 @@ enum NativeBlocklistStore {
                 return "state"
             case .screenTimeUsage:
                 return "usage"
+            case .settingsSync:
+                return "sync"
+            case .supabaseSession:
+                return "session"
             }
         }
 
@@ -29,6 +39,10 @@ enum NativeBlocklistStore {
                 return "Blocklist state"
             case .screenTimeUsage:
                 return "Screen time usage"
+            case .settingsSync:
+                return "Settings sync metadata"
+            case .supabaseSession:
+                return "Supabase session"
             }
         }
 
@@ -38,6 +52,10 @@ enum NativeBlocklistStore {
                 return "storedState"
             case .screenTimeUsage:
                 return "storedScreenTimeUsage"
+            case .settingsSync:
+                return "storedSettingsSync"
+            case .supabaseSession:
+                return "storedSupabaseSession"
             }
         }
 
@@ -47,6 +65,23 @@ enum NativeBlocklistStore {
                 return "savedState"
             case .screenTimeUsage:
                 return "savedScreenTimeUsage"
+            case .settingsSync:
+                return "savedSettingsSync"
+            case .supabaseSession:
+                return "savedSupabaseSession"
+            }
+        }
+
+        var clearedResponseType: String {
+            switch self {
+            case .state:
+                return "clearedState"
+            case .screenTimeUsage:
+                return "clearedScreenTimeUsage"
+            case .settingsSync:
+                return "clearedSettingsSync"
+            case .supabaseSession:
+                return "clearedSupabaseSession"
             }
         }
     }
@@ -70,6 +105,27 @@ enum NativeBlocklistStore {
             case "saveScreenTimeUsage":
                 try requireKeys(message, ["type", "usage"], "saveScreenTimeUsage message")
                 return try save(message["usage"], .screenTimeUsage)
+            case "clearScreenTimeUsage":
+                try requireKeys(message, ["type"], "clearScreenTimeUsage message")
+                return clear(.screenTimeUsage)
+            case "loadSettingsSync":
+                try requireKeys(message, ["type"], "loadSettingsSync message")
+                return load(.settingsSync)
+            case "saveSettingsSync":
+                try requireKeys(message, ["type", "sync"], "saveSettingsSync message")
+                return try save(message["sync"], .settingsSync)
+            case "clearSettingsSync":
+                try requireKeys(message, ["type"], "clearSettingsSync message")
+                return clear(.settingsSync)
+            case "loadSupabaseSession":
+                try requireKeys(message, ["type"], "loadSupabaseSession message")
+                return load(.supabaseSession)
+            case "saveSupabaseSession":
+                try requireKeys(message, ["type", "session"], "saveSupabaseSession message")
+                return try save(message["session"], .supabaseSession)
+            case "clearSupabaseSession":
+                try requireKeys(message, ["type"], "clearSupabaseSession message")
+                return clear(.supabaseSession)
             default:
                 throw NativeBlocklistError("Unknown native message type: \(type).")
             }
@@ -93,6 +149,20 @@ enum NativeBlocklistStore {
         defaults.set(value, forKey: storedValue.storageKey)
 
         return ["type": storedValue.savedResponseType, storedValue.valueKey: value]
+    }
+
+    static func saveSupabaseSession(_ rawSession: [String: Any]) throws {
+        _ = try save(rawSession, .supabaseSession)
+    }
+
+    static func loadSupabaseSession() -> [String: Any]? {
+        defaults.object(forKey: StoredValue.supabaseSession.storageKey) as? [String: Any]
+    }
+
+    private static func clear(_ storedValue: StoredValue) -> [String: Any] {
+        defaults.removeObject(forKey: storedValue.storageKey)
+
+        return ["type": storedValue.clearedResponseType]
     }
 
     private static func requireDictionary(_ value: Any?, _ label: String) throws -> [String: Any] {

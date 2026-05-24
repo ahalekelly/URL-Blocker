@@ -24,6 +24,8 @@
 		01A00000000000000000000F /* blocked.js in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000F /* blocked.js */; };
 		01A000000000000000000010 /* icons in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000010 /* icons */; };
 		01A000000000000000000012 /* default-blocked-pages.json in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000013 /* default-blocked-pages.json */; };
+		01A000000000000000000013 /* supabase-sync.js in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000014 /* supabase-sync.js */; };
+		01A000000000000000000014 /* supabase-config.json in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000015 /* supabase-config.json */; };
 		01A000000000000000000011 /* SafariServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000004 /* SafariServices.framework */; };
 		02A000000000000000000001 /* URLBlockerMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02B000000000000000000001 /* URLBlockerMacApp.swift */; };
 		02A000000000000000000002 /* MacContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02B000000000000000000002 /* MacContentView.swift */; };
@@ -43,9 +45,12 @@
 		02A000000000000000000010 /* blocked.js in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000F /* blocked.js */; };
 		02A000000000000000000011 /* icons in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000010 /* icons */; };
 		02A000000000000000000012 /* default-blocked-pages.json in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000013 /* default-blocked-pages.json */; };
+		02A000000000000000000013 /* supabase-sync.js in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000014 /* supabase-sync.js */; };
+		02A000000000000000000014 /* supabase-config.json in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000015 /* supabase-config.json */; };
 		03A000000000000000000001 /* NativeBlocklistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B000000000000000000001 /* NativeBlocklistStore.swift */; };
 		03A000000000000000000002 /* NativeBlocklistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B000000000000000000001 /* NativeBlocklistStore.swift */; };
 		03A000000000000000000003 /* NativeBlocklistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B000000000000000000001 /* NativeBlocklistStore.swift */; };
+		03A000000000000000000005 /* NativeSupabaseAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B000000000000000000004 /* NativeSupabaseAuth.swift */; };
 		04A000000000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 04B000000000000000000001 /* Assets.xcassets */; };
 		04A000000000000000000002 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 04B000000000000000000001 /* Assets.xcassets */; };
 		04A000000000000000000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 04B000000000000000000001 /* Assets.xcassets */; };
@@ -114,6 +119,8 @@
 		01B000000000000000000011 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		01B000000000000000000012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		01B000000000000000000013 /* default-blocked-pages.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "default-blocked-pages.json"; sourceTree = "<group>"; };
+		01B000000000000000000014 /* supabase-sync.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "supabase-sync.js"; sourceTree = "<group>"; };
+		01B000000000000000000015 /* supabase-config.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "supabase-config.json"; sourceTree = "<group>"; };
 		01C000000000000000000001 /* URLBlockerIOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = URLBlockerIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		01C000000000000000000002 /* URLBlockerIOSExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = URLBlockerIOSExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		02B000000000000000000001 /* URLBlockerMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLBlockerMacApp.swift; sourceTree = "<group>"; };
@@ -125,6 +132,7 @@
 		03B000000000000000000001 /* NativeBlocklistStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBlocklistStore.swift; sourceTree = "<group>"; };
 		03B000000000000000000002 /* URLBlockerIOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = URLBlockerIOS.entitlements; sourceTree = "<group>"; };
 		03B000000000000000000003 /* URLBlockerIOSExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = URLBlockerIOSExtension.entitlements; sourceTree = "<group>"; };
+		03B000000000000000000004 /* NativeSupabaseAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSupabaseAuth.swift; sourceTree = "<group>"; };
 		04B000000000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -214,6 +222,8 @@
 				01B00000000000000000000E /* blocked.css */,
 				01B00000000000000000000F /* blocked.js */,
 				01B000000000000000000013 /* default-blocked-pages.json */,
+				01B000000000000000000014 /* supabase-sync.js */,
+				01B000000000000000000015 /* supabase-config.json */,
 				01B000000000000000000010 /* icons */,
 			);
 			path = Resources;
@@ -260,6 +270,7 @@
 			isa = PBXGroup;
 			children = (
 				03B000000000000000000001 /* NativeBlocklistStore.swift */,
+				03B000000000000000000004 /* NativeSupabaseAuth.swift */,
 				04B000000000000000000001 /* Assets.xcassets */,
 			);
 			path = URLBlockerShared;
@@ -410,6 +421,8 @@
 				01A00000000000000000000E /* blocked.css in Resources */,
 				01A00000000000000000000F /* blocked.js in Resources */,
 				01A000000000000000000012 /* default-blocked-pages.json in Resources */,
+				01A000000000000000000013 /* supabase-sync.js in Resources */,
+				01A000000000000000000014 /* supabase-config.json in Resources */,
 				01A000000000000000000010 /* icons in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -438,6 +451,8 @@
 				02A00000000000000000000F /* blocked.css in Resources */,
 				02A000000000000000000010 /* blocked.js in Resources */,
 				02A000000000000000000012 /* default-blocked-pages.json in Resources */,
+				02A000000000000000000013 /* supabase-sync.js in Resources */,
+				02A000000000000000000014 /* supabase-config.json in Resources */,
 				02A000000000000000000011 /* icons in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -452,6 +467,7 @@
 				01A000000000000000000001 /* URLBlockerIOSApp.swift in Sources */,
 				01A000000000000000000002 /* ContentView.swift in Sources */,
 				03A000000000000000000001 /* NativeBlocklistStore.swift in Sources */,
+				03A000000000000000000005 /* NativeSupabaseAuth.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

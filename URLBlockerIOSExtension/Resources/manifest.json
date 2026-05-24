@@ -10,6 +10,7 @@
     "tabs"
   ],
   "host_permissions": [
+    "https://*.supabase.co/*",
     "*://*.bsky.app/*",
     "*://*.facebook.com/*",
     "*://*.instagram.com/*",

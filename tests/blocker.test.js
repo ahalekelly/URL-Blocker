@@ -78,7 +78,10 @@ test("loads default blocked pages for new installs", () => {
 });
 
 test("keeps install-time permissions aligned with default blocked pages", () => {
-  assert.deepEqual(core.permissionOriginsForState(core.emptyState(defaultBlockedPages)), manifest.host_permissions);
+  assert.deepEqual([
+    "https://*.supabase.co/*",
+    ...core.permissionOriginsForState(core.emptyState(defaultBlockedPages))
+  ], manifest.host_permissions);
 });
 
 test("keeps default entries locked but configurable", () => {

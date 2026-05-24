@@ -5,15 +5,26 @@
     importScripts("blocker.js");
   }
 
+  if (!root.SupabaseSync && typeof importScripts === "function") {
+    importScripts("supabase-sync.js");
+  }
+
   const core = root.BlockerCore || require("./blocker.js");
+  const sync = root.SupabaseSync || require("./supabase-sync.js");
   const CONTENT_SCRIPT_ID = "url-blocker-content";
   const HOUR_MS = 60 * 60 * 1000;
   const SCREEN_TIME_USAGE_KEY = "screenTimeUsage";
-  const SCREEN_TIME_USAGE_SCHEMA_VERSION = 1;
+  const SETTINGS_SYNC_KEY = "settingsSync";
+  const SUPABASE_SESSION_KEY = "supabaseSession";
 
   function createBackgroundController(api) {
     const stateStorage = createStateStorage(api);
     const screenTimeStorage = createScreenTimeStorage(api);
+    const settingsSyncStorage = createSettingsSyncStorage(api);
+    const sessionStorage = createSupabaseSessionStorage(api);
+    let configPromise;
+    let lastSyncError = "";
+    let usageSyncTimer = 0;
 
     async function handleMessage(message, sender) {
       if (!isPlainObject(message) || typeof message.type !== "string") {
@@ -45,6 +56,21 @@
         case "getScreenTimeLog":
           requireKeys(message, ["type"], "getScreenTimeLog message");
           return getScreenTimeLog();
+        case "getSyncStatus":
+          requireKeys(message, ["type"], "getSyncStatus message");
+          return getSyncStatus();
+        case "syncNow":
+          requireKeys(message, ["type"], "syncNow message");
+          return syncNow();
+        case "signInWithProvider":
+          requireKeys(message, ["type", "provider"], "signInWithProvider message");
+          return signInWithProvider(message.provider);
+        case "completeOAuthRedirect":
+          requireKeys(message, ["type", "url"], "completeOAuthRedirect message");
+          return completeOAuthRedirect(message.url);
+        case "signOut":
+          requireKeys(message, ["type"], "signOut message");
+          return signOut();
         default:
           throw codedError("UnknownExtensionMessage", `Unknown message type: ${message.type}`);
       }
@@ -52,6 +78,8 @@
 
     async function getState() {
       try {
+        await syncRemoteStateIfPossible();
+
         return { type: "state", state: await loadState() };
       } catch (error) {
         return errorResponse("stateError", error);
@@ -86,10 +114,15 @@
         throw errorFromResponse(storageResponse);
       }
 
-      await redirectOpenBlockedTabs(storageResponse.state);
-      await removeUnusedWebsiteAccess(result.state);
+      let savedState = storageResponse.state;
+      const settingsSync = await loadSettingsSync();
 
-      return { type: "saved", state: storageResponse.state };
+      await settingsSyncStorage.saveSync(sync.dirtySettingsSync(settingsSync, currentTimeMs(), createId));
+      savedState = await syncSettingsIfPossible(savedState);
+      await redirectOpenBlockedTabs(savedState);
+      await removeUnusedWebsiteAccess(savedState);
+
+      return { type: "saved", state: savedState };
     }
 
     async function openOptions() {
@@ -135,6 +168,7 @@
     async function getScreenTimeLog() {
       const state = await loadState();
       const nowMs = currentTimeMs();
+      await syncScreenTimeIfReady(state, { force: false });
 
       return {
         type: "screenTimeLog",
@@ -205,10 +239,12 @@
     async function saveScreenTimeAndRedirect(state, domain, rawUrl, elapsedMs, sender) {
       const nowMs = currentTimeMs();
       const hour = currentHour(nowMs);
-      const usage = await saveScreenTime(domain, elapsedMs, hour);
-      const totalMs = screenTimeTotalMs(usage, domain, usageWindow(state.limitReset, nowMs));
+      const usage = await saveScreenTime(domain, elapsedMs, hour, nowMs);
+      const totalMs = sync.screenTimeTotalMs(usage, domain, usageWindow(state.limitReset, nowMs));
       const limit = domainLimit(state, domain);
       const isOverLimit = totalMs >= limit.limitMinutes * 60 * 1000;
+
+      await syncScreenTimeIfReady(state, { force: isOverLimit });
 
       if (isOverLimit && sender.tab && typeof sender.tab.id === "number") {
         const match = core.findBlockedMatchingEntry(state, rawUrl, new Set([domain]));
@@ -219,12 +255,9 @@
       return { type: "logged", domain, totalMs, limitMinutes: limit.limitMinutes, isOverLimit };
     }
 
-    async function saveScreenTime(domain, elapsedMs, hour) {
+    async function saveScreenTime(domain, elapsedMs, hour, nowMs) {
       const usage = await loadScreenTimeUsage();
-      const bucket = String(hour);
-
-      usage.totalsByDomain[domain] = usage.totalsByDomain[domain] || {};
-      usage.totalsByDomain[domain][bucket] = (usage.totalsByDomain[domain][bucket] || 0) + elapsedMs;
+      sync.addScreenTime(usage, domain, hour, elapsedMs, nowMs);
 
       await screenTimeStorage.saveUsage(usage);
 
@@ -232,7 +265,7 @@
     }
 
     async function loadScreenTimeUsage() {
-      return parseScreenTimeUsage(await screenTimeStorage.loadUsage());
+      return sync.parseScreenTimeUsage(await screenTimeStorage.loadUsage(), createId, core);
     }
 
     async function loadDefaultState() {
@@ -315,6 +348,340 @@
       }
     }
 
+    async function getSyncStatus() {
+      try {
+        const config = await loadSupabaseConfig();
+
+        if (!sync.configIsReady(config)) {
+          return { type: "syncStatus", status: "unconfigured", error: lastSyncError };
+        }
+
+        const sessionResult = sync.parseSession(await sessionStorage.loadSession());
+
+        if (sessionResult.type === "signedOut") {
+          return { type: "syncStatus", status: "signedOut", error: lastSyncError };
+        }
+
+        return {
+          type: "syncStatus",
+          status: "signedIn",
+          userId: sync.sessionUserId(sessionResult.session),
+          error: lastSyncError
+        };
+      } catch (error) {
+        lastSyncError = errorMessage(error);
+        return { type: "syncStatus", status: "error", error: lastSyncError };
+      }
+    }
+
+    async function syncNow() {
+      const state = await loadState();
+      const savedState = await syncSettingsIfPossible(state);
+
+      await syncScreenTimeIfReady(savedState, { force: true });
+
+      return { type: "synced", status: await getSyncStatus() };
+    }
+
+    async function signInWithProvider(provider) {
+      if (provider !== "google" && provider !== "apple") {
+        throw codedError("UnknownSignInProvider", `Unknown sign-in provider: ${provider}`);
+      }
+
+      if (await usesNativeStorage(api)) {
+        return { type: "nativeSignInRequired" };
+      }
+
+      const config = await loadSupabaseConfig();
+
+      if (!sync.configIsReady(config)) {
+        return { type: "syncUnavailable", reason: "unconfigured" };
+      }
+
+      if (!api.identity || typeof api.identity.launchWebAuthFlow !== "function") {
+        return {
+          type: "openOAuth",
+          url: sync.oauthUrl(config, provider, runtimeUrl("options.html"))
+        };
+      }
+
+      const redirectTo = api.identity.getRedirectURL("supabase");
+      const redirectUrl = await launchWebAuthFlow({
+        interactive: true,
+        url: sync.oauthUrl(config, provider, redirectTo)
+      });
+
+      await sessionStorage.saveSession(sync.sessionFromOAuthRedirect(redirectUrl, currentTimeMs()));
+      await syncNow();
+
+      return { type: "signedIn" };
+    }
+
+    async function completeOAuthRedirect(rawUrl) {
+      if (typeof rawUrl !== "string" || rawUrl.trim() === "") {
+        throw codedError("OAuthRedirectInvalid", "OAuth redirect URL must be a string.");
+      }
+
+      await sessionStorage.saveSession(sync.sessionFromOAuthRedirect(rawUrl, currentTimeMs()));
+      await syncNow();
+
+      return { type: "signedIn" };
+    }
+
+    async function signOut() {
+      await sessionStorage.clearSession();
+      await clearRemoteScreenTimeBuckets();
+      lastSyncError = "";
+
+      return { type: "signedOut" };
+    }
+
+    async function clearRemoteScreenTimeBuckets() {
+      const usage = await loadScreenTimeUsage();
+
+      usage.remoteBuckets = {};
+      await screenTimeStorage.saveUsage(usage);
+    }
+
+    async function launchWebAuthFlow(details) {
+      if (api.identity.launchWebAuthFlow.length >= 2) {
+        return new Promise((resolve, reject) => {
+          api.identity.launchWebAuthFlow(details, (url) => {
+            if (api.runtime.lastError) {
+              reject(codedError("OAuthFailed", api.runtime.lastError.message));
+              return;
+            }
+
+            resolve(url);
+          });
+        });
+      }
+
+      const result = api.identity.launchWebAuthFlow(details);
+
+      if (!result || typeof result.then !== "function") {
+        throw codedError("OAuthUnavailable", "Browser identity API did not return an auth flow promise.");
+      }
+
+      return result;
+    }
+    async function syncRemoteStateIfPossible() {
+      try {
+        const active = await activeSupabaseSession();
+
+        if (active.type !== "active") {
+          return;
+        }
+
+        const rawSync = await settingsSyncStorage.loadSync();
+        const settingsSync = sync.parseSettingsSync(rawSync, createId, currentTimeMs());
+
+        if (settingsSync.dirty) {
+          await syncSettingsIfPossible(await loadState());
+          return;
+        }
+
+        const remoteSettings = await sync.loadRemoteSettings(active.config, active.session, fetchJson);
+
+        if (!remoteSettings) {
+          return;
+        }
+
+        if (rawSync === undefined || sync.remoteSettingsAreNewer(settingsSync, remoteSettings)) {
+          await applyRemoteSettings(remoteSettings, settingsSync);
+        }
+      } catch (error) {
+        rememberSyncError(error);
+      }
+    }
+
+    async function syncSettingsIfPossible(localState) {
+      try {
+        const active = await activeSupabaseSession();
+
+        if (active.type !== "active") {
+          return localState;
+        }
+
+        const settingsSync = await loadSettingsSync();
+        const remoteSettings = settingsSync.dirty
+          ? await sync.saveRemoteSettings(active.config, active.session, localState, settingsSync, fetchJson)
+          : await sync.loadRemoteSettings(active.config, active.session, fetchJson);
+
+        if (!remoteSettings) {
+          return localState;
+        }
+
+        if (sync.remoteSettingsAreNewer(settingsSync, remoteSettings)) {
+          return applyRemoteSettings(remoteSettings, settingsSync);
+        }
+
+        await settingsSyncStorage.saveSync(sync.cleanSettingsSync(settingsSync, remoteSettings));
+        lastSyncError = "";
+        return localState;
+      } catch (error) {
+        rememberSyncError(error);
+        return localState;
+      }
+    }
+
+    async function applyRemoteSettings(remoteSettings, settingsSync) {
+      const defaultEntries = await loadDefaultEntries();
+      const result = core.validateState(remoteSettings.state, defaultEntries);
+
+      if (result.type === "invalid") {
+        throw codedError("RemoteSettingsInvalid", result.errors.map((error) => error.message).join("\n"));
+      }
+
+      await stateStorage.saveState(result.state);
+      await settingsSyncStorage.saveSync(sync.cleanSettingsSync(settingsSync, remoteSettings));
+      await syncWebsiteAccessForKnownPermissions(result.state);
+      await redirectOpenBlockedTabs(result.state);
+      lastSyncError = "";
+
+      return result.state;
+    }
+
+    async function syncWebsiteAccessForKnownPermissions(state) {
+      const origins = core.permissionOriginsForState(state);
+
+      if (origins.length > 0 && !(await api.permissions.contains({ origins }))) {
+        return;
+      }
+
+      await syncContentScripts(state);
+    }
+
+    async function syncScreenTimeIfReady(state, options) {
+      const usage = await loadScreenTimeUsage();
+      const config = await loadSupabaseConfig().catch((error) => {
+        rememberSyncError(error);
+        return undefined;
+      });
+
+      if (!config) {
+        return usage;
+      }
+
+      const syncAgeMs = config.screenTimeSyncAgeMs || sync.SCREEN_TIME_SYNC_AGE_MS;
+
+      if (!options.force && !sync.shouldSyncScreenTime(usage, currentTimeMs(), syncAgeMs)) {
+        scheduleScreenTimeSync(state, usage, syncAgeMs);
+        return usage;
+      }
+
+      try {
+        const active = await activeSupabaseSession(config);
+
+        if (active.type !== "active") {
+          return usage;
+        }
+
+        const dirtyBuckets = sync.dirtyScreenTimeBuckets(usage);
+
+        if (dirtyBuckets.length > 0) {
+          const savedBuckets = await sync.saveRemoteScreenTime(active.config, active.session, dirtyBuckets, fetchJson);
+          const syncedBuckets = sync.normalizeSyncedScreenTimeRows(savedBuckets, core);
+
+          sync.markScreenTimeSynced(usage, syncedBuckets);
+        }
+
+        const remoteRows = await sync.loadRemoteScreenTime(active.config, active.session, usageWindow(state.limitReset, currentTimeMs()), fetchJson);
+
+        sync.mergeRemoteScreenTimeBuckets(usage, sync.normalizeRemoteScreenTimeRows(remoteRows, core));
+        await screenTimeStorage.saveUsage(usage);
+        lastSyncError = "";
+      } catch (error) {
+        rememberSyncError(error);
+      }
+
+      return usage;
+    }
+
+    function scheduleScreenTimeSync(state, usage, syncAgeMs) {
+      const setTimer = api.setTimeout || root.setTimeout;
+
+      if (usageSyncTimer !== 0 || typeof setTimer !== "function") {
+        return;
+      }
+
+      const delayMs = sync.screenTimeSyncDelayMs(usage, currentTimeMs(), syncAgeMs);
+
+      if (delayMs === null) {
+        return;
+      }
+
+      usageSyncTimer = setTimer(() => {
+        usageSyncTimer = 0;
+        syncScreenTimeIfReady(state, { force: false })
+          .catch((error) => rememberSyncError(error));
+      }, delayMs);
+    }
+
+    async function activeSupabaseSession(knownConfig) {
+      const config = knownConfig || await loadSupabaseConfig();
+
+      if (!sync.configIsReady(config)) {
+        return { type: "inactive" };
+      }
+
+      const sessionResult = sync.parseSession(await sessionStorage.loadSession());
+
+      if (sessionResult.type === "signedOut") {
+        return { type: "inactive" };
+      }
+
+      if (!sync.sessionNeedsRefresh(sessionResult.session, currentTimeMs())) {
+        return { type: "active", config, session: sessionResult.session };
+      }
+
+      const refreshedSession = await sync.refreshSession(config, sessionResult.session, fetchJson);
+
+      await sessionStorage.saveSession(refreshedSession);
+
+      return { type: "active", config, session: refreshedSession };
+    }
+
+    async function loadSettingsSync() {
+      return sync.parseSettingsSync(await settingsSyncStorage.loadSync(), createId, currentTimeMs());
+    }
+
+    async function loadSupabaseConfig() {
+      if (!configPromise) {
+        configPromise = fetchJson(runtimeUrl(sync.CONFIG_PATH), { method: "GET", headers: {} })
+          .then(sync.parseConfig);
+      }
+
+      return configPromise;
+    }
+
+    async function fetchJson(url, options) {
+      const response = await fetch(url, options);
+
+      if (!response.ok) {
+        throw codedError(`HTTP ${response.status}`, `Supabase request failed: ${response.status}`);
+      }
+
+      return response.json();
+    }
+
+    function rememberSyncError(error) {
+      lastSyncError = errorMessage(error);
+      console.error("URL Blocker sync failed.", errorResponse("syncError", error));
+    }
+
+    function createId() {
+      if (typeof api.randomUUID === "function") {
+        return api.randomUUID();
+      }
+
+      if (root.crypto && typeof root.crypto.randomUUID === "function") {
+        return root.crypto.randomUUID();
+      }
+
+      throw codedError("UUIDUnavailable", "A UUID generator is required.");
+    }
+
     function currentTimeMs() {
       return typeof api.now === "function" ? api.now() : Date.now();
     }
@@ -333,57 +700,12 @@
       openOptions,
       redirectBlockedUrl,
       saveState,
+      signInWithProvider,
+      signOut,
+      syncNow,
       syncContentScripts,
       syncWebsiteAccess
     };
-  }
-
-  function parseScreenTimeUsage(rawUsage) {
-    if (rawUsage === undefined) {
-      return emptyScreenTimeUsage();
-    }
-
-    if (!isPlainObject(rawUsage)) {
-      throw new Error("Screen time usage must be an object.");
-    }
-
-    requireKeys(rawUsage, ["schemaVersion", "totalsByDomain"], "Screen time usage");
-
-    if (rawUsage.schemaVersion !== SCREEN_TIME_USAGE_SCHEMA_VERSION) {
-      throw new Error("Unsupported screen time usage version.");
-    }
-
-    if (!isPlainObject(rawUsage.totalsByDomain)) {
-      throw new Error("Screen time usage totals must be an object.");
-    }
-
-    const totalsByDomain = {};
-
-    Object.entries(rawUsage.totalsByDomain).forEach(([domain, buckets]) => {
-      if (core.normalizeDomainEntryValue(domain) !== domain) {
-        throw new Error("Screen time domain must be normalized.");
-      }
-
-      if (!isPlainObject(buckets)) {
-        throw new Error("Screen time buckets must be an object.");
-      }
-
-      totalsByDomain[domain] = {};
-
-      Object.entries(buckets).forEach(([bucket, totalMs]) => {
-        if (!/^\d+$/.test(bucket)) {
-          throw new Error("Screen time bucket must be an hour number.");
-        }
-
-        if (!Number.isInteger(totalMs) || totalMs < 0) {
-          throw new Error("Screen time total must be a non-negative integer.");
-        }
-
-        totalsByDomain[domain][bucket] = totalMs;
-      });
-    });
-
-    return { schemaVersion: SCREEN_TIME_USAGE_SCHEMA_VERSION, totalsByDomain };
   }
 
   function screenTimeEntries(state, usage, nowMs) {
@@ -391,7 +713,7 @@
 
     return activeDomainLimits(state)
       .map((limit) => {
-        const totalMs = screenTimeTotalMs(usage, limit.domain, hours);
+        const totalMs = sync.screenTimeTotalMs(usage, limit.domain, hours);
 
         return {
           domain: limit.domain,
@@ -429,20 +751,6 @@
       .map((entry) => entry.domain));
   }
 
-  function screenTimeTotalMs(usage, domain, window) {
-    const buckets = usage.totalsByDomain[domain] || {};
-
-    return Object.entries(buckets).reduce((total, [bucket, totalMs]) => {
-      const bucketHour = Number(bucket);
-
-      if (bucketHour < window.startHour || bucketHour > window.endHour) {
-        return total;
-      }
-
-      return total + totalMs;
-    }, 0);
-  }
-
   function usageWindow(limitReset, nowMs) {
     const hour = Math.floor(nowMs / HOUR_MS);
 
@@ -476,13 +784,6 @@
     }
 
     return limit;
-  }
-
-  function emptyScreenTimeUsage() {
-    return {
-      schemaVersion: SCREEN_TIME_USAGE_SCHEMA_VERSION,
-      totalsByDomain: {}
-    };
   }
 
   function createStateStorage(api) {
@@ -536,51 +837,143 @@
   }
 
   function createScreenTimeStorage(api) {
-    const browserStorage = {
-      async loadUsage() {
-        const stored = await api.storage.local.get(SCREEN_TIME_USAGE_KEY);
+    const storage = createValueStorage(api, {
+      key: SCREEN_TIME_USAGE_KEY,
+      valueKey: "usage",
+      loadType: "loadScreenTimeUsage",
+      loadedType: "storedScreenTimeUsage",
+      saveType: "saveScreenTimeUsage",
+      savedType: "savedScreenTimeUsage",
+      clearType: "clearScreenTimeUsage",
+      clearedType: "clearedScreenTimeUsage"
+    });
 
-        return stored[SCREEN_TIME_USAGE_KEY];
+    return {
+      async loadUsage() {
+        return storage.loadValue();
       },
       async saveUsage(usage) {
-        await api.storage.local.set({ [SCREEN_TIME_USAGE_KEY]: usage });
+        return storage.saveValue(usage);
+      }
+    };
+  }
 
-        return usage;
+  function createSettingsSyncStorage(api) {
+    const storage = createValueStorage(api, {
+      key: SETTINGS_SYNC_KEY,
+      valueKey: "sync",
+      loadType: "loadSettingsSync",
+      loadedType: "storedSettingsSync",
+      saveType: "saveSettingsSync",
+      savedType: "savedSettingsSync",
+      clearType: "clearSettingsSync",
+      clearedType: "clearedSettingsSync"
+    });
+
+    return {
+      async loadSync() {
+        return storage.loadValue();
+      },
+      async saveSync(settingsSync) {
+        return storage.saveValue(settingsSync);
+      }
+    };
+  }
+
+  function createSupabaseSessionStorage(api) {
+    const storage = createValueStorage(api, {
+      key: SUPABASE_SESSION_KEY,
+      valueKey: "session",
+      loadType: "loadSupabaseSession",
+      loadedType: "storedSupabaseSession",
+      saveType: "saveSupabaseSession",
+      savedType: "savedSupabaseSession",
+      clearType: "clearSupabaseSession",
+      clearedType: "clearedSupabaseSession"
+    });
+
+    return {
+      async loadSession() {
+        return storage.loadValue();
+      },
+      async saveSession(session) {
+        return storage.saveValue(session);
+      },
+      async clearSession() {
+        return storage.clearValue();
+      }
+    };
+  }
+
+  function createValueStorage(api, types) {
+    const browserStorage = {
+      async loadValue() {
+        const stored = await api.storage.local.get(types.key);
+
+        return stored[types.key];
+      },
+      async saveValue(value) {
+        await api.storage.local.set({ [types.key]: value });
+
+        return value;
+      },
+      async clearValue() {
+        if (api.storage.local.remove) {
+          await api.storage.local.remove(types.key);
+          return;
+        }
+
+        await api.storage.local.set({ [types.key]: undefined });
       }
     };
     const nativeStorage = {
-      async loadUsage() {
-        const response = await sendNativeMessage(api, { type: "loadScreenTimeUsage" });
+      async loadValue() {
+        const response = await sendNativeMessage(api, { type: types.loadType });
 
         switch (response.type) {
-          case "storedScreenTimeUsage":
-            return response.usage;
+          case types.loadedType:
+            return response[types.valueKey];
           case "error":
             throw errorFromResponse(response);
           default:
-            throw new Error(`Unknown native loadScreenTimeUsage response: ${response.type}`);
+            throw new Error(`Unknown native ${types.loadType} response: ${response.type}`);
         }
       },
-      async saveUsage(usage) {
-        const response = await sendNativeMessage(api, { type: "saveScreenTimeUsage", usage });
+      async saveValue(value) {
+        const response = await sendNativeMessage(api, { type: types.saveType, [types.valueKey]: value });
 
         switch (response.type) {
-          case "savedScreenTimeUsage":
-            return response.usage;
+          case types.savedType:
+            return response[types.valueKey];
           case "error":
             throw errorFromResponse(response);
           default:
-            throw new Error(`Unknown native saveScreenTimeUsage response: ${response.type}`);
+            throw new Error(`Unknown native ${types.saveType} response: ${response.type}`);
+        }
+      },
+      async clearValue() {
+        const response = await sendNativeMessage(api, { type: types.clearType });
+
+        switch (response.type) {
+          case types.clearedType:
+            return;
+          case "error":
+            throw errorFromResponse(response);
+          default:
+            throw new Error(`Unknown native ${types.clearType} response: ${response.type}`);
         }
       }
     };
 
     return {
-      async loadUsage() {
-        return (await usesNativeStorage(api)) ? nativeStorage.loadUsage() : browserStorage.loadUsage();
+      async loadValue() {
+        return (await usesNativeStorage(api)) ? nativeStorage.loadValue() : browserStorage.loadValue();
       },
-      async saveUsage(usage) {
-        return (await usesNativeStorage(api)) ? nativeStorage.saveUsage(usage) : browserStorage.saveUsage(usage);
+      async saveValue(value) {
+        return (await usesNativeStorage(api)) ? nativeStorage.saveValue(value) : browserStorage.saveValue(value);
+      },
+      async clearValue() {
+        return (await usesNativeStorage(api)) ? nativeStorage.clearValue() : browserStorage.clearValue();
       }
     };
   }

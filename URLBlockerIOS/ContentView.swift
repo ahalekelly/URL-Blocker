@@ -10,6 +10,7 @@ struct ContentView: View {
     @State private var appScreen = AppScreen.setup
     @State private var extensionState = ExtensionState.checking
     @State private var alert: AppAlert?
+    @State private var syncMessage = "Sign in to sync settings and screen time."
 
     var body: some View {
         NavigationStack {
@@ -17,8 +18,13 @@ struct ContentView: View {
             case .setup:
                 setupView
             case .blocklist:
-                BlocklistWebView { error in
-                    alert = AppAlert(title: "Blocklist Load Failed", error: error)
+                VStack(spacing: 0) {
+                    BlocklistWebView { error in
+                        alert = AppAlert(title: "Blocklist Load Failed", error: error)
+                    }
+                    syncControls
+                        .padding()
+                        .background(.bar)
                 }
                     .navigationTitle("Blocklist")
                     .navigationBarTitleDisplayMode(.inline)
@@ -61,8 +67,37 @@ struct ContentView: View {
                 Button("Open Extension Settings", action: openExtensionSettings)
                 Button("Open Blocklist Settings", action: openBlocklistSettings)
             }
+
+            Section("Sync") {
+                Text(syncMessage)
+                    .foregroundStyle(.secondary)
+                Button("Sign in with Google") {
+                    signIn(provider: .google)
+                }
+                Button("Sign in with Apple ID") {
+                    signIn(provider: .apple)
+                }
+            }
         }
         .navigationTitle("URL Blocker")
+    }
+
+    private var syncControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(syncMessage)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Button("Google") {
+                    signIn(provider: .google)
+                }
+                Button("Apple ID") {
+                    signIn(provider: .apple)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func refreshExtensionState() {
@@ -114,6 +149,29 @@ struct ContentView: View {
 
     private func openBlocklistSettings() {
         appScreen = .blocklist
+    }
+
+    private func signIn(provider: NativeSupabaseAuth.Provider) {
+        guard let anchor = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow) else {
+            alert = AppAlert(title: "Sign In Unavailable", message: "URL Blocker could not find an active app window.")
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                try await NativeSupabaseAuth.signIn(
+                    provider: provider,
+                    extensionBundleName: Safari.extensionBundleName,
+                    anchor: anchor
+                )
+                syncMessage = "Signed in. Safari will sync the next time URL Blocker runs."
+            } catch {
+                alert = AppAlert(title: "Sign In Failed", error: error)
+            }
+        }
     }
 }
 
@@ -192,19 +250,25 @@ private struct BlocklistWebView: UIViewRepresentable {
                 "default-blocked-pages",
                 withExtension: "json",
                 mimeType: "application/json"
+            ), supabaseConfigURL: Safari.resourceDataURL(
+                "supabase-config",
+                withExtension: "json",
+                mimeType: "application/json"
             )),
             Safari.resourceText("blocker", withExtension: "js"),
+            Safari.resourceText("supabase-sync", withExtension: "js"),
             Safari.resourceText("background", withExtension: "js"),
             backgroundControllerShim
         ].joined(separator: "\n")
     }
 
-    private static func nativeBrowserShim(defaultBlockedPagesURL: String) -> String {
+    private static func nativeBrowserShim(defaultBlockedPagesURL: String, supabaseConfigURL: String) -> String {
         """
     (() => {
       const callbacks = new Map();
       const resourceURLs = new Map([
-        ["default-blocked-pages.json", \(Safari.javaScriptString(defaultBlockedPagesURL))]
+        ["default-blocked-pages.json", \(Safari.javaScriptString(defaultBlockedPagesURL))],
+        ["supabase-config.json", \(Safari.javaScriptString(supabaseConfigURL))]
       ]);
       let nextId = 0;
 

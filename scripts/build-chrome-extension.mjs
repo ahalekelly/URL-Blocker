@@ -14,7 +14,10 @@ const outputPath = path.join(repoRoot, "build/chrome-extension");
 const core = require(path.join(sharedResourcesPath, "blocker.js"));
 const chromeManifest = JSON.parse(fs.readFileSync(chromeManifestPath, "utf8"));
 const defaultPages = JSON.parse(fs.readFileSync(defaultPagesPath, "utf8"));
-const expectedHostPermissions = core.permissionOriginsForState(core.emptyState(defaultPages));
+const expectedHostPermissions = [
+  "https://*.supabase.co/*",
+  ...core.permissionOriginsForState(core.emptyState(defaultPages))
+];
 const requiredFiles = [
   "background.js",
   "blocked.css",
@@ -28,7 +31,9 @@ const requiredFiles = [
   "icons/icon-128.png",
   "options.css",
   "options.html",
-  "options.js"
+  "options.js",
+  "supabase-config.json",
+  "supabase-sync.js"
 ];
 const chromeFiles = [
   "reload.html",
@@ -51,7 +56,7 @@ chromeFiles.forEach((file) => {
   }
 });
 
-assert.deepEqual(chromeManifest.permissions, ["scripting", "storage", "tabs"]);
+assert.deepEqual(chromeManifest.permissions, ["identity", "scripting", "storage", "tabs"]);
 assert.deepEqual(chromeManifest.host_permissions, expectedHostPermissions);
 assert.deepEqual(chromeManifest.optional_host_permissions, ["*://*/*"]);
 

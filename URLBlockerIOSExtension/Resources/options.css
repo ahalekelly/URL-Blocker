@@ -261,9 +261,27 @@ h2 {
 .schedule-window-fields,
 .reset-options,
 .reset-fields,
+.sync-panel,
+.sync-actions,
 .screen-time-row {
   display: flex;
   gap: 12px;
+}
+
+.sync-panel {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sync-status-text {
+  margin-top: 6px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.sync-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .schedule-window-fields[hidden],
@@ -412,6 +430,8 @@ input[readonly] {
   .schedule-window-fields,
   .reset-options,
   .reset-fields,
+  .sync-panel,
+  .sync-actions,
   .list-actions,
   .editor-footer {
     display: grid;
