@@ -214,7 +214,7 @@ function importCertificate() {
     "-T",
     "/usr/bin/security",
   ]);
-  run("security", [
+  runQuiet("security", [
     "set-key-partition-list",
     "-S",
     "apple-tool:,apple:",
@@ -437,6 +437,16 @@ function run(command, args, options = {}) {
 
   if (result.status !== 0) {
     throw new Error(`${command} failed.`);
+  }
+}
+
+function runQuiet(command, args) {
+  const result = spawnSync(command, args, {
+    encoding: "utf8",
+  });
+
+  if (result.status !== 0) {
+    throw new Error(result.stderr.trim() || result.stdout.trim() || `${command} failed.`);
   }
 }
 
