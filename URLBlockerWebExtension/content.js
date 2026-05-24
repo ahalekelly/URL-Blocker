@@ -2,6 +2,7 @@
   "use strict";
 
   const api = root.browser || root.chrome;
+  const MAX_SCREEN_TIME_ELAPSED_MS = 10 * 1000;
   let lastSentUrl = "";
   let queuedCheck = 0;
   let screenTimeUrl = "";
@@ -120,13 +121,17 @@
     }
 
     const elapsedMs = now - screenTimeStartedAt;
+    screenTimeStartedAt = now;
 
     if (elapsedMs <= 0) {
       return;
     }
 
+    if (elapsedMs > MAX_SCREEN_TIME_ELAPSED_MS) {
+      return;
+    }
+
     const url = screenTimeUrl;
-    screenTimeStartedAt = now;
     sendMessage(
       { type: "screenTimeElapsed", url, elapsedMs },
       (error) => console.error("URL Blocker could not log screen time.", errorDetails(error)),

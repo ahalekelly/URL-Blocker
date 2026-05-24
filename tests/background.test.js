@@ -433,6 +433,11 @@ test("screenTimeElapsed validates elapsed time", async () => {
     url: "https://reddit.com",
     elapsedMs: 0
   }, {}), /positive integer/);
+  await assert.rejects(() => controller.handleMessage({
+    type: "screenTimeElapsed",
+    url: "https://reddit.com",
+    elapsedMs: 10001
+  }, {}), /no more than 10 seconds/);
 });
 
 test("getScreenTimeLog sums the last 16 hour buckets without pruning storage", async () => {
@@ -675,11 +680,14 @@ test("screenTimeElapsed redirects matching URLs after crossing the limit", async
   ], inactiveSchedule(), [
     { domain: "x.com", limitMinutes: 1 }
   ]);
+  api.storageData.screenTimeUsage = screenTimeUsage({
+    "x.com": { 20: 50000 }
+  });
   const controller = createBackgroundController(api);
   const response = await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://x.com/home",
-    elapsedMs: 60000
+    elapsedMs: 10000
   }, { tab: { id: 7 } });
 
   assert.deepEqual(response, { type: "logged", domain: "x.com", totalMs: 60000, limitMinutes: 1, isOverLimit: true });
@@ -696,11 +704,14 @@ test("whole-domain usage counts on non-matching URLs without redirecting them", 
   ], inactiveSchedule(), [
     { domain: "x.com", limitMinutes: 1 }
   ]);
+  api.storageData.screenTimeUsage = screenTimeUsage({
+    "x.com": { 20: 50000 }
+  });
   const controller = createBackgroundController(api);
   const response = await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://x.com/messages",
-    elapsedMs: 60000
+    elapsedMs: 10000
   }, { tab: { id: 7 } });
 
   assert.deepEqual(response, { type: "logged", domain: "x.com", totalMs: 60000, limitMinutes: 1, isOverLimit: true });
@@ -825,7 +836,7 @@ test("screen time sync waits until dirty data is old enough", async () => {
     await controller.handleMessage({
       type: "screenTimeElapsed",
       url: "https://example.com",
-      elapsedMs: 30000
+      elapsedMs: 10000
     }, {});
     api.nowValue += 59000;
     await controller.handleMessage({ type: "getScreenTimeLog" }, {});
@@ -838,7 +849,7 @@ test("screen time sync waits until dirty data is old enough", async () => {
       device_id: "11111111-1111-4111-8111-000000000001",
       domain: "example.com",
       hour_number: 20,
-      total_ms: 30000
+      total_ms: 10000
     }]);
   } finally {
     globalThis.fetch = fetch;
@@ -861,7 +872,7 @@ test("continuous screen time updates do not postpone sync forever", async () => 
     if (String(url).includes("/rpc/sync_screen_time_buckets")) {
       posts.push(JSON.parse(options.body));
       return jsonResponse([
-        { device_id: "11111111-1111-4111-8111-000000000001", domain: "example.com", hour_number: 20, total_ms: 60000 }
+        { device_id: "11111111-1111-4111-8111-000000000001", domain: "example.com", hour_number: 20, total_ms: 20000 }
       ]);
     }
 
@@ -878,19 +889,19 @@ test("continuous screen time updates do not postpone sync forever", async () => 
     await controller.handleMessage({
       type: "screenTimeElapsed",
       url: "https://example.com",
-      elapsedMs: 30000
+      elapsedMs: 10000
     }, {});
     api.nowValue += 30000;
     await controller.handleMessage({
       type: "screenTimeElapsed",
       url: "https://example.com",
-      elapsedMs: 30000
+      elapsedMs: 10000
     }, {});
     api.nowValue += 30000;
     await controller.handleMessage({ type: "getScreenTimeLog" }, {});
 
     assert.equal(posts.length, 1);
-    assert.equal(posts[0].p_buckets[0].total_ms, 60000);
+    assert.equal(posts[0].p_buckets[0].total_ms, 20000);
   } finally {
     globalThis.fetch = fetch;
   }
@@ -922,7 +933,7 @@ test("Supabase failures leave screen time local and dirty", async () => {
     const response = await controller.handleMessage({
       type: "screenTimeElapsed",
       url: "https://example.com",
-      elapsedMs: 30000
+      elapsedMs: 10000
     }, {});
 
     assert.equal(response.type, "logged");

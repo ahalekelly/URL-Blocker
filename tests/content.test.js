@@ -64,6 +64,20 @@ test("content script logs elapsed time when the page hides", async () => {
   ]);
 });
 
+test("content script ignores stale screen time after sleep", async () => {
+  const page = runContentScript("https://x.com/home");
+
+  page.tick(10 * 60 * 1000);
+  page.tick();
+
+  assert.deepEqual(page.messages, [
+    { type: "urlChanged", url: "https://x.com/home" },
+    { type: "urlChanged", url: "https://x.com/home" },
+    { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 1500 },
+    { type: "urlChanged", url: "https://x.com/home" }
+  ]);
+});
+
 function runContentScript(url) {
   const context = {
     browser: {
