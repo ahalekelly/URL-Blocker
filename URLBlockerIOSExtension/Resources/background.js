@@ -670,10 +670,29 @@
       const response = await fetch(url, options);
 
       if (!response.ok) {
-        throw codedError(`HTTP ${response.status}`, `Supabase request failed: ${response.status}`);
+        throw codedError(`HTTP ${response.status}`, supabaseErrorMessage(response.status, await response.text()));
       }
 
       return response.json();
+    }
+
+    function supabaseErrorMessage(status, body) {
+      if (body === "") {
+        return `Supabase request failed: ${status}`;
+      }
+
+      try {
+        const json = JSON.parse(body);
+        const detail = [json.message, json.details, json.hint, json.code].filter((value) => typeof value === "string" && value !== "");
+
+        if (detail.length > 0) {
+          return `Supabase request failed: ${status}. ${detail.join(" ")}`;
+        }
+      } catch {
+        return `Supabase request failed: ${status}. ${body}`;
+      }
+
+      return `Supabase request failed: ${status}. ${body}`;
     }
 
     function rememberSyncError(error) {

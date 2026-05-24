@@ -822,6 +822,40 @@ test("Supabase failures leave screen time local and dirty", async () => {
   }
 });
 
+test("Supabase HTTP failures include response details", async () => {
+  const fetch = globalThis.fetch;
+  const consoleError = console.error;
+  const api = fakeApi({
+    now: 20 * 60 * 60 * 1000,
+    supabaseConfig: configuredSupabase()
+  });
+
+  api.storageData.supabaseSession = supabaseSession();
+  console.error = () => {};
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).includes("supabase.co")) {
+      return httpErrorResponse(400, {
+        code: "PGRST205",
+        message: "Could not find the table 'public.user_settings' in the schema cache"
+      });
+    }
+
+    return fetch(url, options);
+  };
+
+  try {
+    const controller = createBackgroundController(api);
+    const response = await controller.syncNow();
+
+    assert.equal(response.type, "synced");
+    assert.match(response.status.error, /Could not find the table/);
+    assert.match(response.status.error, /PGRST205/);
+  } finally {
+    globalThis.fetch = fetch;
+    console.error = consoleError;
+  }
+});
+
 test("saveState applies newer remote settings when Supabase wins", async () => {
   const fetch = globalThis.fetch;
   const api = fakeApi({
@@ -1076,6 +1110,16 @@ function jsonResponse(value) {
     ok: true,
     async json() {
       return value;
+    }
+  };
+}
+
+function httpErrorResponse(status, value) {
+  return {
+    ok: false,
+    status,
+    async text() {
+      return JSON.stringify(value);
     }
   };
 }

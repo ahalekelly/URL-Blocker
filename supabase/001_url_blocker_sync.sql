@@ -151,7 +151,7 @@ begin
       and incoming.domain <> ''
       and incoming.hour_number >= 0
       and incoming.total_ms >= 0
-    on conflict (user_id, device_id, domain, hour_number) do update
+    on conflict on constraint screen_time_buckets_pkey do update
     set
       total_ms = greatest(public.screen_time_buckets.total_ms, excluded.total_ms),
       updated_at = now()
