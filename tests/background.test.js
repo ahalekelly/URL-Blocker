@@ -1,10 +1,10 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const core = require("../URLBlockerIOSExtension/Resources/blocker.js");
-const defaultBlockedPages = require("../URLBlockerIOSExtension/Resources/default-blocked-pages.json");
-const manifest = require("../URLBlockerIOSExtension/Resources/manifest.json");
-const { createBackgroundController } = require("../URLBlockerIOSExtension/Resources/background.js");
+const core = require("../URLBlockerWebExtension/blocker.js");
+const defaultBlockedPages = require("../URLBlockerWebExtension/default-blocked-pages.json");
+const manifest = require("../URLBlockerWebExtension/manifest.json");
+const { createBackgroundController } = require("../URLBlockerWebExtension/background.js");
 
 const id = "11111111-1111-4111-8111-111111111111";
 

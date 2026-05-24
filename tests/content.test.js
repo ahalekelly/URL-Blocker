@@ -4,7 +4,7 @@ const test = require("node:test");
 const vm = require("node:vm");
 const assert = require("node:assert/strict");
 
-const contentScript = fs.readFileSync(path.join(__dirname, "../URLBlockerIOSExtension/Resources/content.js"), "utf8");
+const contentScript = fs.readFileSync(path.join(__dirname, "../URLBlockerWebExtension/content.js"), "utf8");
 
 test("content script reports the startup URL to the worker", async () => {
   const page = runContentScript("https://x.com/home");

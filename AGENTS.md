@@ -3,8 +3,9 @@
 ## Project Shape
 
 - `URLBlockerIOS/`: iOS containing app.
-- `URLBlockerIOSExtension/`: Safari Web Extension target and web resources.
-- `ChromeExtension/`: Chrome-specific manifest. The Chrome build reuses the Safari extension web resources.
+- `URLBlockerIOSExtension/`: iOS Safari Web Extension native wrapper.
+- `URLBlockerWebExtension/`: shared Web Extension resources used by Safari, macOS, and Chromium builds.
+- `ChromeExtension/`: Chrome-specific manifest and reload helpers. The Chrome build reuses `URLBlockerWebExtension/`.
 - `URLBlockerShared/`: Swift shared state validation and storage.
 - `URLBlockerMac/` and `URLBlockerExtensionMac/`: macOS targets.
 - `tests/`: Node tests for extension JavaScript behavior.
@@ -123,8 +124,8 @@ Use [ios_build_sign_install.md](ios_build_sign_install.md) for the complete sign
 ## Supabase Sync
 
 - Supabase project ref: `YOUR_PROJECT_REF`.
-- Runtime config is bundled from `URLBlockerIOSExtension/Resources/supabase-config.json`. It must contain the project URL, publishable anon key, `redirectScheme: "urlblocker"`, and `screenTimeSyncAgeMs`.
-- The committed `supabase-config.json` must stay as an example with placeholder values. Keep real local values in that same file only with `git update-index --skip-worktree URLBlockerIOSExtension/Resources/supabase-config.json` set, so local builds include the real config but Git status and commits ignore it. Use `git update-index --no-skip-worktree ...` only when intentionally editing the example config.
+- Runtime config is bundled from `URLBlockerWebExtension/supabase-config.json`. It must contain the project URL, publishable anon key, `redirectScheme: "urlblocker"`, and `screenTimeSyncAgeMs`.
+- The committed `supabase-config.json` must stay as an example with placeholder values. Keep real local values in that same file only with `git update-index --skip-worktree URLBlockerWebExtension/supabase-config.json` set, so local builds include the real config but Git status and commits ignore it. Use `git update-index --no-skip-worktree ...` only when intentionally editing the example config.
 - Backend schema lives in `supabase/001_url_blocker_sync.sql`.
 - Run Supabase CLI commands outside the Codex sandbox. The CLI writes local metadata under `supabase/.temp/` and `~/.supabase`.
 - `supabase/.temp/` is generated local CLI state and must not be committed.

@@ -6,8 +6,8 @@ Remove the existing save button, make the Save button float in the bottom right 
 Make the title of each block group larger, and make the URLs not bold.
 Make a file with a list of suggested UI improvements - Added suggested-ui-improvements.md with 10 prioritized options-page improvements from live Safari/Brave review.
 Make a new page with comprehensive screen time statistics - Added stats.html with summary cards, hourly totals, per-domain limit progress, and device totals; linked it from the options screen and wired it into Safari and Chromium resources. Brave needed its existing unpacked extension reloaded before the new background message was available.
+The shared code is in the URLBlockerIOSExtension folder, update the folder names so that they reflect their contents and update any required code - Moved shared Web Extension resources to URLBlockerWebExtension, left URLBlockerIOSExtension as the iOS native wrapper, updated Xcode, scripts, tests, and project notes. Preserved the local skip-worktree Supabase config during the rename.
 
 To Do:
-The shared code is in the URLBlockerIOSExtension folder, update the folder names so that they reflect their contents and update any required code
 Make the displayed times round to the nearest minute
 The sign in buttons are still shown after we're signed in, on both Vivaldi and iOS. And on iOS there's a floating header on the bottom so you don't need the sign in buttons at all

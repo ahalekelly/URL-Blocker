@@ -4,7 +4,7 @@ const vm = require("node:vm");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const resourcesPath = path.join(__dirname, "../URLBlockerIOSExtension/Resources");
+const resourcesPath = path.join(__dirname, "../URLBlockerWebExtension");
 const statsScript = fs.readFileSync(path.join(resourcesPath, "stats.js"), "utf8");
 
 test("stats page renders screen time stats", async () => {

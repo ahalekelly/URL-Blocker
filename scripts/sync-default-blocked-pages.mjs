@@ -5,12 +5,12 @@ import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const defaultPagesPath = path.join(repoRoot, "URLBlockerIOSExtension/Resources/default-blocked-pages.json");
+const defaultPagesPath = path.join(repoRoot, "URLBlockerWebExtension/default-blocked-pages.json");
 const manifestPaths = [
-  path.join(repoRoot, "URLBlockerIOSExtension/Resources/manifest.json"),
+  path.join(repoRoot, "URLBlockerWebExtension/manifest.json"),
   path.join(repoRoot, "ChromeExtension/manifest.json")
 ];
-const core = require(path.join(repoRoot, "URLBlockerIOSExtension/Resources/blocker.js"));
+const core = require(path.join(repoRoot, "URLBlockerWebExtension/blocker.js"));
 const defaultPages = JSON.parse(fs.readFileSync(defaultPagesPath, "utf8"));
 const state = core.emptyState(defaultPages);
 const hostPermissions = [

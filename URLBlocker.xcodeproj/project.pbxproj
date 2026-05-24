@@ -188,6 +188,7 @@
 				02B300000000000000000001 /* URLBlockerMac */,
 				01B300000000000000000003 /* URLBlockerIOSExtension */,
 				02B300000000000000000002 /* URLBlockerExtensionMac */,
+				01B300000000000000000004 /* URLBlockerWebExtension */,
 				03B300000000000000000001 /* URLBlockerShared */,
 				01B300000000000000000006 /* Frameworks */,
 				01B300000000000000000005 /* Products */,
@@ -210,14 +211,13 @@
 			isa = PBXGroup;
 			children = (
 				01B000000000000000000003 /* SafariWebExtensionHandler.swift */,
-				01B300000000000000000004 /* Resources */,
 				01B000000000000000000012 /* Info.plist */,
 				03B000000000000000000003 /* URLBlockerIOSExtension.entitlements */,
 			);
 			path = URLBlockerIOSExtension;
 			sourceTree = "<group>";
 		};
-		01B300000000000000000004 /* Resources */ = {
+		01B300000000000000000004 /* URLBlockerWebExtension */ = {
 			isa = PBXGroup;
 			children = (
 				01B000000000000000000006 /* manifest.json */,
@@ -238,7 +238,7 @@
 				01B000000000000000000015 /* supabase-config.json */,
 				01B000000000000000000010 /* icons */,
 			);
-			path = Resources;
+			path = URLBlockerWebExtension;
 			sourceTree = "<group>";
 		};
 		01B300000000000000000005 /* Products */ = {

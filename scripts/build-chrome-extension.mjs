@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const sharedResourcesPath = path.join(repoRoot, "URLBlockerIOSExtension/Resources");
+const sharedResourcesPath = path.join(repoRoot, "URLBlockerWebExtension");
 const chromeResourcesPath = path.join(repoRoot, "ChromeExtension");
 const chromeManifestPath = path.join(repoRoot, "ChromeExtension/manifest.json");
 const defaultPagesPath = path.join(sharedResourcesPath, "default-blocked-pages.json");

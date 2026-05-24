@@ -3,7 +3,7 @@ const path = require("node:path");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const css = fs.readFileSync(path.join(__dirname, "../URLBlockerIOSExtension/Resources/options.css"), "utf8");
+const css = fs.readFileSync(path.join(__dirname, "../URLBlockerWebExtension/options.css"), "utf8");
 
 test("default block group titles are larger than URL entries", () => {
   assert.match(rule(".default-group-title"), /font-size:\s*20px;/);
