@@ -3,104 +3,113 @@
 import { access, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 
-const rawArgs = process.argv.slice(2);
 const reloadPage = "reload.html";
 const browsers = {
   Vivaldi: {
     profileDirectory: "Default",
-    securePreferencesPath: path.join(
+    userDataDir: path.join(
       homedir(),
-      "Library/Application Support/Vivaldi/Default/Secure Preferences",
+      "Library/Application Support/Vivaldi",
     ),
   },
   "Brave Browser": {
     profileDirectory: "Default",
-    securePreferencesPath: path.join(
+    userDataDir: path.join(
       homedir(),
-      "Library/Application Support/BraveSoftware/Brave-Browser/Default/Secure Preferences",
+      "Library/Application Support/BraveSoftware/Brave-Browser",
     ),
   },
 };
-const mode = rawArgs[0] === "--preflight"
-  ? { type: "preflight", args: rawArgs.slice(1) }
-  : { type: "update", args: rawArgs };
 
-if (mode.args.length !== 3) {
-  throw new Error(
-    "Usage: node scripts/install-chromium-extension.mjs [--preflight] <app name> <browser binary> <extension directory>",
-  );
+if (isMainModule()) {
+  await main(process.argv.slice(2));
+  process.exit(0);
 }
 
-const [appName, browserPath, extensionPath] = mode.args;
-const browserConfig = browsers[appName];
+async function main(rawArgs) {
+  const mode = rawArgs[0] === "--preflight"
+    ? { type: "preflight", args: rawArgs.slice(1) }
+    : { type: "update", args: rawArgs };
 
-if (!browserConfig) {
-  throw new Error(`Unknown browser: ${appName}`);
-}
+  if (mode.args.length !== 3) {
+    throw new Error(
+      "Usage: node scripts/install-chromium-extension.mjs [--preflight] <app name> <browser binary> <extension directory>",
+    );
+  }
 
-if (!path.isAbsolute(browserPath)) {
-  throw new Error(`Browser binary must be absolute: ${browserPath}`);
-}
+  const [appName, browserPath, extensionPath] = mode.args;
+  const browserConfig = browsers[appName];
 
-if (!path.isAbsolute(extensionPath)) {
-  throw new Error(`Extension directory must be absolute: ${extensionPath}`);
-}
+  if (!browserConfig) {
+    throw new Error(`Unknown browser: ${appName}`);
+  }
 
-await access(browserPath);
+  if (!path.isAbsolute(browserPath)) {
+    throw new Error(`Browser binary must be absolute: ${browserPath}`);
+  }
 
-if (mode.type === "update") {
-  await access(path.join(extensionPath, "manifest.json"));
-  await access(path.join(extensionPath, reloadPage));
-}
+  if (!path.isAbsolute(extensionPath)) {
+    throw new Error(`Extension directory must be absolute: ${extensionPath}`);
+  }
 
-const browserState = isAppRunning(appName) ? { type: "running" } : { type: "closed" };
+  await access(browserPath);
 
-switch (mode.type) {
-  case "preflight":
-    await preflightUpdate();
-    break;
-  case "update":
-    await updateBrowser();
-    break;
-  default:
-    throw new Error(`Unknown mode: ${mode.type}`);
-}
+  if (mode.type === "update") {
+    await access(path.join(extensionPath, "manifest.json"));
+    await access(path.join(extensionPath, reloadPage));
+  }
 
-process.exit(0);
+  const browserState = isAppRunning(appName)
+    ? { type: "running", userDataDir: runningUserDataDir(browserPath, browserConfig.userDataDir) }
+    : { type: "closed", userDataDir: browserConfig.userDataDir };
+  const app = { appName, browserConfig, browserState, extensionPath };
 
-async function preflightUpdate() {
-  await validateInstalled();
-}
-
-async function updateBrowser() {
-  const extension = await validateInstalled();
-
-  switch (browserState.type) {
-    case "running":
-      await reloadRunningBrowser(extension);
+  switch (mode.type) {
+    case "preflight":
+      await preflightUpdate(app);
       break;
-    case "closed":
-      console.log(`Updated URL Blocker files for closed ${appName} ${browserConfig.profileDirectory}: ${extension.id}`);
+    case "update":
+      await updateBrowser(app);
       break;
     default:
-      throw new Error(`Unknown browser state: ${browserState.type}`);
+      throw new Error(`Unknown mode: ${mode.type}`);
   }
 }
 
-async function reloadRunningBrowser(extension) {
-  openRunningBrowser(`chrome-extension://${extension.id}/${reloadPage}`);
-  await wait(1_000);
-  await validateInstalled();
-
-  console.log(`Reloaded URL Blocker in running ${appName} ${browserConfig.profileDirectory}: ${extension.id}`);
+async function preflightUpdate(app) {
+  await validateInstalled(app);
 }
 
-async function validateInstalled() {
-  const extension = await readExtensionByPath();
+async function updateBrowser(app) {
+  const extension = await validateInstalled(app);
 
-  validateEnabled(extension.settings);
+  switch (app.browserState.type) {
+    case "running":
+      await reloadRunningBrowser(app, extension);
+      break;
+    case "closed":
+      console.log(`Updated URL Blocker files for closed ${app.appName} ${profileLabel(app)}: ${extension.id}`);
+      break;
+    default:
+      throw new Error(`Unknown browser state: ${app.browserState.type}`);
+  }
+}
+
+async function reloadRunningBrowser(app, extension) {
+  openRunningBrowser(app.appName, `chrome-extension://${extension.id}/${reloadPage}`);
+  await wait(1_000);
+  await validateInstalled(app);
+
+  console.log(`Reloaded URL Blocker in running ${app.appName} ${profileLabel(app)}: ${extension.id}`);
+}
+
+async function validateInstalled(app) {
+  const extension = await readExtensionByPath(app);
+
+  validateEnabled(app, extension.settings);
 
   return extension;
 }
@@ -127,7 +136,34 @@ function isAppRunning(name) {
   throw new Error(`Unknown ${name} running state: ${answer}`);
 }
 
-function openRunningBrowser(url) {
+function runningUserDataDir(browserPath, defaultUserDataDir) {
+  const command = runningBrowserCommand(browserPath);
+  const userDataDir = userDataDirFromCommand(command);
+
+  return userDataDir || defaultUserDataDir;
+}
+
+function runningBrowserCommand(browserPath) {
+  const result = spawnSync("ps", ["-axww", "-o", "command="], {
+    encoding: "utf8",
+  });
+
+  if (result.status !== 0) {
+    throw new Error("Failed to read running browser processes");
+  }
+
+  return result.stdout
+    .split("\n")
+    .find((command) => command.startsWith(browserPath)) || "";
+}
+
+function userDataDirFromCommand(command) {
+  const match = command.match(/(?:^|\s)--user-data-dir(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(\S+))/);
+
+  return match ? match[1] || match[2] || match[3] : "";
+}
+
+function openRunningBrowser(appName, url) {
   const result = spawnSync("open", ["-a", appName, url], { stdio: "inherit" });
 
   if (result.status !== 0) {
@@ -135,18 +171,18 @@ function openRunningBrowser(url) {
   }
 }
 
-async function readExtensionByPath() {
-  const extensions = await readExtensionSettings();
+async function readExtensionByPath(app) {
+  const extensions = await readExtensionSettings(app);
   const matches = Object
     .entries(extensions)
-    .filter(([, settings]) => settings.path === extensionPath);
+    .filter(([, settings]) => settings.path === app.extensionPath);
 
   if (matches.length === 0) {
-    throw new Error(`${appName} does not have URL Blocker installed from ${extensionPath}`);
+    throw new Error(`${app.appName} does not have URL Blocker installed from ${app.extensionPath} in ${profileLabel(app)}`);
   }
 
   if (matches.length > 1) {
-    throw new Error(`${appName} has multiple extensions installed from ${extensionPath}`);
+    throw new Error(`${app.appName} has multiple extensions installed from ${app.extensionPath} in ${profileLabel(app)}`);
   }
 
   const [[id, settings]] = matches;
@@ -154,41 +190,62 @@ async function readExtensionByPath() {
   return { id, settings };
 }
 
-async function readExtensionSettings() {
-  const preferences = await readPreferences();
+async function readExtensionSettings(app) {
+  const preferences = await readPreferences(app);
   const extensionRoot = preferences.extensions;
 
   if (!extensionRoot || typeof extensionRoot !== "object") {
-    throw new Error(`${appName} saved invalid extension preferences`);
+    throw new Error(`${app.appName} saved invalid extension preferences`);
   }
 
   if (!extensionRoot.settings || typeof extensionRoot.settings !== "object") {
-    throw new Error(`${appName} saved invalid extension settings`);
+    throw new Error(`${app.appName} saved invalid extension settings`);
   }
 
   return extensionRoot.settings;
 }
 
-async function readPreferences() {
-  return JSON.parse(await readFile(browserConfig.securePreferencesPath, "utf8"));
+async function readPreferences(app) {
+  return JSON.parse(await readFile(securePreferencesPath(app.browserConfig, app.browserState), "utf8"));
 }
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function validateEnabled(settings) {
+function validateEnabled(app, settings) {
   if (settings.disable_reasons === undefined) {
     return;
   }
 
   if (!Array.isArray(settings.disable_reasons)) {
-    throw new Error(`${appName} saved invalid disable reasons for URL Blocker`);
+    throw new Error(`${app.appName} saved invalid disable reasons for URL Blocker`);
   }
 
   if (settings.disable_reasons.length > 0) {
     throw new Error(
-      `${appName} cannot keep URL Blocker enabled: ${settings.disable_reasons.join(", ")}`,
+      `${app.appName} cannot keep URL Blocker enabled: ${settings.disable_reasons.join(", ")}`,
     );
   }
 }
+
+function securePreferencesPath(browserConfig, browserState) {
+  return path.join(browserState.userDataDir, browserConfig.profileDirectory, "Secure Preferences");
+}
+
+function profileLabel(app) {
+  if (app.browserState.userDataDir === app.browserConfig.userDataDir) {
+    return app.browserConfig.profileDirectory;
+  }
+
+  return `${app.browserConfig.profileDirectory} at ${app.browserState.userDataDir}`;
+}
+
+function isMainModule() {
+  return process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+}
+
+export {
+  securePreferencesPath,
+  userDataDirFromCommand,
+};

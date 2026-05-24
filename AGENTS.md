@@ -35,13 +35,13 @@ Build the unpacked Chrome extension:
 make chrome-extension
 ```
 
-Build and update Vivaldi with the unpacked extension in the main profile:
+Build and update Vivaldi with the unpacked extension:
 
 ```sh
 make vivaldi-install
 ```
 
-Build and update Brave with the unpacked extension in the main profile:
+Build and update Brave with the unpacked extension:
 
 ```sh
 make brave-install
@@ -49,7 +49,7 @@ make brave-install
 
 Use Brave as the Chromium UI verification target. Do not use Vivaldi for browser UI testing unless explicitly requested.
 
-The Chromium install targets first verify URL Blocker is already installed from `build/chrome-extension` in the `Default` profile. They then rebuild `build/chrome-extension`. When the browser is open, the target reloads the existing unpacked extension without restarting the browser. When the browser is closed, the target only updates the files and does not open the browser. The reload path requires URL Blocker to already be enabled.
+The Chromium install targets first verify URL Blocker is already installed from `build/chrome-extension`. When the browser is open, they verify and reload the currently running profile, including a temporary `--user-data-dir` profile. When the browser is closed, they verify the `Default` main profile and only update the files without opening the browser. The reload path requires URL Blocker to already be enabled.
 
 The Codex in-app browser does not work for local URL Blocker extension UI checks. It rejects the local extension/options page, so use Brave for browser UI verification instead.
 
