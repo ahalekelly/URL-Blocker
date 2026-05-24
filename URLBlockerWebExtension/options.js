@@ -430,7 +430,7 @@
       case "signedOut":
         syncStatusText.textContent = syncStatusErrorText(signedOutSyncStatusText());
         googleSignInButton.hidden = false;
-        appleSignInButton.hidden = false;
+        appleSignInButton.hidden = true;
         syncNowButton.hidden = true;
         signOutButton.hidden = true;
         return;
@@ -451,7 +451,7 @@
       case "error":
         syncStatusText.textContent = state.syncStatus.error;
         googleSignInButton.hidden = false;
-        appleSignInButton.hidden = false;
+        appleSignInButton.hidden = true;
         syncNowButton.hidden = true;
         signOutButton.hidden = true;
         return;

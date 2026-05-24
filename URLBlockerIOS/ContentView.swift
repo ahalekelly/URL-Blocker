@@ -80,7 +80,7 @@ struct ContentView: View {
                     Text("Sign in to sync settings and screen time.")
                         .foregroundStyle(.secondary)
                     signInButton(provider: .google)
-                    signInButton(provider: .apple)
+                    // signInButton(provider: .apple)
                 }
             }
         }
@@ -96,11 +96,11 @@ struct ContentView: View {
             ViewThatFits(in: .horizontal) {
                 HStack {
                     signInButton(provider: .google)
-                    signInButton(provider: .apple)
+                    // signInButton(provider: .apple)
                 }
                 VStack(alignment: .leading) {
                     signInButton(provider: .google)
-                    signInButton(provider: .apple)
+                    // signInButton(provider: .apple)
                 }
             }
         }

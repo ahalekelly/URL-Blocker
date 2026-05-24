@@ -127,6 +127,8 @@ test("options keeps stats and limit reset visible when block schedule is always"
   assert.equal(page.byId("limitResetPanel").hidden, false);
   assert.equal(page.customRows().at(-1).querySelector(".row-limit").hidden, true);
   assert.equal(page.byId("syncStatusText").textContent, "Sign in to sync settings.");
+  assert.equal(page.byId("googleSignInButton").hidden, false);
+  assert.equal(page.byId("appleSignInButton").hidden, true);
 
   await page.byId("dailyScheduleInput").dispatch("change");
 
@@ -228,6 +230,7 @@ test("options shows immediate provider sign-in feedback", async () => {
 
   assert.equal(page.byId("syncStatusText").textContent, "Opening Google sign-in.");
   assert.equal(page.byId("googleSignInButton").disabled, true);
+  assert.equal(page.byId("appleSignInButton").hidden, true);
   assert.equal(page.byId("appleSignInButton").disabled, true);
 
   await app.optionsApi.finishSignInWithProvider();
