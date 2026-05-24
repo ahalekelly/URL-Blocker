@@ -29,6 +29,13 @@ test("provider sign-in buttons show hover feedback", () => {
   assert.match(rule("#appleSignInButton:not(:disabled):hover"), /background:\s*#1c1c1c;/);
 });
 
+test("daily reset select uses the shared form control styling", () => {
+  assert.match(css, /input,\s*select,\s*textarea\s*\{[^}]*border:\s*1px\s+solid\s+var\(--border\);/s);
+  assert.match(css, /input,\s*select\s*\{[^}]*min-height:\s*44px;/s);
+  assert.match(css, /\nselect\s*\{[^}]*appearance:\s*none;/s);
+  assert.match(rule("select option"), /background:\s*var\(--surface\);/);
+});
+
 test("hidden time limit controls are not displayed", () => {
   assert.match(css, /\.settings-panel\[hidden\]\s*\{[^}]*display:\s*none;/s);
   assert.match(css, /\.default-group-limit\[hidden\],\s*\.row-limit\[hidden\]\s*\{[^}]*display:\s*none;/s);
