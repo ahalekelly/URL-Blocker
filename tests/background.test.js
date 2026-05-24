@@ -225,7 +225,7 @@ test("urlChanged redirects matching sender tab to the blocked page", async () =>
   const api = fakeApi();
   api.storageData[core.STATE_KEY] = validState([
     { id, kind: "url", value: "https://x.com" }
-  ]);
+  ], { type: "always" });
   const controller = createBackgroundController(api);
   const response = await controller.handleMessage({ type: "urlChanged", url: "https://x.com/home" }, { tab: { id: 7 } });
 
@@ -920,7 +920,7 @@ test("saveState redirects open tabs that match the new state", async () => {
   const controller = createBackgroundController(api);
   const response = await controller.saveState(validState([
     { id, kind: "url", value: "https://x.com/home" }
-  ]));
+  ], { type: "always" }));
 
   assert.equal(response.type, "saved");
   assert.deepEqual(api.updatedTabs, [{
