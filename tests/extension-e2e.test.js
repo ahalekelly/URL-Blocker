@@ -24,7 +24,7 @@ test("options requests only missing website access for saved states", async () =
 
   const page = await openOptionsPage(app);
 
-  assert.equal(app.optionsApi.messages[0].type, "syncNow");
+  assert.deepEqual(messageTypes(app).slice(0, 4), ["getLocalState", "getLocalScreenTimeLog", "getSyncStatus", "syncNow"]);
   assert.equal(page.byId("permissionPanel").hidden, false);
   assert.equal(page.byId("editorPanel").hidden, true);
   assert.equal(page.byId("permissionMessage").textContent, "URL Blocker needs access to this website before blocking can run.");
@@ -35,6 +35,23 @@ test("options requests only missing website access for saved states", async () =
   assert.equal(page.byId("permissionPanel").hidden, true);
   assert.equal(page.byId("editorPanel").hidden, false);
   assert.deepEqual(app.backgroundApi.registeredScripts[0].matches, ["*://*.example.com/*"]);
+});
+
+test("options renders local data before startup sync finishes", async () => {
+  const app = createExtensionApp({ delaySyncNow: true });
+
+  app.backgroundApi.storageData[core.STATE_KEY] = validState([
+    { id, kind: "domain", value: "example.com" }
+  ]);
+  app.backgroundApi.grantedOrigins.push("*://*.example.com/*");
+
+  const page = await openOptionsPage(app);
+
+  assert.deepEqual(messageTypes(app).slice(0, 4), ["getLocalState", "getLocalScreenTimeLog", "getSyncStatus", "syncNow"]);
+  assert.equal(page.byId("editorPanel").hidden, false);
+  assert.equal(page.customRows().at(-1).querySelector(".value-input").value, "example.com");
+
+  await app.optionsApi.finishSyncNow();
 });
 
 test("end-to-end options save blocks a page and renders the blocked view", async () => {
@@ -162,12 +179,28 @@ async function runContentScript(app, url, tabId) {
 function createExtensionApp(overrides = {}) {
   const backgroundApi = fakeBackgroundApi(overrides);
   const controller = createBackgroundController(backgroundApi);
+  let finishDelayedSync;
   const optionsApi = {
     messages: [],
     permissionRequests: [],
+    async finishSyncNow() {
+      if (!finishDelayedSync) {
+        throw new Error("No delayed sync is pending.");
+      }
+
+      await finishDelayedSync();
+      await settle();
+    },
     runtime: {
       sendMessage(message) {
         optionsApi.messages.push(message);
+
+        if (overrides.delaySyncNow && message.type === "syncNow") {
+          return new Promise((resolve, reject) => {
+            finishDelayedSync = () => controller.handleMessage(message, {}).then(resolve, reject);
+          });
+        }
+
         return controller.handleMessage(message, {});
       }
     },
@@ -182,6 +215,10 @@ function createExtensionApp(overrides = {}) {
   };
 
   return { backgroundApi, controller, optionsApi };
+}
+
+function messageTypes(app) {
+  return app.optionsApi.messages.map((message) => message.type);
 }
 
 function fakeBackgroundApi(overrides) {

@@ -942,6 +942,40 @@ test("getState applies newer remote settings with strict selected columns", asyn
   }
 });
 
+test("getLocalState reads storage without remote settings sync", async () => {
+  const fetch = globalThis.fetch;
+  const userSettingsUrls = [];
+  const api = fakeApi({
+    now: 20 * 60 * 60 * 1000,
+    supabaseConfig: configuredSupabase()
+  });
+  const localState = validState([
+    { id, kind: "domain", value: "example.com" }
+  ]);
+
+  api.storageData[core.STATE_KEY] = localState;
+  api.storageData.supabaseSession = supabaseSession();
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).includes("/user_settings")) {
+      userSettingsUrls.push(String(url));
+      return jsonResponse([]);
+    }
+
+    return fetch(url, options);
+  };
+
+  try {
+    const controller = createBackgroundController(api);
+    const response = await controller.handleMessage({ type: "getLocalState" }, {});
+
+    assert.equal(response.type, "state");
+    assert.deepEqual(response.state, localState);
+    assert.equal(userSettingsUrls.length, 0);
+  } finally {
+    globalThis.fetch = fetch;
+  }
+});
+
 test("signInWithProvider returns an OAuth URL when browser identity is unavailable", async () => {
   const api = fakeApi({ supabaseConfig: configuredSupabase() });
   const controller = createBackgroundController(api);

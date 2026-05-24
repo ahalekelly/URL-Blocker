@@ -32,6 +32,9 @@
       }
 
       switch (message.type) {
+        case "getLocalState":
+          requireKeys(message, ["type"], "getLocalState message");
+          return getLocalState();
         case "getState":
           requireKeys(message, ["type"], "getState message");
           return getState();
@@ -56,6 +59,9 @@
         case "getScreenTimeLog":
           requireKeys(message, ["type"], "getScreenTimeLog message");
           return getScreenTimeLog();
+        case "getLocalScreenTimeLog":
+          requireKeys(message, ["type"], "getLocalScreenTimeLog message");
+          return getLocalScreenTimeLog();
         case "getSyncStatus":
           requireKeys(message, ["type"], "getSyncStatus message");
           return getSyncStatus();
@@ -80,6 +86,14 @@
       try {
         await syncRemoteStateIfPossible();
 
+        return { type: "state", state: await loadState() };
+      } catch (error) {
+        return errorResponse("stateError", error);
+      }
+    }
+
+    async function getLocalState() {
+      try {
         return { type: "state", state: await loadState() };
       } catch (error) {
         return errorResponse("stateError", error);
@@ -173,6 +187,15 @@
       return {
         type: "screenTimeLog",
         entries: screenTimeEntries(state, await loadScreenTimeUsage(), nowMs)
+      };
+    }
+
+    async function getLocalScreenTimeLog() {
+      const state = await loadState();
+
+      return {
+        type: "screenTimeLog",
+        entries: screenTimeEntries(state, await loadScreenTimeUsage(), currentTimeMs())
       };
     }
 
@@ -721,6 +744,8 @@
     }
 
     return {
+      getLocalScreenTimeLog,
+      getLocalState,
       getScreenTimeLog,
       getState,
       getDefaultState,

@@ -90,8 +90,8 @@
   root.addEventListener("unhandledrejection", (event) => showFatalError(errorFromReason(event.reason)));
 
   completeOAuthRedirect()
+    .then(loadLocalState)
     .then(syncOnOpen)
-    .then(loadState)
     .catch(showFatalError);
 
   async function syncOnOpen() {
@@ -100,23 +100,25 @@
     switch (response.type) {
       case "synced":
         state.syncStatus = normalizeSyncStatus(response.status);
+        await loadLocalState();
         return;
       case "error":
         state.syncStatus = syncStatusFromError(errorFromResponse(response));
+        render();
         return;
       default:
         throw codedError("UnexpectedSyncOnOpenResponse", `Unknown syncNow response: ${response.type}`);
     }
   }
 
-  async function loadState() {
-    const response = await api.runtime.sendMessage({ type: "getState" });
+  async function loadLocalState() {
+    const response = await api.runtime.sendMessage({ type: "getLocalState" });
 
     switch (response.type) {
       case "state":
         setDraftState(response.state);
         await refreshWebsiteAccess(response.state);
-        await loadScreenTimeLog();
+        await loadScreenTimeLog("getLocalScreenTimeLog");
         await loadSyncStatus();
         render();
         return;
@@ -128,7 +130,7 @@
         showFatalError(errorFromResponse(response));
         return;
       default:
-        throw codedError("UnexpectedGetStateResponse", `Unknown getState response: ${response.type}`);
+        throw codedError("UnexpectedGetLocalStateResponse", `Unknown getLocalState response: ${response.type}`);
     }
   }
 
@@ -787,8 +789,8 @@
     return missingOrigins;
   }
 
-  async function loadScreenTimeLog() {
-    const response = await api.runtime.sendMessage({ type: "getScreenTimeLog" });
+  async function loadScreenTimeLog(messageType) {
+    const response = await api.runtime.sendMessage({ type: messageType });
 
     switch (response.type) {
       case "screenTimeLog":
@@ -797,7 +799,7 @@
       case "error":
         throw errorFromResponse(response);
       default:
-        throw codedError("UnexpectedScreenTimeResponse", `Unknown getScreenTimeLog response: ${response.type}`);
+        throw codedError("UnexpectedScreenTimeResponse", `Unknown ${messageType} response: ${response.type}`);
     }
   }
 
@@ -824,7 +826,7 @@
     switch (response.type) {
       case "signedIn":
         await loadSyncStatus();
-        await loadScreenTimeLog();
+        await loadScreenTimeLog("getScreenTimeLog");
         state.successMessage = "Signed in.";
         render();
         return;
@@ -856,7 +858,7 @@
     switch (response.type) {
       case "synced":
         state.syncStatus = normalizeSyncStatus(response.status);
-        await loadScreenTimeLog();
+        await loadLocalState();
         state.successMessage = "Synced.";
         render();
         return;
@@ -1055,7 +1057,7 @@
 
   async function applySavedState(savedState, message) {
     setDraftState(savedState);
-    await loadScreenTimeLog();
+    await loadScreenTimeLog("getScreenTimeLog");
     await loadSyncStatus();
     state.successMessage = message;
     render();
