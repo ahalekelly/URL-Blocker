@@ -61,17 +61,61 @@
 
 .hourly-bars {
   display: grid;
-  grid-auto-columns: 14px;
-  grid-auto-flow: column;
-  align-items: end;
-  gap: 4px;
-  min-height: 160px;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 8px;
   margin-top: 12px;
-  overflow-x: auto;
+}
+
+.hourly-y-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 160px;
   padding-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+
+.hourly-scroll {
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.hourly-plot,
+.hourly-x-axis {
+  display: grid;
+  grid-auto-columns: 40px;
+  grid-auto-flow: column;
+  gap: 4px;
+  width: max-content;
+  min-width: 100%;
+}
+
+.hourly-plot {
+  align-items: end;
+  height: 160px;
+  border-bottom: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  padding: 12px 0 0 6px;
+}
+
+.hourly-x-axis {
+  padding: 5px 0 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.hourly-x-tick {
+  overflow: hidden;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .hourly-bar {
+  width: 14px;
+  justify-self: center;
   min-height: 2px;
   border-radius: 4px 4px 0 0;
   background: var(--accent);

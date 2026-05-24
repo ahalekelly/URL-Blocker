@@ -8,7 +8,12 @@ const resourcesPath = path.join(__dirname, "../URLBlockerWebExtension");
 const statsScript = fs.readFileSync(path.join(resourcesPath, "stats.js"), "utf8");
 
 test("stats page renders screen time stats", async () => {
-  const { document, messages } = await openStatsPage(screenTimeStatsResponse());
+  const response = screenTimeStatsResponse();
+  const { document, messages } = await openStatsPage(response);
+  const yAxis = document.elements.hourlyBars.children[0];
+  const scroll = document.elements.hourlyBars.children[1];
+  const plot = scroll.children[0];
+  const xAxis = scroll.children[1];
 
   assert.equal(messages.length, 1);
   assert.equal(messages[0].type, "getScreenTimeStats");
@@ -17,7 +22,12 @@ test("stats page renders screen time stats", async () => {
   assert.equal(document.elements.trackedDomains.textContent, "2");
   assert.equal(document.elements.overLimitDomains.textContent, "0");
   assert.equal(document.elements.windowTitle.textContent, "Last 2 Hours");
-  assert.equal(document.elements.hourlyBars.children.length, 2);
+  assert.equal(yAxis.children[0].textContent, "1m");
+  assert.equal(yAxis.children[1].textContent, "<1m");
+  assert.equal(yAxis.children[2].textContent, "0m");
+  assert.equal(plot.children.length, 2);
+  assert.equal(xAxis.children.length, 2);
+  assert.equal(xAxis.children[0].textContent, hourTickLabel(response.stats.hourlyTotals[0].startedAtMs));
   assert.equal(document.elements.emptyHourlyTotals.hidden, true);
   assert.equal(document.elements.domainRows.children.length, 2);
   assert.equal(document.elements.emptyDomains.hidden, true);
@@ -63,6 +73,10 @@ async function openStatsPage(response) {
   await settle();
 
   return { document, messages };
+}
+
+function hourTickLabel(startedAtMs) {
+  return new Date(startedAtMs).toLocaleTimeString([], { hour: "numeric" });
 }
 
 function screenTimeStatsResponse() {

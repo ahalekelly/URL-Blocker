@@ -59,8 +59,35 @@
 
   function renderHourlyTotals(hourlyTotals) {
     const maxMs = Math.max(0, ...hourlyTotals.map((entry) => entry.totalMs));
+    const chartMaxMs = Math.max(60 * 1000, Math.ceil(maxMs / (60 * 1000)) * 60 * 1000);
+    const yAxis = document.createElement("div");
+    const scroll = document.createElement("div");
+    const plot = document.createElement("div");
+    const xAxis = document.createElement("div");
 
-    elements.hourlyBars.replaceChildren(...hourlyTotals.map((entry) => renderHourlyBar(entry, maxMs)));
+    yAxis.className = "hourly-y-axis";
+    scroll.className = "hourly-scroll";
+    plot.className = "hourly-plot";
+    xAxis.className = "hourly-x-axis";
+
+    [chartMaxMs, chartMaxMs / 2, 0].forEach((totalMs) => {
+      const tick = document.createElement("span");
+
+      tick.textContent = formatAxisDuration(totalMs);
+      yAxis.append(tick);
+    });
+
+    hourlyTotals.forEach((entry) => {
+      const tick = document.createElement("span");
+
+      tick.className = "hourly-x-tick";
+      tick.textContent = new Date(entry.startedAtMs).toLocaleTimeString([], { hour: "numeric" });
+      plot.append(renderHourlyBar(entry, chartMaxMs));
+      xAxis.append(tick);
+    });
+
+    scroll.append(plot, xAxis);
+    elements.hourlyBars.replaceChildren(yAxis, scroll);
     elements.emptyHourlyTotals.hidden = maxMs > 0;
   }
 
@@ -189,6 +216,14 @@
     }
 
     return `${minutes}m`;
+  }
+
+  function formatAxisDuration(totalMs) {
+    if (totalMs > 0 && totalMs < 60 * 1000) {
+      return "<1m";
+    }
+
+    return formatDuration(totalMs);
   }
 
   function minuteToTime(minute) {
