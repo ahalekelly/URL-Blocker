@@ -698,9 +698,6 @@ function fakeBackgroundApi(overrides) {
         case "saveSettingsSync":
           api.nativeData.settingsSync = message.sync;
           return { type: "savedSettingsSync", sync: message.sync };
-        case "clearSettingsSync":
-          delete api.nativeData.settingsSync;
-          return { type: "clearedSettingsSync" };
         case "loadSupabaseSession":
           return { type: "storedSupabaseSession", session: api.nativeData.supabaseSession };
         case "saveSupabaseSession":

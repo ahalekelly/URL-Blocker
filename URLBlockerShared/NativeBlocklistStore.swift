@@ -71,19 +71,6 @@ enum NativeBlocklistStore {
                 return "savedSupabaseSession"
             }
         }
-
-        var clearedResponseType: String {
-            switch self {
-            case .state:
-                return "clearedState"
-            case .screenTimeUsage:
-                return "clearedScreenTimeUsage"
-            case .settingsSync:
-                return "clearedSettingsSync"
-            case .supabaseSession:
-                return "clearedSupabaseSession"
-            }
-        }
     }
 
     private static let appGroupIdentifier = "group.com.akelly.URLBlocker"
@@ -105,18 +92,12 @@ enum NativeBlocklistStore {
             case "saveScreenTimeUsage":
                 try requireKeys(message, ["type", "usage"], "saveScreenTimeUsage message")
                 return try save(message["usage"], .screenTimeUsage)
-            case "clearScreenTimeUsage":
-                try requireKeys(message, ["type"], "clearScreenTimeUsage message")
-                return clear(.screenTimeUsage)
             case "loadSettingsSync":
                 try requireKeys(message, ["type"], "loadSettingsSync message")
                 return try load(.settingsSync)
             case "saveSettingsSync":
                 try requireKeys(message, ["type", "sync"], "saveSettingsSync message")
                 return try save(message["sync"], .settingsSync)
-            case "clearSettingsSync":
-                try requireKeys(message, ["type"], "clearSettingsSync message")
-                return clear(.settingsSync)
             case "loadSupabaseSession":
                 try requireKeys(message, ["type"], "loadSupabaseSession message")
                 return try load(.supabaseSession)
@@ -125,7 +106,7 @@ enum NativeBlocklistStore {
                 return try save(message["session"], .supabaseSession)
             case "clearSupabaseSession":
                 try requireKeys(message, ["type"], "clearSupabaseSession message")
-                return clear(.supabaseSession)
+                return clearSupabaseSession()
             default:
                 throw NativeBlocklistError("Unknown native message type: \(type).")
             }
@@ -163,10 +144,10 @@ enum NativeBlocklistStore {
         return try? storedDictionary(value, StoredValue.supabaseSession.label)
     }
 
-    private static func clear(_ storedValue: StoredValue) -> [String: Any] {
-        defaults.removeObject(forKey: storedValue.storageKey)
+    private static func clearSupabaseSession() -> [String: Any] {
+        defaults.removeObject(forKey: StoredValue.supabaseSession.storageKey)
 
-        return ["type": storedValue.clearedResponseType]
+        return ["type": "clearedSupabaseSession"]
     }
 
     private static func requireDictionary(_ value: Any?, _ label: String) throws -> [String: Any] {

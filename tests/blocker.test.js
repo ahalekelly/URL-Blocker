@@ -140,7 +140,7 @@ test("normalizes old linkedin feed default entries", () => {
 
 test("migrates legacy default entries and deleted defaults", () => {
   const defaults = defaultBlockedPages.slice(0, 2);
-  const state = core.parseStoredState({
+  const state = validStoredState({
     schemaVersion: 6,
     entries: [
       { id: defaults[0].id, kind: defaults[0].kind, value: defaults[0].value },
@@ -171,7 +171,7 @@ test("migrates schema 7 states to split subreddit feeds from reddit", () => {
   const oldDefaultEntries = defaultBlockedPages
     .filter((entry) => entry.value !== "reddit.com/r/*")
     .map((entry) => ({ ...entry, enabled: entry.value !== "reddit.com" }));
-  const state = core.parseStoredState({
+  const state = validStoredState({
     schemaVersion: 7,
     entries: oldDefaultEntries,
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
@@ -198,7 +198,7 @@ test("migrates schema 9 states to drop the removed facebook.com/home.php default
     ...defaultBlockedPages.slice(defaultBlockedPages.findIndex((entry) => entry.value === "facebook.com") + 1)
   ];
   const previousEntries = previousDefaults.map((entry) => ({ ...entry, enabled: true }));
-  const state = core.parseStoredState({
+  const state = validStoredState({
     schemaVersion: 9,
     entries: previousEntries,
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
@@ -231,7 +231,7 @@ test("migrates schema 10 states to current social defaults", () => {
     return [entry];
   });
   const previousEntries = previousDefaults.map((entry) => ({ ...entry, enabled: true }));
-  const state = core.parseStoredState({
+  const state = validStoredState({
     schemaVersion: 10,
     entries: previousEntries,
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
@@ -251,7 +251,7 @@ test("migrates schema 8 states to default rolling limit resets", () => {
   const oldState = validState([
     { id: ids[0], kind: "domain", value: "example.com" }
   ]);
-  const state = core.parseStoredState({
+  const state = validStoredState({
     schemaVersion: 8,
     entries: oldState.entries,
     blockedPageHtml: oldState.blockedPageHtml,
@@ -437,8 +437,8 @@ test("matches only when the schedule is active", () => {
     { type: "dailyWindow", startMinute: 540, endMinute: 1020 }
   );
 
-  assert.equal(core.findActiveMatchingEntry(state, "https://example.com", new Date(2026, 0, 1, 9, 30)).type, "match");
-  assert.equal(core.findActiveMatchingEntry(state, "https://example.com", new Date(2026, 0, 1, 17, 0)).type, "none");
+  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com", new Set(), new Date(2026, 0, 1, 9, 30)).type, "match");
+  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com", new Set(), new Date(2026, 0, 1, 17, 0)).type, "none");
 });
 
 test("matches when the schedule is active or the domain is over limit", () => {
@@ -691,6 +691,14 @@ function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits, lim
     limitReset,
     domainLimits: domainLimits === undefined ? core.domainLimitsForEntries(typedEntries, []) : domainLimits
   }, []);
+
+  assert.equal(result.type, "valid");
+
+  return result.state;
+}
+
+function validStoredState(rawState, defaultEntries) {
+  const result = core.validateStoredState(rawState, defaultEntries);
 
   assert.equal(result.type, "valid");
 

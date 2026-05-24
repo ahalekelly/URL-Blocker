@@ -217,16 +217,6 @@
     };
   }
 
-  function parseStoredState(rawState, defaultEntries) {
-    const result = validateStoredState(rawState, defaultEntries);
-
-    if (result.type === "invalid") {
-      throw new Error(result.errors.map((error) => error.message).join("\n"));
-    }
-
-    return result.state;
-  }
-
   function validateStoredState(rawState, defaultEntries) {
     return validateState(migrateStoredState(rawState, defaultEntries), defaultEntries);
   }
@@ -814,14 +804,6 @@
     return { type: "none" };
   }
 
-  function findActiveMatchingEntry(state, rawUrl, date = new Date()) {
-    if (!isScheduleActive(state.schedule, date)) {
-      return { type: "none" };
-    }
-
-    return findMatchingEntry(state, rawUrl);
-  }
-
   function findBlockedMatchingEntry(state, rawUrl, overLimitDomains, date = new Date()) {
     const match = findMatchingEntry(state, rawUrl);
 
@@ -1274,7 +1256,6 @@
     domainLimitsForEntries,
     emptyState,
     entryMatchesUrl,
-    findActiveMatchingEntry,
     findBlockedMatchingEntry,
     findMatchingEntry,
     isScheduleActive,
@@ -1285,7 +1266,6 @@
     normalizeRegexEntryValue,
     permissionOriginsForState,
     normalizeUrlEntryValue,
-    parseStoredState,
     hasUnsupportedBlocklistVersion,
     screenTimeDomainForUrl,
     validateStoredState,

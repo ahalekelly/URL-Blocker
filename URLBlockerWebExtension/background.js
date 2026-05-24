@@ -1128,9 +1128,7 @@
       loadType: "loadScreenTimeUsage",
       loadedType: "storedScreenTimeUsage",
       saveType: "saveScreenTimeUsage",
-      savedType: "savedScreenTimeUsage",
-      clearType: "clearScreenTimeUsage",
-      clearedType: "clearedScreenTimeUsage"
+      savedType: "savedScreenTimeUsage"
     }, usesNativeStorage);
 
     return {
@@ -1150,9 +1148,7 @@
       loadType: "loadSettingsSync",
       loadedType: "storedSettingsSync",
       saveType: "saveSettingsSync",
-      savedType: "savedSettingsSync",
-      clearType: "clearSettingsSync",
-      clearedType: "clearedSettingsSync"
+      savedType: "savedSettingsSync"
     }, usesNativeStorage);
 
     return {
@@ -1172,9 +1168,7 @@
       loadType: "loadSupabaseSession",
       loadedType: "storedSupabaseSession",
       saveType: "saveSupabaseSession",
-      savedType: "savedSupabaseSession",
-      clearType: "clearSupabaseSession",
-      clearedType: "clearedSupabaseSession"
+      savedType: "savedSupabaseSession"
     }, usesNativeSessionStorage);
 
     return {
@@ -1185,7 +1179,11 @@
         return storage.saveValue(session);
       },
       async clearSession() {
-        return storage.clearValue();
+        return clearStoredValue(api, {
+          key: SUPABASE_SESSION_KEY,
+          clearType: "clearSupabaseSession",
+          clearedType: "clearedSupabaseSession"
+        }, usesNativeSessionStorage);
       }
     };
   }
@@ -1201,14 +1199,6 @@
         await api.storage.local.set({ [types.key]: value });
 
         return value;
-      },
-      async clearValue() {
-        if (api.storage.local.remove) {
-          await api.storage.local.remove(types.key);
-          return;
-        }
-
-        await api.storage.local.set({ [types.key]: undefined });
       }
     };
     const nativeStorage = {
@@ -1235,18 +1225,6 @@
           default:
             throw new Error(`Unknown native ${types.saveType} response: ${response.type}`);
         }
-      },
-      async clearValue() {
-        const response = await sendNativeMessage(api, { type: types.clearType });
-
-        switch (response.type) {
-          case types.clearedType:
-            return;
-          case "error":
-            throw errorFromResponse(response);
-          default:
-            throw new Error(`Unknown native ${types.clearType} response: ${response.type}`);
-        }
       }
     };
 
@@ -1256,11 +1234,26 @@
       },
       async saveValue(value) {
         return (await usesNative(api)) ? nativeStorage.saveValue(value) : browserStorage.saveValue(value);
-      },
-      async clearValue() {
-        return (await usesNative(api)) ? nativeStorage.clearValue() : browserStorage.clearValue();
       }
     };
+  }
+
+  async function clearStoredValue(api, types, usesNative) {
+    if (!(await usesNative(api))) {
+      await api.storage.local.remove(types.key);
+      return;
+    }
+
+    const response = await sendNativeMessage(api, { type: types.clearType });
+
+    switch (response.type) {
+      case types.clearedType:
+        return;
+      case "error":
+        throw errorFromResponse(response);
+      default:
+        throw new Error(`Unknown native ${types.clearType} response: ${response.type}`);
+    }
   }
 
   async function usesNativeStorage(api) {
