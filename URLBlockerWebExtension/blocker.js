@@ -21,7 +21,7 @@
   const MAX_ROLLING_WINDOW_HOURS = 168;
   const DEFAULT_BLOCKED_PAGE_HTML = "<h1>Blocked</h1><p>This page is on your blocklist.</p>";
   const DEFAULT_SCHEDULE = { type: "dailyWindow", startMinute: 1380, endMinute: 1140 };
-  const DEFAULT_LIMIT_RESET = { type: "rollingWindow", windowHours: 16 };
+  const DEFAULT_LIMIT_RESET = { type: "rollingWindow", windowHours: 24 };
   const UNSUPPORTED_BLOCKLIST_VERSION_MESSAGE = "Unsupported blocklist version. Reset the blocklist to repair it.";
   const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const URL_ALIASES = [

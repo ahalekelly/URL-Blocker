@@ -43,6 +43,16 @@ test("options and stats pages link to each other", () => {
   assert.match(statsHtml, /href="options\.html"/);
 });
 
+test("limit reset settings follow the block schedule settings", () => {
+  const blockScheduleIndex = optionsHtml.indexOf("<h2>Block Schedule</h2>");
+  const limitResetIndex = optionsHtml.indexOf("id=\"limitResetPanel\"");
+
+  assert.notEqual(blockScheduleIndex, -1);
+  assert.notEqual(limitResetIndex, -1);
+  assert.ok(blockScheduleIndex < limitResetIndex);
+  assert.doesNotMatch(optionsHtml, /<h2>Schedule<\/h2>/);
+});
+
 test("iOS signing does not prompt for the p12 password", () => {
   assert.doesNotMatch(signingScript, /process\.stdin\.isTTY/);
   assert.doesNotMatch(signingScript, /read -rsp/);

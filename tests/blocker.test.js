@@ -58,7 +58,7 @@ test("loads default blocked pages for new installs", () => {
     { type: "default", kind: "url", value: "ycombinator.com", enabled: true }
   ]);
   assert.deepEqual(state.schedule, { type: "dailyWindow", startMinute: 1380, endMinute: 1140 });
-  assert.deepEqual(state.limitReset, { type: "rollingWindow", windowHours: 16 });
+  assert.deepEqual(state.limitReset, { type: "rollingWindow", windowHours: 24 });
   assert.deepEqual(state.domainLimits, [
     { domain: "bsky.app", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
     { domain: "facebook.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },

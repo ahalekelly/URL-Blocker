@@ -29,6 +29,11 @@ test("provider sign-in buttons show hover feedback", () => {
   assert.match(rule("#appleSignInButton:not(:disabled):hover"), /background:\s*#1c1c1c;/);
 });
 
+test("hidden time limit controls are not displayed", () => {
+  assert.match(css, /\.settings-panel\[hidden\]\s*\{[^}]*display:\s*none;/s);
+  assert.match(css, /\.default-group-limit\[hidden\],\s*\.row-limit\[hidden\]\s*\{[^}]*display:\s*none;/s);
+});
+
 function rule(selector) {
   const match = css.match(new RegExp(`${escapeRegex(selector)}\\s*\\{([^}]+)\\}`));
 

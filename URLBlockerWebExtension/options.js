@@ -47,7 +47,9 @@
   const scheduleWindowFields = document.getElementById("scheduleWindowFields");
   const scheduleStartInput = document.getElementById("scheduleStartInput");
   const scheduleEndInput = document.getElementById("scheduleEndInput");
+  const screenTimePanel = document.getElementById("screenTimePanel");
   const screenTimeTitle = document.getElementById("screenTimeTitle");
+  const limitResetPanel = document.getElementById("limitResetPanel");
   const rollingResetInput = document.getElementById("rollingResetInput");
   const dailyResetInput = document.getElementById("dailyResetInput");
   const rollingResetFields = document.getElementById("rollingResetFields");
@@ -150,6 +152,8 @@
     alwaysScheduleInput.checked = state.draftSchedule.type === "always";
     dailyScheduleInput.checked = state.draftSchedule.type === "dailyWindow";
     scheduleWindowFields.hidden = state.draftSchedule.type !== "dailyWindow";
+    screenTimePanel.hidden = timeLimitsAreHidden();
+    limitResetPanel.hidden = timeLimitsAreHidden();
     scheduleStartInput.value = minuteToTime(state.draftSchedule.startMinute);
     scheduleEndInput.value = minuteToTime(state.draftSchedule.endMinute);
     rollingResetInput.checked = state.draftLimitReset.type === "rollingWindow";
@@ -237,6 +241,7 @@
     title.className = "default-group-title";
     title.textContent = titleText;
     limitLabel.className = "default-group-limit";
+    limitLabel.hidden = timeLimitsAreHidden();
     limitPrefix.className = "limit-prefix";
     limitPrefix.textContent = "Limit:";
     limitInput.className = "limit-input";
@@ -329,6 +334,7 @@
     const enabledInput = fragment.querySelector(".enabled-input");
     const enabledLabel = fragment.querySelector(".enabled-label");
     const input = fragment.querySelector(".value-input");
+    const limitLabel = fragment.querySelector(".row-limit");
     const limitInput = fragment.querySelector(".limit-input");
     const deleteButton = fragment.querySelector(".delete-button");
     const rowError = fragment.querySelector(".row-error");
@@ -347,6 +353,7 @@
 
     limitInput.value = String(entry.limitMinutes);
     limitInput.addEventListener("input", () => updateLimit(entry.id, limitInput.value));
+    limitLabel.hidden = timeLimitsAreHidden();
     rowError.hidden = error === "";
     rowError.textContent = error;
     row.dataset.entryId = entry.id;
@@ -411,7 +418,7 @@
         signOutButton.hidden = true;
         return;
       case "signedOut":
-        syncStatusText.textContent = syncStatusErrorText("Sign in to sync settings and screen time limits.");
+        syncStatusText.textContent = syncStatusErrorText(signedOutSyncStatusText());
         googleSignInButton.hidden = false;
         appleSignInButton.hidden = false;
         syncNowButton.hidden = true;
@@ -449,6 +456,14 @@
     }
 
     return `${text} Last sync error: ${state.syncStatus.error}`;
+  }
+
+  function signedOutSyncStatusText() {
+    if (timeLimitsAreHidden()) {
+      return "Sign in to sync settings.";
+    }
+
+    return "Sign in to sync settings and screen time limits.";
   }
 
   function signedInSyncStatusText() {
@@ -524,6 +539,10 @@
       default:
         throw new Error(`Unknown limit reset type: ${limitReset.type}`);
     }
+  }
+
+  function timeLimitsAreHidden() {
+    return state.draftSchedule.type === "always";
   }
 
   function addRow() {

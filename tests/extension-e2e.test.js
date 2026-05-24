@@ -72,6 +72,28 @@ test("options rounds displayed screen time to the nearest minute", async () => {
   assert.equal(screenTimeTotal.textContent, "2m / 30m");
 });
 
+test("options hides time limit settings when block schedule is always", async () => {
+  const app = createExtensionApp({ supabaseConfig: configuredSupabase() });
+
+  app.backgroundApi.storageData[core.STATE_KEY] = validState([
+    { id, kind: "domain", value: "example.com" }
+  ], { type: "always" });
+
+  const page = await openOptionsPage(app);
+
+  assert.equal(page.byId("screenTimePanel").hidden, true);
+  assert.equal(page.byId("limitResetPanel").hidden, true);
+  assert.equal(page.customRows().at(-1).querySelector(".row-limit").hidden, true);
+  assert.equal(page.byId("syncStatusText").textContent, "Sign in to sync settings.");
+
+  await page.byId("dailyScheduleInput").dispatch("change");
+
+  assert.equal(page.byId("screenTimePanel").hidden, false);
+  assert.equal(page.byId("limitResetPanel").hidden, false);
+  assert.equal(page.customRows().at(-1).querySelector(".row-limit").hidden, false);
+  assert.equal(page.byId("syncStatusText").textContent, "Sign in to sync settings and screen time limits.");
+});
+
 test("options hides provider sign-in buttons when sync is signed in", async () => {
   const app = createExtensionApp({
     delaySyncNow: true,
@@ -697,7 +719,9 @@ function optionsDocument() {
     "scheduleWindowFields",
     "scheduleStartInput",
     "scheduleEndInput",
+    "screenTimePanel",
     "screenTimeTitle",
+    "limitResetPanel",
     "rollingResetInput",
     "dailyResetInput",
     "rollingResetFields",
@@ -781,7 +805,7 @@ function rowTemplateContent() {
   const deleteButton = new TestElement("button", "", "delete-button");
   const valueLabel = new TestElement("label");
   const valueInput = new TestElement("input", "", "value-input");
-  const limitLabel = new TestElement("label");
+  const limitLabel = new TestElement("label", "", "row-limit");
   const limitInput = new TestElement("input", "", "limit-input");
   const rowError = new TestElement("p", "", "row-error");
 

@@ -30,10 +30,10 @@
     <section id="editorPanel">
       <div id="errorSummary" class="error-summary" hidden></div>
 
-      <section class="settings-panel screen-time-panel">
+      <section id="screenTimePanel" class="settings-panel screen-time-panel">
         <div class="screen-time-panel-header">
           <h2><a class="stats-link" href="stats.html">Stats</a></h2>
-          <p id="screenTimeTitle" class="screen-time-subtitle">Last 16 Hours</p>
+          <p id="screenTimeTitle" class="screen-time-subtitle">Last 24 Hours</p>
         </div>
         <div id="screenTimeRows" class="screen-time-rows"></div>
         <p id="emptyScreenTime" class="empty-screen-time">No usage logged yet.</p>
@@ -66,6 +66,30 @@
       </section>
 
       <section class="settings-panel">
+        <h2>Block Schedule</h2>
+        <div class="schedule-options">
+          <label class="choice-label">
+            <input id="alwaysScheduleInput" type="radio" name="scheduleType" value="always">
+            <span>Always</span>
+          </label>
+          <label class="choice-label">
+            <input id="dailyScheduleInput" type="radio" name="scheduleType" value="dailyWindow">
+            <span>Daily Window</span>
+          </label>
+        </div>
+        <div id="scheduleWindowFields" class="schedule-window-fields">
+          <label>
+            Start
+            <input id="scheduleStartInput" type="time" aria-label="Schedule start time">
+          </label>
+          <label>
+            End
+            <input id="scheduleEndInput" type="time" aria-label="Schedule end time">
+          </label>
+        </div>
+      </section>
+
+      <section id="limitResetPanel" class="settings-panel">
         <h2>Limit Reset</h2>
         <div class="reset-options">
           <label class="choice-label">
@@ -87,30 +111,6 @@
           <label>
             Reset Time
             <select id="dailyResetHourSelect" aria-label="Daily reset time"></select>
-          </label>
-        </div>
-      </section>
-
-      <section class="settings-panel">
-        <h2>Schedule</h2>
-        <div class="schedule-options">
-          <label class="choice-label">
-            <input id="alwaysScheduleInput" type="radio" name="scheduleType" value="always">
-            <span>Always</span>
-          </label>
-          <label class="choice-label">
-            <input id="dailyScheduleInput" type="radio" name="scheduleType" value="dailyWindow">
-            <span>Daily Window</span>
-          </label>
-        </div>
-        <div id="scheduleWindowFields" class="schedule-window-fields">
-          <label>
-            Start
-            <input id="scheduleStartInput" type="time" aria-label="Schedule start time">
-          </label>
-          <label>
-            End
-            <input id="scheduleEndInput" type="time" aria-label="Schedule end time">
           </label>
         </div>
       </section>
@@ -143,7 +143,7 @@
       <label>
         <input class="value-input" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="Block rule">
       </label>
-      <label>
+      <label class="row-limit">
         Limit minutes
         <input class="limit-input" type="number" min="1" max="960" step="1" inputmode="numeric" aria-label="Limit minutes">
       </label>

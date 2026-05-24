@@ -404,7 +404,13 @@ input[type="checkbox"].enabled-input:checked::before {
 }
 
 .schedule-window-fields[hidden],
-.reset-fields[hidden] {
+.reset-fields[hidden],
+.settings-panel[hidden] {
+  display: none;
+}
+
+.default-group-limit[hidden],
+.row-limit[hidden] {
   display: none;
 }
 

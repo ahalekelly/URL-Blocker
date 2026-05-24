@@ -52,7 +52,7 @@ test("getState loads default blocked pages when storage is empty", async () => {
   assert.equal(response.type, "state");
   assert.deepEqual(response.state.entries, core.emptyState(defaultBlockedPages).entries);
   assert.deepEqual(response.state.schedule, { type: "dailyWindow", startMinute: 1380, endMinute: 1140 });
-  assert.deepEqual(response.state.limitReset, { type: "rollingWindow", windowHours: 16 });
+  assert.deepEqual(response.state.limitReset, { type: "rollingWindow", windowHours: 24 });
   assert.deepEqual(response.state.domainLimits, core.emptyState(defaultBlockedPages).domainLimits);
 });
 
@@ -440,7 +440,7 @@ test("screenTimeElapsed validates elapsed time", async () => {
   }, {}), /no more than 30 seconds/);
 });
 
-test("getScreenTimeLog sums the last 16 hour buckets without pruning storage", async () => {
+test("getScreenTimeLog sums the last 24 hour buckets without pruning storage", async () => {
   const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
   api.storageData[core.STATE_KEY] = validState([
     { id, kind: "domain", value: "example.com" }
@@ -461,7 +461,7 @@ test("getScreenTimeLog sums the last 16 hour buckets without pruning storage", a
   assert.deepEqual(await controller.handleMessage({ type: "getScreenTimeLog" }, {}), {
     type: "screenTimeLog",
     entries: [
-      { domain: "example.com", totalMs: 9000, limitMinutes: 1, isOverLimit: false }
+      { domain: "example.com", totalMs: 10000, limitMinutes: 1, isOverLimit: false }
     ]
   });
   assert.deepEqual(api.storageData.screenTimeUsage, screenTimeUsage({
@@ -614,7 +614,7 @@ test("screenTimeElapsed keeps historical buckets when saving", async () => {
     type: "screenTimeElapsed",
     url: "https://www.example.com/path",
     elapsedMs: 6000
-  }, {}), { type: "logged", domain: "example.com", totalMs: 15000, limitMinutes: 30, isOverLimit: false });
+  }, {}), { type: "logged", domain: "example.com", totalMs: 16000, limitMinutes: 30, isOverLimit: false });
   assert.deepEqual(api.storageData.screenTimeUsage, {
     schemaVersion: 2,
     deviceId: "11111111-1111-4111-8111-000000000001",
