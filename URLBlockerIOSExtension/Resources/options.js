@@ -90,8 +90,24 @@
   root.addEventListener("unhandledrejection", (event) => showFatalError(errorFromReason(event.reason)));
 
   completeOAuthRedirect()
+    .then(syncOnOpen)
     .then(loadState)
     .catch(showFatalError);
+
+  async function syncOnOpen() {
+    const response = await api.runtime.sendMessage({ type: "syncNow" });
+
+    switch (response.type) {
+      case "synced":
+        state.syncStatus = normalizeSyncStatus(response.status);
+        return;
+      case "error":
+        state.syncStatus = syncStatusFromError(errorFromResponse(response));
+        return;
+      default:
+        throw codedError("UnexpectedSyncOnOpenResponse", `Unknown syncNow response: ${response.type}`);
+    }
+  }
 
   async function loadState() {
     const response = await api.runtime.sendMessage({ type: "getState" });

@@ -24,6 +24,7 @@ test("options requests only missing website access for saved states", async () =
 
   const page = await openOptionsPage(app);
 
+  assert.equal(app.optionsApi.messages[0].type, "syncNow");
   assert.equal(page.byId("permissionPanel").hidden, false);
   assert.equal(page.byId("editorPanel").hidden, true);
   assert.equal(page.byId("permissionMessage").textContent, "URL Blocker needs access to this website before blocking can run.");
@@ -162,9 +163,11 @@ function createExtensionApp(overrides = {}) {
   const backgroundApi = fakeBackgroundApi(overrides);
   const controller = createBackgroundController(backgroundApi);
   const optionsApi = {
+    messages: [],
     permissionRequests: [],
     runtime: {
       sendMessage(message) {
+        optionsApi.messages.push(message);
         return controller.handleMessage(message, {});
       }
     },
