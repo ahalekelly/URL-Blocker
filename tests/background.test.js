@@ -1227,6 +1227,47 @@ test("signInWithProvider returns an OAuth URL when browser identity is unavailab
   assert.match(response.url, /redirect_to=safari-web-extension/);
 });
 
+test("signInWithProvider opens native mac sign-in when native messaging is available", async () => {
+  const api = fakeApi({
+    nativeSessionStorage: true,
+    supabaseConfig: configuredSupabase()
+  });
+  const controller = createBackgroundController(api);
+  const response = await controller.handleMessage({ type: "signInWithProvider", provider: "google" }, {});
+
+  assert.deepEqual(response, {
+    type: "openOAuth",
+    url: "urlblocker://sign-in/google"
+  });
+});
+
+test("signInWithProvider keeps Chromium on the web OAuth flow", async () => {
+  const api = fakeApi({
+    nativeSessionStorage: true,
+    runtimeScheme: "chrome-extension",
+    supabaseConfig: configuredSupabase()
+  });
+  const controller = createBackgroundController(api);
+  const response = await controller.handleMessage({ type: "signInWithProvider", provider: "google" }, {});
+
+  assert.equal(response.type, "openOAuth");
+  assert.match(response.url, /^https:\/\/project\.supabase\.co\/auth\/v1\/authorize/);
+  assert.match(response.url, /redirect_to=chrome-extension/);
+});
+
+test("getSyncStatus reads the native mac session", async () => {
+  const api = fakeApi({
+    nativeSessionStorage: true,
+    supabaseConfig: configuredSupabase()
+  });
+  api.nativeData.supabaseSession = supabaseSession();
+  const controller = createBackgroundController(api);
+  const response = await controller.handleMessage({ type: "getSyncStatus" }, {});
+
+  assert.equal(response.type, "syncStatus");
+  assert.equal(response.status, "signedIn");
+});
+
 test("getSyncStatus requires native sign-in on iOS when signed out", async () => {
   const api = fakeApi({
     nativeStorage: true,
@@ -1459,7 +1500,7 @@ function fakeApi(overrides = {}) {
           return `data:application/json,${encodeURIComponent(JSON.stringify(config))}`;
         }
 
-        return `safari-web-extension://extension/${path}`;
+        return `${overrides.runtimeScheme || "safari-web-extension"}://extension/${path}`;
       },
       getManifest() {
         return manifest;
@@ -1516,8 +1557,8 @@ function fakeApi(overrides = {}) {
     }
   };
 
-  if (overrides.nativeStorage) {
-    api.runtime.getPlatformInfo = async () => ({ os: "ios" });
+  if (overrides.nativeStorage || overrides.nativeSessionStorage) {
+    api.runtime.getPlatformInfo = async () => ({ os: overrides.nativeStorage ? "ios" : "mac" });
     api.runtime.sendNativeMessage = async (_applicationId, message) => {
       switch (message.type) {
         case "loadState":

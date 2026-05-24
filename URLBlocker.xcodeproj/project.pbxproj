@@ -56,7 +56,9 @@
 		03A000000000000000000001 /* NativeBlocklistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B000000000000000000001 /* NativeBlocklistStore.swift */; };
 		03A000000000000000000002 /* NativeBlocklistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B000000000000000000001 /* NativeBlocklistStore.swift */; };
 		03A000000000000000000003 /* NativeBlocklistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B000000000000000000001 /* NativeBlocklistStore.swift */; };
+		03A000000000000000000004 /* NativeBlocklistStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B000000000000000000001 /* NativeBlocklistStore.swift */; };
 		03A000000000000000000005 /* NativeSupabaseAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B000000000000000000004 /* NativeSupabaseAuth.swift */; };
+		03A000000000000000000006 /* NativeSupabaseAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03B000000000000000000004 /* NativeSupabaseAuth.swift */; };
 		04A000000000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 04B000000000000000000001 /* Assets.xcassets */; };
 		04A000000000000000000002 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 04B000000000000000000001 /* Assets.xcassets */; };
 		04A000000000000000000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 04B000000000000000000001 /* Assets.xcassets */; };
@@ -502,6 +504,8 @@
 			files = (
 				02A000000000000000000001 /* URLBlockerMacApp.swift in Sources */,
 				02A000000000000000000002 /* MacContentView.swift in Sources */,
+				03A000000000000000000004 /* NativeBlocklistStore.swift in Sources */,
+				03A000000000000000000006 /* NativeSupabaseAuth.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -8,12 +8,28 @@ enum NativeSupabaseAuth {
     }
 
     static func signIn(provider: Provider, extensionBundleName: String, anchor: ASPresentationAnchor) async throws {
-        let config = try loadConfig(extensionBundleName: extensionBundleName)
-        let callbackURL = "\(config.redirectScheme)://supabase-auth"
-        let authURL = try oauthURL(config: config, provider: provider, callbackURL: callbackURL)
-        let sessionURL = try await WebAuthSession(anchor: anchor).start(url: authURL, callbackScheme: config.redirectScheme)
+        try saveSession(from: try await callbackURL(provider: provider, extensionBundleName: extensionBundleName, anchor: anchor))
+    }
 
-        try NativeBlocklistStore.saveSupabaseSession(parseSession(sessionURL))
+    static func callbackURL(provider: Provider, extensionBundleName: String, anchor: ASPresentationAnchor) async throws -> URL {
+        let config = try loadConfig(extensionBundleName: extensionBundleName)
+
+        return try await WebAuthSession(anchor: anchor).start(
+            url: authorizationURL(config: config, provider: provider),
+            callbackScheme: config.redirectScheme
+        )
+    }
+
+    static func authorizationURL(provider: Provider, extensionBundleName: String) throws -> URL {
+        try authorizationURL(config: loadConfig(extensionBundleName: extensionBundleName), provider: provider)
+    }
+
+    static func saveSession(from callbackURL: URL) throws {
+        try NativeBlocklistStore.saveSupabaseSession(parseSession(callbackURL))
+    }
+
+    private static func authorizationURL(config: SupabaseConfig, provider: Provider) throws -> URL {
+        try oauthURL(config: config, provider: provider, callbackURL: "\(config.redirectScheme)://supabase-auth")
     }
 
     private static func oauthURL(config: SupabaseConfig, provider: Provider, callbackURL: String) throws -> URL {

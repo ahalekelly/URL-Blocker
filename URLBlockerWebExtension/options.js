@@ -16,7 +16,8 @@
     "ycombinator.com": "Hacker News",
     "youtube.com": "YouTube"
   };
-  const NATIVE_APP_SIGN_IN_URL = "urlblocker://open";
+  const NATIVE_APP_SIGN_IN_URL_BASE = "urlblocker://";
+  const NATIVE_APP_SIGN_IN_URL = `${NATIVE_APP_SIGN_IN_URL_BASE}open`;
   const NATIVE_APP_SIGN_IN_TEXT = "Sign in to sync screen time limits and settings";
   const state = {
     defaultEntries: [],
@@ -96,10 +97,15 @@
   root.addEventListener("focus", refreshNativeSignInStatus);
   document.addEventListener("visibilitychange", refreshVisibleNativeSignInStatus);
 
-  completeOAuthRedirect()
-    .then(loadLocalState)
-    .then(syncOnOpen)
-    .catch(showFatalError);
+  root.addEventListener("hashchange", start);
+  start();
+
+  function start() {
+    completeOAuthRedirect()
+      .then(loadLocalState)
+      .then(syncOnOpen)
+      .catch(showFatalError);
+  }
 
   async function syncOnOpen() {
     const response = await api.runtime.sendMessage({ type: "syncNow" });
@@ -481,7 +487,7 @@
   }
 
   function refreshNativeSignInStatus() {
-    if (state.syncStatus.status !== "nativeSignInRequired") { return; }
+    if (state.syncStatus.status !== "nativeSignInRequired" && state.syncStatus.status !== "signedOut") { return; }
 
     loadSyncStatus()
       .then(render)
@@ -945,7 +951,7 @@
         render();
         return;
       case "openOAuth":
-        root.location.href = response.url;
+        await openOAuth(response.url);
         return;
       case "syncUnavailable":
         state.syncStatus = { status: "unconfigured", error: "", lastSuccessfulSyncAgeMs: null };
@@ -1029,6 +1035,15 @@
       default:
         throw codedError("UnexpectedOAuthRedirectResponse", `Unknown completeOAuthRedirect response: ${response.type}`);
     }
+  }
+
+  async function openOAuth(url) {
+    if (api.tabs && typeof api.tabs.create === "function") {
+      await api.tabs.create({ url });
+      return;
+    }
+
+    root.location.href = url;
   }
 
   async function loadDefaultStateForReset() {

@@ -507,7 +507,7 @@
       if (!api.identity || typeof api.identity.launchWebAuthFlow !== "function") {
         return {
           type: "openOAuth",
-          url: sync.oauthUrl(config, provider, runtimeUrl("options.html"))
+          url: await fallbackSignInUrl(config, provider)
         };
       }
 
@@ -571,6 +571,15 @@
 
       return result;
     }
+
+    async function fallbackSignInUrl(config, provider) {
+      if (await usesNativeSessionStorage(api)) {
+        return `${config.redirectScheme}://sign-in/${provider}`;
+      }
+
+      return sync.oauthUrl(config, provider, runtimeUrl("options.html"));
+    }
+
     async function syncRemoteStateIfPossible() {
       try {
         const active = await activeSupabaseSession();
@@ -1122,7 +1131,7 @@
       savedType: "savedScreenTimeUsage",
       clearType: "clearScreenTimeUsage",
       clearedType: "clearedScreenTimeUsage"
-    });
+    }, usesNativeStorage);
 
     return {
       async loadUsage() {
@@ -1144,7 +1153,7 @@
       savedType: "savedSettingsSync",
       clearType: "clearSettingsSync",
       clearedType: "clearedSettingsSync"
-    });
+    }, usesNativeStorage);
 
     return {
       async loadSync() {
@@ -1166,7 +1175,7 @@
       savedType: "savedSupabaseSession",
       clearType: "clearSupabaseSession",
       clearedType: "clearedSupabaseSession"
-    });
+    }, usesNativeSessionStorage);
 
     return {
       async loadSession() {
@@ -1181,7 +1190,7 @@
     };
   }
 
-  function createValueStorage(api, types) {
+  function createValueStorage(api, types, usesNative) {
     const browserStorage = {
       async loadValue() {
         const stored = await api.storage.local.get(types.key);
@@ -1243,19 +1252,19 @@
 
     return {
       async loadValue() {
-        return (await usesNativeStorage(api)) ? nativeStorage.loadValue() : browserStorage.loadValue();
+        return (await usesNative(api)) ? nativeStorage.loadValue() : browserStorage.loadValue();
       },
       async saveValue(value) {
-        return (await usesNativeStorage(api)) ? nativeStorage.saveValue(value) : browserStorage.saveValue(value);
+        return (await usesNative(api)) ? nativeStorage.saveValue(value) : browserStorage.saveValue(value);
       },
       async clearValue() {
-        return (await usesNativeStorage(api)) ? nativeStorage.clearValue() : browserStorage.clearValue();
+        return (await usesNative(api)) ? nativeStorage.clearValue() : browserStorage.clearValue();
       }
     };
   }
 
   async function usesNativeStorage(api) {
-    if (!api.runtime || typeof api.runtime.sendNativeMessage !== "function") {
+    if (!canSendNativeMessage(api)) {
       return false;
     }
 
@@ -1266,6 +1275,14 @@
     const platform = await api.runtime.getPlatformInfo();
 
     return platform.os === "ios";
+  }
+
+  async function usesNativeSessionStorage(api) {
+    return canSendNativeMessage(api) && api.runtime.getURL("options.html").startsWith("safari-web-extension://");
+  }
+
+  function canSendNativeMessage(api) {
+    return !!api.runtime && typeof api.runtime.sendNativeMessage === "function";
   }
 
   async function sendNativeMessage(api, message) {
