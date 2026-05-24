@@ -24,6 +24,11 @@ struct ContentView: View {
                         alert = AppAlert(title: "Blocklist Load Failed", error: error)
                     }
                     .ignoresSafeArea(.container, edges: .bottom)
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        if syncState == .signedOut {
+                            signedOutSyncBar
+                        }
+                    }
                 }
                     .navigationTitle("Blocklist")
                     .navigationBarTitleDisplayMode(.inline)
@@ -79,6 +84,28 @@ struct ContentView: View {
             }
         }
         .navigationTitle("URL Blocker")
+    }
+
+    private var signedOutSyncBar: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Sign in to sync settings and screen time.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    signInButton(provider: .google)
+                    signInButton(provider: .apple)
+                }
+                VStack(alignment: .leading) {
+                    signInButton(provider: .google)
+                    signInButton(provider: .apple)
+                }
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.bar)
     }
 
     @ViewBuilder private func signInButton(provider: NativeSupabaseAuth.Provider) -> some View {
