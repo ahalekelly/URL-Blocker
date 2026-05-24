@@ -2,13 +2,18 @@
   "use strict";
 
   const STATE_KEY = "blockerState";
-  const SCHEMA_VERSION = 10;
+  const SCHEMA_VERSION = 11;
   const LEGACY_SCHEMA_VERSION = 6;
   const SUBREDDIT_SCHEMA_VERSION = 7;
   const LIMIT_RESET_SCHEMA_VERSION = 8;
   const FACEBOOK_HOME_SCHEMA_VERSION = 9;
+  const SOCIAL_DEFAULTS_SCHEMA_VERSION = 10;
   const SUBREDDIT_FEEDS_VALUE = "reddit.com/r/*";
-  const REMOVED_DEFAULT_IDS = new Set(["10000000-0000-4000-8000-000000000016"]);
+  const REMOVED_DEFAULT_IDS = new Set([
+    "10000000-0000-4000-8000-000000000012",
+    "10000000-0000-4000-8000-000000000016",
+    "10000000-0000-4000-8000-000000000019"
+  ]);
   const MAX_ENTRIES = 1000;
   const MAX_BLOCKED_PAGE_HTML_LENGTH = 4000;
   const DEFAULT_LIMIT_MINUTES = 30;
@@ -23,6 +28,7 @@
     { type: "exact", source: "x.com/home", target: "x.com" },
     { type: "exact", source: "twitter.com", target: "x.com" },
     { type: "exact", source: "twitter.com/home", target: "x.com" },
+    { type: "exact", source: "tiktok.com/foryou", target: "tiktok.com" },
     { type: "exact", source: "ycombinator.com/news", target: "ycombinator.com" },
     { type: "exact", source: "linkedin.com/feed", target: "linkedin.com" },
     { type: "exact", source: "facebook.com/home.php", target: "facebook.com" },
@@ -230,7 +236,13 @@
   }
 
   function migrateStoredState(rawState, defaultEntries) {
-    if (!isPlainObject(rawState) || ![LEGACY_SCHEMA_VERSION, SUBREDDIT_SCHEMA_VERSION, LIMIT_RESET_SCHEMA_VERSION, FACEBOOK_HOME_SCHEMA_VERSION].includes(rawState.schemaVersion) || !Array.isArray(rawState.entries)) {
+    if (!isPlainObject(rawState) || ![
+      LEGACY_SCHEMA_VERSION,
+      SUBREDDIT_SCHEMA_VERSION,
+      LIMIT_RESET_SCHEMA_VERSION,
+      FACEBOOK_HOME_SCHEMA_VERSION,
+      SOCIAL_DEFAULTS_SCHEMA_VERSION
+    ].includes(rawState.schemaVersion) || !Array.isArray(rawState.entries)) {
       return rawState;
     }
 

@@ -38,13 +38,11 @@ test("loads default blocked pages for new installs", () => {
     { type: "default", kind: "url", value: "instagram.com/explore", enabled: true },
     { type: "default", kind: "url", value: "instagram.com/reels", enabled: true },
     { type: "default", kind: "url", value: "tiktok.com", enabled: true },
-    { type: "default", kind: "url", value: "tiktok.com/foryou", enabled: true },
     { type: "default", kind: "url", value: "tiktok.com/following", enabled: true },
-    { type: "default", kind: "url", value: "tiktok.com/explore", enabled: true },
+    { type: "default", kind: "url", value: "tiktok.com/discover", enabled: true },
     { type: "default", kind: "url", value: "facebook.com", enabled: true },
     { type: "default", kind: "url", value: "facebook.com/watch", enabled: true },
     { type: "default", kind: "url", value: "facebook.com/reel", enabled: true },
-    { type: "default", kind: "url", value: "facebook.com/reels", enabled: true },
     { type: "default", kind: "url", value: "facebook.com/groups/feed", enabled: true },
     { type: "default", kind: "url", value: "threads.com", enabled: true },
     { type: "default", kind: "url", value: "threads.com/following", enabled: true },
@@ -214,6 +212,41 @@ test("migrates schema 9 states to drop the removed facebook.com/home.php default
   assert.ok(state.entries.find((entry) => entry.value === "facebook.com"));
 });
 
+test("migrates schema 10 states to current social defaults", () => {
+  const forYouId = "10000000-0000-4000-8000-000000000012";
+  const reelsId = "10000000-0000-4000-8000-000000000019";
+  const previousDefaults = defaultBlockedPages.flatMap((entry) => {
+    if (entry.value === "tiktok.com") {
+      return [entry, { type: "default", id: forYouId, kind: "url", value: "tiktok.com/foryou", enabled: true }];
+    }
+
+    if (entry.value === "tiktok.com/discover") {
+      return [{ ...entry, value: "tiktok.com/explore" }];
+    }
+
+    if (entry.value === "facebook.com/reel") {
+      return [entry, { type: "default", id: reelsId, kind: "url", value: "facebook.com/reels", enabled: true }];
+    }
+
+    return [entry];
+  });
+  const previousEntries = previousDefaults.map((entry) => ({ ...entry, enabled: true }));
+  const state = core.parseStoredState({
+    schemaVersion: 10,
+    entries: previousEntries,
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: core.DEFAULT_SCHEDULE,
+    limitReset: core.DEFAULT_LIMIT_RESET,
+    domainLimits: core.domainLimitsForEntries(previousEntries, [])
+  }, defaultBlockedPages);
+
+  assert.equal(state.schemaVersion, core.SCHEMA_VERSION);
+  assert.equal(state.entries.find((entry) => entry.id === forYouId), undefined);
+  assert.equal(state.entries.find((entry) => entry.id === reelsId), undefined);
+  assert.equal(state.entries.find((entry) => entry.value === "tiktok.com/explore"), undefined);
+  assert.ok(state.entries.find((entry) => entry.value === "tiktok.com/discover"));
+});
+
 test("migrates schema 8 states to default rolling limit resets", () => {
   const oldState = validState([
     { id: ids[0], kind: "domain", value: "example.com" }
@@ -248,6 +281,7 @@ test("normalizes URL entries for path-based matching", () => {
   assert.equal(core.normalizeUrlEntryValue("https://x.com/home"), "x.com");
   assert.equal(core.normalizeUrlEntryValue("https://twitter.com"), "x.com");
   assert.equal(core.normalizeUrlEntryValue("https://twitter.com/home"), "x.com");
+  assert.equal(core.normalizeUrlEntryValue("https://tiktok.com/foryou"), "tiktok.com");
   assert.equal(core.normalizeUrlEntryValue("https://ycombinator.com/news"), "ycombinator.com");
   assert.equal(core.normalizeUrlEntryValue("https://linkedin.com/feed?trk=nav"), "linkedin.com");
   assert.equal(core.normalizeUrlEntryValue("https://old.reddit.com/r/safari/top?t=month"), "reddit.com/r/*");
@@ -593,7 +627,8 @@ test("matches hardcoded URL aliases as their root URLs", () => {
     { id: ids[0], kind: "url", value: "x.com" },
     { id: ids[1], kind: "url", value: "ycombinator.com" },
     { id: ids[2], kind: "url", value: "linkedin.com" },
-    { id: ids[3], kind: "url", value: "facebook.com" }
+    { id: ids[3], kind: "url", value: "facebook.com" },
+    { id: ids[4], kind: "url", value: "tiktok.com" }
   ]);
 
   assert.equal(core.findMatchingEntry(state, "https://x.com/home").type, "match");
@@ -604,10 +639,12 @@ test("matches hardcoded URL aliases as their root URLs", () => {
   assert.equal(core.findMatchingEntry(state, "https://www.linkedin.com/feed?trk=nav").type, "match");
   assert.equal(core.findMatchingEntry(state, "https://facebook.com/home.php").type, "match");
   assert.equal(core.findMatchingEntry(state, "https://www.facebook.com/home.php?ref=nav").type, "match");
+  assert.equal(core.findMatchingEntry(state, "https://www.tiktok.com/foryou").type, "match");
   assert.equal(core.findMatchingEntry(state, "https://x.com/messages").type, "none");
   assert.equal(core.findMatchingEntry(state, "https://twitter.com/messages").type, "none");
   assert.equal(core.findMatchingEntry(state, "https://linkedin.com/jobs").type, "none");
   assert.equal(core.findMatchingEntry(state, "https://facebook.com/messages").type, "none");
+  assert.equal(core.findMatchingEntry(state, "https://tiktok.com/following").type, "none");
 });
 
 test("maps blocklist entries to host permissions", () => {

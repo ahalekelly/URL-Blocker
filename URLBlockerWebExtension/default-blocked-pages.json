@@ -36,13 +36,6 @@
   },
   {
     "type": "default",
-    "id": "10000000-0000-4000-8000-000000000012",
-    "kind": "url",
-    "value": "tiktok.com/foryou",
-    "enabled": true
-  },
-  {
-    "type": "default",
     "id": "10000000-0000-4000-8000-000000000013",
     "kind": "url",
     "value": "tiktok.com/following",
@@ -52,7 +45,7 @@
     "type": "default",
     "id": "10000000-0000-4000-8000-000000000014",
     "kind": "url",
-    "value": "tiktok.com/explore",
+    "value": "tiktok.com/discover",
     "enabled": true
   },
   {
@@ -74,13 +67,6 @@
     "id": "10000000-0000-4000-8000-000000000018",
     "kind": "url",
     "value": "facebook.com/reel",
-    "enabled": true
-  },
-  {
-    "type": "default",
-    "id": "10000000-0000-4000-8000-000000000019",
-    "kind": "url",
-    "value": "facebook.com/reels",
     "enabled": true
   },
   {
