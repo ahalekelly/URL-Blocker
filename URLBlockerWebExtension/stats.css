@@ -42,6 +42,10 @@
   padding: 14px;
 }
 
+.stats-metric[hidden] {
+  display: none;
+}
+
 .stats-metric span,
 .stats-muted,
 .stats-domain-limit,

@@ -507,7 +507,9 @@
     domain.className = "screen-time-domain";
     total.className = "screen-time-total";
     domain.textContent = entry.domain;
-    total.textContent = `${formatDuration(entry.totalMs)} / ${entry.limitMinutes}m`;
+    total.textContent = timeLimitsAreHidden()
+      ? formatDuration(entry.totalMs)
+      : `${formatDuration(entry.totalMs)} / ${entry.limitMinutes}m`;
     row.append(domain, total);
 
     return row;

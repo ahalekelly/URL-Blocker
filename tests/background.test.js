@@ -526,6 +526,7 @@ test("getScreenTimeStats returns summary, hourly, device, and zero-domain rows",
     type: "screenTimeStats",
     stats: {
       generatedAtMs: 20 * 60 * 60 * 1000,
+      schedule: core.DEFAULT_SCHEDULE,
       limitReset: { type: "rollingWindow", windowHours: 2 },
       window: { startHour: 19, endHour: 20 },
       totalMs: 5000,

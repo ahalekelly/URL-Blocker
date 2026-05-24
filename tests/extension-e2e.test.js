@@ -91,14 +91,19 @@ test("options updates the stats summary from draft limit reset settings", async 
 
 test("options keeps stats and limit reset visible when block schedule is always", async () => {
   const app = createExtensionApp({ supabaseConfig: configuredSupabase() });
+  const hour = Math.floor(app.backgroundApi.nowValue / (60 * 60 * 1000));
 
   app.backgroundApi.storageData[core.STATE_KEY] = validState([
     { id, kind: "domain", value: "example.com" }
   ], { type: "always" });
+  app.backgroundApi.storageData.screenTimeUsage = screenTimeUsage({
+    "example.com": { [hour]: 90000 }
+  });
 
   const page = await openOptionsPage(app);
 
   assert.equal(page.byId("screenTimePanel").hidden, false);
+  assert.equal(page.byId("screenTimeRows").children[0].querySelector(".screen-time-total").textContent, "2m");
   assert.equal(page.byId("limitResetPanel").hidden, false);
   assert.equal(page.customRows().at(-1).querySelector(".row-limit").hidden, true);
   assert.equal(page.byId("syncStatusText").textContent, "Sign in to sync settings.");
@@ -106,6 +111,7 @@ test("options keeps stats and limit reset visible when block schedule is always"
   await page.byId("dailyScheduleInput").dispatch("change");
 
   assert.equal(page.byId("limitResetPanel").hidden, false);
+  assert.equal(page.byId("screenTimeRows").children[0].querySelector(".screen-time-total").textContent, "2m / 30m");
   assert.equal(page.customRows().at(-1).querySelector(".row-limit").hidden, false);
   assert.equal(page.byId("syncStatusText").textContent, "Sign in to sync settings and screen time limits.");
 });
@@ -778,6 +784,7 @@ function statsDocument() {
     "totalTime",
     "activeDomains",
     "trackedDomains",
+    "overLimitMetric",
     "overLimitDomains",
     "windowTitle",
     "updatedAt",

@@ -20,6 +20,7 @@ test("stats page renders screen time stats", async () => {
   assert.equal(document.elements.totalTime.textContent, "2m");
   assert.equal(document.elements.activeDomains.textContent, "1");
   assert.equal(document.elements.trackedDomains.textContent, "2");
+  assert.equal(document.elements.overLimitMetric.hidden, false);
   assert.equal(document.elements.overLimitDomains.textContent, "0");
   assert.equal(document.elements.windowTitle.textContent, "Last 2 Hours");
   assert.equal(yAxis.children[0].textContent, "1m");
@@ -37,6 +38,23 @@ test("stats page renders screen time stats", async () => {
   assert.equal(document.elements.deviceRows.children.length, 1);
   assert.equal(document.elements.emptyDevices.hidden, true);
   assert.equal(document.elements.deviceRows.children[0].children[1].textContent, "1m");
+});
+
+test("stats page hides limits when block schedule is always", async () => {
+  const response = screenTimeStatsResponse();
+
+  response.stats.schedule = { type: "always" };
+
+  const { document } = await openStatsPage(response);
+  const row = document.elements.domainRows.children[0];
+  const values = row.children[0].children[1];
+
+  assert.equal(document.elements.overLimitMetric.hidden, true);
+  assert.equal(row.className, "stats-domain-row");
+  assert.equal(row.children.length, 2);
+  assert.equal(values.children.length, 1);
+  assert.equal(values.children[0].textContent, "2m");
+  assert.equal(row.children[1].textContent, "This device 1m · Other devices 1m");
 });
 
 test("stats page shows background errors", async () => {
@@ -84,6 +102,7 @@ function screenTimeStatsResponse() {
     type: "screenTimeStats",
     stats: {
       generatedAtMs: 20 * 60 * 60 * 1000,
+      schedule: { type: "dailyWindow", startMinute: 1380, endMinute: 1140 },
       limitReset: { type: "rollingWindow", windowHours: 2 },
       totalMs: 90000,
       trackedDomainCount: 2,
@@ -129,6 +148,7 @@ function statsDocument() {
     "totalTime",
     "activeDomains",
     "trackedDomains",
+    "overLimitMetric",
     "overLimitDomains",
     "windowTitle",
     "updatedAt",

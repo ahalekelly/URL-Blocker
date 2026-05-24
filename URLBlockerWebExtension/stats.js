@@ -8,6 +8,7 @@
     totalTime: document.getElementById("totalTime"),
     activeDomains: document.getElementById("activeDomains"),
     trackedDomains: document.getElementById("trackedDomains"),
+    overLimitMetric: document.getElementById("overLimitMetric"),
     overLimitDomains: document.getElementById("overLimitDomains"),
     windowTitle: document.getElementById("windowTitle"),
     updatedAt: document.getElementById("updatedAt"),
@@ -45,15 +46,18 @@
   }
 
   function renderStats(stats) {
+    const hideLimits = limitsAreHidden(stats.schedule);
+
     elements.totalTime.textContent = formatDuration(stats.totalMs);
     elements.activeDomains.textContent = String(stats.activeDomainCount);
     elements.trackedDomains.textContent = String(stats.trackedDomainCount);
+    elements.overLimitMetric.hidden = hideLimits;
     elements.overLimitDomains.textContent = String(stats.overLimitCount);
     elements.windowTitle.textContent = windowTitle(stats.limitReset);
     elements.updatedAt.textContent = `Updated ${new Date(stats.generatedAtMs).toLocaleString()}`;
 
     renderHourlyTotals(stats.hourlyTotals);
-    renderDomains(stats.entries);
+    renderDomains(stats.entries, hideLimits);
     renderDevices(stats.deviceTotals);
   }
 
@@ -102,12 +106,12 @@
     return bar;
   }
 
-  function renderDomains(entries) {
-    elements.domainRows.replaceChildren(...entries.map(renderDomainRow));
+  function renderDomains(entries, hideLimits) {
+    elements.domainRows.replaceChildren(...entries.map((entry) => renderDomainRow(entry, hideLimits)));
     elements.emptyDomains.hidden = entries.length !== 0;
   }
 
-  function renderDomainRow(entry) {
+  function renderDomainRow(entry, hideLimits) {
     const row = document.createElement("article");
     const main = document.createElement("div");
     const name = document.createElement("strong");
@@ -119,7 +123,7 @@
     const fill = document.createElement("div");
     const detail = document.createElement("p");
 
-    row.className = entry.isOverLimit ? "stats-domain-row is-over-limit" : "stats-domain-row";
+    row.className = !hideLimits && entry.isOverLimit ? "stats-domain-row is-over-limit" : "stats-domain-row";
     main.className = "stats-row-main";
     name.className = "stats-domain-name";
     values.className = "stats-row-values";
@@ -132,15 +136,22 @@
 
     name.textContent = entry.domain;
     used.textContent = formatDuration(entry.totalMs);
-    limit.textContent = `Limit ${entry.limitMinutes}m`;
-    remaining.textContent = entry.isOverLimit ? "Over limit" : `${formatDuration(entry.remainingMs)} left`;
-    fill.style.setProperty("--progress", `${entry.usedPercent}%`);
     detail.textContent = `This device ${formatDuration(entry.localMs)} · Other devices ${formatDuration(entry.remoteMs)}`;
 
-    values.append(used, limit, remaining);
+    values.append(used);
+    if (!hideLimits) {
+      limit.textContent = `Limit ${entry.limitMinutes}m`;
+      remaining.textContent = entry.isOverLimit ? "Over limit" : `${formatDuration(entry.remainingMs)} left`;
+      fill.style.setProperty("--progress", `${entry.usedPercent}%`);
+      values.append(limit, remaining);
+    }
     main.append(name, values);
-    progress.append(fill);
-    row.append(main, progress, detail);
+    row.append(main);
+    if (!hideLimits) {
+      progress.append(fill);
+      row.append(progress);
+    }
+    row.append(detail);
 
     return row;
   }
@@ -166,6 +177,7 @@
   function normalizeStats(stats) {
     requireKeys(stats, [
       "generatedAtMs",
+      "schedule",
       "limitReset",
       "totalMs",
       "trackedDomainCount",
@@ -203,6 +215,17 @@
         return `Since ${minuteToTime(limitReset.resetHour * 60)}`;
       default:
         throw new Error(`Unknown limit reset type: ${limitReset.type}`);
+    }
+  }
+
+  function limitsAreHidden(schedule) {
+    switch (schedule.type) {
+      case "always":
+        return true;
+      case "dailyWindow":
+        return false;
+      default:
+        throw new Error(`Unknown schedule type: ${schedule.type}`);
     }
   }
 

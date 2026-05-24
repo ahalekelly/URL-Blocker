@@ -911,6 +911,7 @@
 
     return {
       generatedAtMs: nowMs,
+      schedule: state.schedule,
       limitReset: state.limitReset,
       window,
       totalMs: entries.reduce((total, entry) => total + entry.totalMs, 0),
