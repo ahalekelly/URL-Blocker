@@ -32,8 +32,8 @@
 
       <section class="settings-panel screen-time-panel">
         <div class="screen-time-panel-header">
-          <h2 id="screenTimeTitle">Last 16 Hours</h2>
-          <a class="secondary-link" href="stats.html">Stats</a>
+          <h2><a class="stats-link" href="stats.html">Stats</a></h2>
+          <p id="screenTimeTitle" class="screen-time-subtitle">Last 16 Hours</p>
         </div>
         <div id="screenTimeRows" class="screen-time-rows"></div>
         <p id="emptyScreenTime" class="empty-screen-time">No usage logged yet.</p>
@@ -137,7 +137,6 @@
         <div class="segments" role="group" aria-label="Matcher type"></div>
         <label class="enabled-label">
           <input class="enabled-input" type="checkbox" aria-label="Enable default URL">
-          <span>Enabled</span>
         </label>
         <button class="delete-button" type="button" aria-label="Delete row">Delete</button>
       </div>

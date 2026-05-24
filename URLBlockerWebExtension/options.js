@@ -139,6 +139,7 @@
 
   function render() {
     const needsWebsiteAccess = state.missingOrigins.length > 0;
+    const scrollY = root.scrollY;
 
     repairPanel.hidden = true;
     permissionPanel.hidden = !needsWebsiteAccess;
@@ -166,6 +167,7 @@
     errorSummary.textContent = state.pageError;
     renderScreenTimeLog();
     renderSyncStatus();
+    root.scrollTo(0, scrollY);
   }
 
   function renderBlockItems() {
@@ -221,20 +223,22 @@
   function renderDefaultGroup(domain, entries) {
     const group = document.createElement("article");
     const toolbar = document.createElement("div");
-    const heading = document.createElement("div");
     const title = document.createElement("div");
     const limitLabel = document.createElement("label");
+    const limitPrefix = document.createElement("span");
     const limitInput = document.createElement("input");
+    const limitSuffix = document.createElement("span");
+    const entryList = document.createElement("div");
     const titleText = defaultGroupTitle(domain);
 
     group.className = "block-row default-group";
     group.dataset.domain = domain;
-    toolbar.className = "row-toolbar default-group-toolbar";
-    heading.className = "default-group-heading";
+    toolbar.className = "default-group-toolbar";
     title.className = "default-group-title";
     title.textContent = titleText;
     limitLabel.className = "default-group-limit";
-    limitLabel.textContent = "Limit minutes";
+    limitPrefix.className = "limit-prefix";
+    limitPrefix.textContent = "Limit:";
     limitInput.className = "limit-input";
     limitInput.type = "number";
     limitInput.min = "1";
@@ -244,31 +248,13 @@
     limitInput.setAttribute("aria-label", `Limit minutes for ${titleText}`);
     limitInput.value = String(entries[0].limitMinutes);
     limitInput.addEventListener("input", () => updateLimit(entries[0].id, limitInput.value));
-    heading.append(title);
-
-    if (entries.length === 1) {
-      const entry = entries[0];
-      const rowError = document.createElement("p");
-
-      heading.append(renderDefaultEnabledLabel(entry));
-      rowError.className = "row-error";
-      rowError.hidden = !state.rowErrors.has(entry.id);
-      rowError.textContent = state.rowErrors.get(entry.id) || "";
-      limitLabel.append(limitInput);
-      toolbar.append(heading, limitLabel);
-      group.append(toolbar);
-      group.append(rowError);
-      return group;
-    }
-
-    const entryList = document.createElement("div");
-
+    limitSuffix.className = "limit-suffix";
+    limitSuffix.textContent = "min";
+    limitLabel.append(limitPrefix, limitInput, limitSuffix);
+    toolbar.append(title, limitLabel);
     entryList.className = "default-group-entries";
     entryList.replaceChildren(...entries.map(renderDefaultGroupEntry));
-    limitLabel.append(limitInput);
-    toolbar.append(heading, limitLabel);
-    group.append(toolbar);
-    group.append(entryList);
+    group.append(toolbar, entryList);
 
     return group;
   }
@@ -324,7 +310,6 @@
   function renderDefaultEnabledLabel(entry) {
     const enabledLabel = document.createElement("label");
     const enabledInput = document.createElement("input");
-    const enabledText = document.createElement("span");
 
     enabledLabel.className = "enabled-label";
     enabledInput.className = "enabled-input";
@@ -332,8 +317,7 @@
     enabledInput.checked = entry.enabled;
     enabledInput.setAttribute("aria-label", `Enable ${entry.value}`);
     enabledInput.addEventListener("change", () => updateEnabled(entry.id, enabledInput.checked));
-    enabledText.textContent = "Enabled";
-    enabledLabel.append(enabledInput, enabledText);
+    enabledLabel.append(enabledInput);
 
     return enabledLabel;
   }
@@ -427,7 +411,7 @@
         signOutButton.hidden = true;
         return;
       case "signedOut":
-        syncStatusText.textContent = syncStatusErrorText("Sign in to sync settings and screen time.");
+        syncStatusText.textContent = syncStatusErrorText("Sign in to sync settings and screen time limits.");
         googleSignInButton.hidden = false;
         appleSignInButton.hidden = false;
         syncNowButton.hidden = true;
@@ -530,13 +514,13 @@
         const hours = limitReset.windowHours;
 
         if (!Number.isInteger(hours)) {
-          return "Screen Time";
+          return "Screen Time:";
         }
 
-        return `Last ${hours} ${hours === 1 ? "Hour" : "Hours"}`;
+        return `Last ${hours} ${hours === 1 ? "Hour" : "Hours"}:`;
       }
       case "daily":
-        return `Since ${minuteToTime(limitReset.resetHour * 60)}`;
+        return `Since ${minuteToTime(limitReset.resetHour * 60)}:`;
       default:
         throw new Error(`Unknown limit reset type: ${limitReset.type}`);
     }

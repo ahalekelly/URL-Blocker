@@ -274,7 +274,9 @@ async function openOptionsPage(app) {
       pathname: "/options.html"
     },
     history: { replaceState() {} },
-    addEventListener() {}
+    addEventListener() {},
+    scrollY: 0,
+    scrollTo() {}
   };
 
   vm.runInNewContext(optionsScript, context, { filename: "options.js" });
