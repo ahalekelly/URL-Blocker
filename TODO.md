@@ -3,3 +3,4 @@ Work through this list one task at a time. Don't cut corners, complete all aspec
 Done, ready for review:
 
 To Do:
+Use Computer Use in Safari to do QA on all aspects of this extension, test every user flow and every edge case to find bugs, fix them, and verify that they are fixed. If you're not sure if something is a bug, bring it up to me.
