@@ -127,6 +127,27 @@ test("options hides provider sign-in buttons when iOS sync is signed in", async 
   assert.equal(page.byId("signOutButton").hidden, false);
 });
 
+test("options shows immediate provider sign-in feedback", async () => {
+  const app = createExtensionApp({
+    delaySignInWithProvider: true,
+    supabaseConfig: configuredSupabase()
+  });
+
+  app.backgroundApi.storageData[core.STATE_KEY] = validState([]);
+
+  const page = await openOptionsPage(app);
+  const click = page.byId("googleSignInButton").dispatch("click");
+
+  await settle();
+
+  assert.equal(page.byId("syncStatusText").textContent, "Opening Google sign-in.");
+  assert.equal(page.byId("googleSignInButton").disabled, true);
+  assert.equal(page.byId("appleSignInButton").disabled, true);
+
+  await app.optionsApi.finishSignInWithProvider();
+  await click;
+});
+
 test("options shows the floating save button only for unsaved drafts", async () => {
   const app = createExtensionApp();
   const page = await openOptionsPage(app);
@@ -342,6 +363,7 @@ function createExtensionApp(overrides = {}) {
   const controller = createBackgroundController(backgroundApi);
   let finishDelayedSync;
   let finishDelayedSavedState;
+  let finishDelayedSignInWithProvider;
   const optionsApi = {
     messages: [],
     permissionRequests: [],
@@ -361,6 +383,14 @@ function createExtensionApp(overrides = {}) {
       await finishDelayedSavedState();
       await settle();
     },
+    async finishSignInWithProvider() {
+      if (!finishDelayedSignInWithProvider) {
+        throw new Error("No delayed provider sign-in is pending.");
+      }
+
+      await finishDelayedSignInWithProvider();
+      await settle();
+    },
     runtime: {
       sendMessage(message) {
         optionsApi.messages.push(message);
@@ -374,6 +404,12 @@ function createExtensionApp(overrides = {}) {
         if (overrides.delayFinishSavedState && message.type === "finishSavedState") {
           return new Promise((resolve, reject) => {
             finishDelayedSavedState = () => controller.handleMessage(message, {}).then(resolve, reject);
+          });
+        }
+
+        if (overrides.delaySignInWithProvider && message.type === "signInWithProvider") {
+          return new Promise((resolve, reject) => {
+            finishDelayedSignInWithProvider = () => controller.handleMessage(message, {}).then(resolve, reject);
           });
         }
 

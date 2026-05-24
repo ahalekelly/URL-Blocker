@@ -48,6 +48,15 @@ button {
   background: var(--surface);
   color: var(--text);
   padding: 0 14px;
+  transition: background-color 120ms ease, border-color 120ms ease, opacity 120ms ease, transform 120ms ease;
+}
+
+button:not(:disabled) {
+  cursor: pointer;
+}
+
+button:not(:disabled):active {
+  transform: translateY(1px);
 }
 
 button:disabled {
@@ -308,12 +317,30 @@ h2 {
   font-weight: 500;
 }
 
+#googleSignInButton:not(:disabled):hover {
+  background: #f8fafd;
+}
+
+#googleSignInButton:not(:disabled):active {
+  background: #f1f3f4;
+}
+
 #appleSignInButton {
   background: #000000;
   border-color: #000000;
   color: #ffffff;
   font-size: 19px;
   font-weight: 600;
+}
+
+#appleSignInButton:not(:disabled):hover {
+  background: #1c1c1c;
+  border-color: #1c1c1c;
+}
+
+#appleSignInButton:not(:disabled):active {
+  background: #333333;
+  border-color: #333333;
 }
 
 .provider-icon {

@@ -408,6 +408,9 @@
   }
 
   function renderSyncStatus() {
+    googleSignInButton.disabled = false;
+    appleSignInButton.disabled = false;
+
     switch (state.syncStatus.status) {
       case "checking":
         syncStatusText.textContent = "Checking sync.";
@@ -856,6 +859,9 @@
 
   async function signInWithProvider(provider) {
     clearMessages();
+    syncStatusText.textContent = `Opening ${providerTitle(provider)} sign-in.`;
+    googleSignInButton.disabled = true;
+    appleSignInButton.disabled = true;
 
     const response = await api.runtime.sendMessage({ type: "signInWithProvider", provider });
 
@@ -882,6 +888,17 @@
         return;
       default:
         throw codedError("UnexpectedSignInResponse", `Unknown signInWithProvider response: ${response.type}`);
+    }
+  }
+
+  function providerTitle(provider) {
+    switch (provider) {
+      case "google":
+        return "Google";
+      case "apple":
+        return "Apple";
+      default:
+        throw new Error(`Unknown sign-in provider: ${provider}`);
     }
   }
 

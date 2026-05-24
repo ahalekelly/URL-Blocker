@@ -14,9 +14,19 @@ test("hidden sync action buttons are not displayed", () => {
   assert.match(rule(".sync-actions button[hidden]"), /display:\s*none;/);
 });
 
+test("buttons show clickable and pressed affordances", () => {
+  assert.match(rule("button:not(:disabled)"), /cursor:\s*pointer;/);
+  assert.match(rule("button:not(:disabled):active"), /transform:\s*translateY\(1px\);/);
+});
+
 test("sync now and sign out share the mobile action row", () => {
   assert.match(css, /\.sync-actions\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s);
   assert.match(rule(".provider-button"), /grid-column:\s*1\s*\/\s*-1;/);
+});
+
+test("provider sign-in buttons show hover feedback", () => {
+  assert.match(rule("#googleSignInButton:not(:disabled):hover"), /background:\s*#f8fafd;/);
+  assert.match(rule("#appleSignInButton:not(:disabled):hover"), /background:\s*#1c1c1c;/);
 });
 
 function rule(selector) {
