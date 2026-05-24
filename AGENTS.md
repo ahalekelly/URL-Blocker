@@ -51,7 +51,11 @@ Build and update Brave with the unpacked extension in the main profile:
 make brave-install
 ```
 
+Use Vivaldi as the Chromium install/check target before committing. Do not install or reload Brave unless explicitly requested.
+
 When the browser is already open, the install target reloads the existing unpacked extension in the `Default` profile without restarting the browser. That no-restart path requires URL Blocker to already be enabled. When the browser is closed, the target uses a short-lived DevTools pipe to install or update the unpacked extension, then opens `chrome://extensions`.
+
+The Codex in-app browser does not work for local URL Blocker extension UI checks. It rejects the local extension/options page, so use Vivaldi for browser UI verification instead.
 
 Build the signed iOS IPA, signed macOS app, and unpacked Chrome extension:
 
@@ -111,7 +115,7 @@ Use [ios_build_sign_install.md](ios_build_sign_install.md) for the complete sign
 
 ## Committing
 
-- After finishing changes and before committing, run `make test` and then install the signed iOS build to the user's iPhone with `make ios-install`. If `make ios-install` fails during the build process then fix the error, but if the build succeeds but the install fails it's probably just that the iPhone isn't connected so don't bother retrying. Notify the user whether the install succeeded or failed.
+- After finishing changes and before committing, run `make test`, install/reload Vivaldi with `make vivaldi-install`, and then install the signed iOS build to the user's iPhone with `make ios-install`. If `make ios-install` fails during the build process then fix the error, but if the build succeeds but the install fails it's probably just that the iPhone isn't connected so don't bother retrying. Notify the user whether the install succeeded or failed.
 - After finishing and testing each change, commit all changes for that completed work.
 - Save any important or useful information to this file, make sure it update it when information changes, you learn new things, or you are given new general instructions
 
