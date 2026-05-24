@@ -1,5 +1,31 @@
 # AGENTS.md
 
+## Key Instructions
+- Try not to duplicate code across multiple platforms, keep functionality in the extension Javascript unless it would make the code far more complicated
+- If an issue is reported on one platform, be aware that the issue could affect multiple platforms, make sure to check for this and don't just make a fix for the one platform it was reported on.
+- More generally, if you find a bug in one place in the code, look for other places where that same bug could have occured
+- If I give you steering instructions mid task, you should still complete the original task unless I said otherwise
+- Save any important or useful information to this file, make sure to update it when information changes, you learn new things, or you are given new general instructions.
+
+## Committing
+
+- After the initial draft of changes, run `make test` and then fix any issues. Then install all platforms with `make install`. Make sure all builds succeed. If the iOS build succeeds but the device install fails it's probably just that the iPhone isn't connected so don't bother retrying. Notify the user whether all installs succeeded or the iOS install failed.
+- If you made functional or UI changes, use Computer Use in Brave or Safari to verify your changes work as intended.
+- After finishing and testing the change, commit the changes for that completed work.
+
+## Coding Preferences
+
+- Keep code extremely easy to skim.
+- Prefer fewer states, fewer arguments, and required values over optional ones.
+- Use discriminated unions for multi-shape data.
+- Exhaustively handle known types and fail on unknown types.
+- Validate loaded data at boundaries and raise clear errors for invalid data.
+- Avoid defensive fallback code when types already guarantee the value.
+- Prefer early returns.
+- Prefer `if: raise` over broad `try`/catch when a value is expected to exist.
+- Keep changes narrowly scoped. Remove anything not required for the task.
+- Avoid clever abstractions and overly split helper functions.
+
 ## Project Shape
 
 - `URLBlockerIOS/`: iOS containing app.
@@ -113,13 +139,7 @@ Sync default blocked pages after editing defaults:
 npm run sync-default-blocked-pages
 ```
 
-Use [ios_build_sign_install.md](ios_build_sign_install.md) for the complete signing and iPhone install flow.
-
-## Committing
-
-- After finishing changes and before committing, run `make test`, then install all platforms with `make install`. Make sure all builds succeed. If the iOS build succeeds but the device install fails it's probably just that the iPhone isn't connected so don't bother retrying. Notify the user whether the install succeeded or failed.
-- After finishing and testing each change, commit all changes for that completed work.
-- Save any important or useful information to this file, make sure it update it when information changes, you learn new things, or you are given new general instructions
+See [ios_build_sign_install.md](ios_build_sign_install.md) for the complete signing and iPhone install flow.
 
 ## Supabase Sync
 
@@ -154,24 +174,6 @@ grant execute on function public.sync_screen_time_buckets(jsonb) to authenticate
 ```
 
 - Google sign-in is configured. Apple sign-in is intentionally not configured yet.
-
-## Coding Preferences
-
-- Keep code extremely easy to skim.
-- Prefer fewer states, fewer arguments, and required values over optional ones.
-- Use discriminated unions for multi-shape data.
-- Exhaustively handle known types and fail on unknown types.
-- Validate loaded data at boundaries and raise clear errors for invalid data.
-- Avoid defensive fallback code when types already guarantee the value.
-- Prefer early returns.
-- Prefer `if: raise` over broad `try`/catch when a value is expected to exist.
-- Keep changes narrowly scoped. Remove anything not required for the task.
-- Avoid clever abstractions and overly split helper functions.
-
-- Try not to duplicate code across multiple platforms, keep functionality in the extension Javascript unless it would make the code far more complicated
-- If an issue is reported on one platform, be aware that the issue could affect multiple platforms, make sure to check for this and don't just make a fix for the one platform it was reported on.
-- More generally, if you find a bug in one place in the code, look for other places where that same bug could have occured
-- If I give you steering instructions mid task, you should still complete the original task unless I said otherwise
 
 ## Python Scripts
 
