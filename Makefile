@@ -31,7 +31,7 @@ SAFARI_EXTENSION_ID := com.akelly.URLBlockerMac.Extension
 SAFARI_EXTENSION_SDK := com.apple.Safari.web-extension
 LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister
 
-.PHONY: help test all build check chrome-extension vivaldi-install brave-install ios-build ios-build-unsigned ios-signed-ipa ios-devices ios-install macos-build macos-install macos-clean-registration macos-verify macos-plugin-check
+.PHONY: help test all build check install chrome-extension vivaldi-install brave-install ios-build ios-build-unsigned ios-signed-ipa ios-devices ios-install macos-build macos-install macos-clean-registration macos-verify macos-plugin-check
 
 help:
 	@printf "Targets:\n"
@@ -49,6 +49,7 @@ help:
 	@printf "  make all                     Build iOS, macOS, and Chrome.\n"
 	@printf "  make build                   Build iOS, macOS, and Chrome.\n"
 	@printf "  make check                   Run tests, then build iOS, macOS, and Chrome.\n"
+	@printf "  make install                 Install iOS, macOS, and Vivaldi in parallel.\n"
 	@printf "  make macos-install           Build, install to /Applications, and verify Safari registration.\n"
 	@printf "  make macos-plugin-check      Fail if Safari sees duplicate URL Blocker extensions.\n"
 
@@ -60,6 +61,9 @@ all: build
 build: ios-build macos-build chrome-extension
 
 check: test build
+
+install:
+	$(MAKE) -j3 ios-install macos-install vivaldi-install
 
 chrome-extension:
 	npm run build-chrome-extension

@@ -105,6 +105,12 @@ Build and install the signed macOS app:
 make macos-install
 ```
 
+Install iOS, macOS, and Vivaldi in parallel:
+
+```sh
+make install
+```
+
 Sync default blocked pages after editing defaults:
 
 ```sh
@@ -115,7 +121,7 @@ Use [ios_build_sign_install.md](ios_build_sign_install.md) for the complete sign
 
 ## Committing
 
-- After finishing changes and before committing, run `make test`, install/reload Vivaldi with `make vivaldi-install`, and then install the signed iOS build to the user's iPhone with `make ios-install`. If `make ios-install` fails during the build process then fix the error, but if the build succeeds but the install fails it's probably just that the iPhone isn't connected so don't bother retrying. Notify the user whether the install succeeded or failed.
+- After finishing changes and before committing, run `make test`, then install all platforms with `make install`. Make sure all builds succeed. If the iOS build succeeds but the device install fails it's probably just that the iPhone isn't connected so don't bother retrying. Notify the user whether the install succeeded or failed.
 - After finishing and testing each change, commit all changes for that completed work.
 - Save any important or useful information to this file, make sure it update it when information changes, you learn new things, or you are given new general instructions
 
