@@ -53,7 +53,7 @@ make brave-install
 
 Use Vivaldi as the Chromium install/check target before committing. Do not install or reload Brave unless explicitly requested.
 
-When the browser is already open, the install target reloads the existing unpacked extension in the `Default` profile without restarting the browser. That no-restart path requires URL Blocker to already be enabled. When the browser is closed, the target uses a short-lived DevTools pipe to install or update the unpacked extension, then opens `chrome://extensions`.
+The Chromium install targets first verify URL Blocker is already installed from `build/chrome-extension` in the `Default` profile. They then rebuild `build/chrome-extension`. When the browser is open, the target reloads the existing unpacked extension without restarting the browser. When the browser is closed, the target only updates the files and does not open the browser. The reload path requires URL Blocker to already be enabled.
 
 The Codex in-app browser does not work for local URL Blocker extension UI checks. It rejects the local extension/options page, so use Vivaldi for browser UI verification instead.
 

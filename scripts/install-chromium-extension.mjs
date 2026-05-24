@@ -3,7 +3,7 @@
 import { access, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 
 const rawArgs = process.argv.slice(2);
 const reloadPage = "reload.html";
@@ -71,133 +71,38 @@ switch (mode.type) {
 process.exit(0);
 
 async function preflightUpdate() {
-  switch (browserState.type) {
-    case "running":
-      await validateRunningReloadReady();
-      break;
-    case "closed":
-      break;
-    default:
-      throw new Error(`Unknown browser state: ${browserState.type}`);
-  }
+  await validateInstalled();
 }
 
 async function updateBrowser() {
+  const extension = await validateInstalled();
+
   switch (browserState.type) {
     case "running":
-      await updateRunningBrowser();
+      await reloadRunningBrowser(extension);
       break;
     case "closed":
-      await updateClosedBrowser();
+      console.log(`Updated URL Blocker files for closed ${appName} ${browserConfig.profileDirectory}: ${extension.id}`);
       break;
     default:
       throw new Error(`Unknown browser state: ${browserState.type}`);
   }
 }
 
-async function updateRunningBrowser() {
-  const extension = await validateRunningReloadReady();
-
+async function reloadRunningBrowser(extension) {
   openRunningBrowser(`chrome-extension://${extension.id}/${reloadPage}`);
   await wait(1_000);
-  await validateRunningReloadReady();
+  await validateInstalled();
 
   console.log(`Reloaded URL Blocker in running ${appName} ${browserConfig.profileDirectory}: ${extension.id}`);
 }
 
-async function validateRunningReloadReady() {
+async function validateInstalled() {
   const extension = await readExtensionByPath();
 
   validateEnabled(extension.settings);
 
   return extension;
-}
-
-async function updateClosedBrowser() {
-  const result = await loadUnpackedWithDevTools();
-  const extension = await readExtensionById(result.id);
-
-  validateEnabled(extension.settings);
-  openClosedBrowser("chrome://extensions");
-  await wait(1_000);
-  validateEnabled((await readExtensionById(result.id)).settings);
-
-  console.log(`Updated URL Blocker in ${appName} ${browserConfig.profileDirectory}: ${result.id}`);
-}
-
-async function loadUnpackedWithDevTools() {
-  const browser = spawn(
-    browserPath,
-    [
-      "--remote-debugging-pipe",
-      "--enable-unsafe-extension-debugging",
-      "--no-first-run",
-      `--profile-directory=${browserConfig.profileDirectory}`,
-      "chrome://extensions",
-    ],
-    { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] },
-  );
-
-  const chromeInput = browser.stdio[3];
-  const chromeOutput = browser.stdio[4];
-  let nextMessageId = 1;
-  let pendingOutput = "";
-
-  browser.stderr.on("data", () => {});
-
-  const result = await sendChromeMessage("Extensions.loadUnpacked", { path: extensionPath });
-  writeChromeMessage(nextMessageId, "Browser.close", {});
-
-  await new Promise((resolve) => browser.on("exit", resolve));
-
-  return result;
-
-  async function sendChromeMessage(method, params) {
-    const id = nextMessageId;
-    nextMessageId += 1;
-
-    writeChromeMessage(id, method, params);
-
-    return await readChromeMessage(id);
-  }
-
-  function writeChromeMessage(id, method, params) {
-    chromeInput.write(`${JSON.stringify({ id, method, params })}\0`);
-  }
-
-  function readChromeMessage(expectedId) {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error(`Timed out waiting for ${expectedId}`)), 10_000);
-
-      chromeOutput.on("data", function readData(chunk) {
-        pendingOutput += chunk.toString();
-        const messages = pendingOutput.split("\0");
-        pendingOutput = messages.pop();
-
-        for (const messageText of messages) {
-          if (messageText === "") {
-            continue;
-          }
-
-          const message = JSON.parse(messageText);
-
-          if (message.id !== expectedId) {
-            continue;
-          }
-
-          chromeOutput.off("data", readData);
-          clearTimeout(timeout);
-
-          if (message.error) {
-            reject(new Error(message.error.message));
-            return;
-          }
-
-          resolve(message.result);
-        }
-      });
-    });
-  }
 }
 
 function isAppRunning(name) {
@@ -230,18 +135,6 @@ function openRunningBrowser(url) {
   }
 }
 
-function openClosedBrowser(url) {
-  const result = spawnSync(
-    "open",
-    ["-na", appName, "--args", `--profile-directory=${browserConfig.profileDirectory}`, url],
-    { stdio: "inherit" },
-  );
-
-  if (result.status !== 0) {
-    throw new Error(`Failed to reopen ${appName}`);
-  }
-}
-
 async function readExtensionByPath() {
   const extensions = await readExtensionSettings();
   const matches = Object
@@ -259,21 +152,6 @@ async function readExtensionByPath() {
   const [[id, settings]] = matches;
 
   return { id, settings };
-}
-
-async function readExtensionById(extensionId) {
-  const extensions = await readExtensionSettings();
-  const settings = extensions[extensionId];
-
-  if (!settings) {
-    throw new Error(`${appName} did not save URL Blocker in ${browserConfig.profileDirectory}`);
-  }
-
-  if (settings.path !== extensionPath) {
-    throw new Error(`${appName} saved URL Blocker from ${settings.path}`);
-  }
-
-  return { id: extensionId, settings };
 }
 
 async function readExtensionSettings() {
