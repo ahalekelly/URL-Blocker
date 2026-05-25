@@ -3,6 +3,7 @@ import Foundation
 enum NativeBlocklistStore {
     private enum StoredValue {
         case state
+        case blockedPageHtml
         case screenTimeUsage
         case settingsSync
         case supabaseSession
@@ -11,6 +12,8 @@ enum NativeBlocklistStore {
             switch self {
             case .state:
                 return "blockerState"
+            case .blockedPageHtml:
+                return "blockedPageHtml"
             case .screenTimeUsage:
                 return "screenTimeUsage"
             case .settingsSync:
@@ -24,6 +27,8 @@ enum NativeBlocklistStore {
             switch self {
             case .state:
                 return "state"
+            case .blockedPageHtml:
+                return "blockedPageHtml"
             case .screenTimeUsage:
                 return "usage"
             case .settingsSync:
@@ -37,6 +42,8 @@ enum NativeBlocklistStore {
             switch self {
             case .state:
                 return "Blocklist state"
+            case .blockedPageHtml:
+                return "Blocked page HTML cache"
             case .screenTimeUsage:
                 return "Screen time usage"
             case .settingsSync:
@@ -50,6 +57,8 @@ enum NativeBlocklistStore {
             switch self {
             case .state:
                 return "storedState"
+            case .blockedPageHtml:
+                return "storedBlockedPageHtml"
             case .screenTimeUsage:
                 return "storedScreenTimeUsage"
             case .settingsSync:
@@ -63,6 +72,8 @@ enum NativeBlocklistStore {
             switch self {
             case .state:
                 return "savedState"
+            case .blockedPageHtml:
+                return "savedBlockedPageHtml"
             case .screenTimeUsage:
                 return "savedScreenTimeUsage"
             case .settingsSync:
@@ -86,6 +97,12 @@ enum NativeBlocklistStore {
             case "saveState":
                 try requireKeys(message, ["type", "state"], "saveState message")
                 return try save(message["state"], .state)
+            case "loadBlockedPageHtml":
+                try requireKeys(message, ["type"], "loadBlockedPageHtml message")
+                return try load(.blockedPageHtml)
+            case "saveBlockedPageHtml":
+                try requireKeys(message, ["type", "blockedPageHtml"], "saveBlockedPageHtml message")
+                return try save(message["blockedPageHtml"], .blockedPageHtml)
             case "loadScreenTimeUsage":
                 try requireKeys(message, ["type"], "loadScreenTimeUsage message")
                 return try load(.screenTimeUsage)

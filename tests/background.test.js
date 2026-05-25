@@ -21,6 +21,7 @@ test("saveState validates, writes storage, and syncs content scripts", async () 
   assert.equal(response.state.entries[0].value, "x.com");
   assert.equal(response.state.blockedPageHtml, "<p>Blocked.</p>");
   assert.equal(api.storageData[core.STATE_KEY].entries[0].value, "x.com");
+  assert.deepEqual(api.storageData[core.BLOCKED_PAGE_HTML_KEY], { html: "<p>Blocked.</p>" });
   assert.deepEqual(api.registeredScripts[0].js, ["content.js"]);
   assert.deepEqual(api.registeredScripts[0].matches, ["*://*.twitter.com/*", "*://*.x.com/*"]);
 });
@@ -70,8 +71,49 @@ test("getLocalState resets unsupported stored blocklist versions", async () => {
   assert.equal(response.type, "state");
   assert.deepEqual(response.state, defaultState);
   assert.deepEqual(api.storageData[core.STATE_KEY], defaultState);
+  assert.deepEqual(api.storageData[core.BLOCKED_PAGE_HTML_KEY], { html: defaultState.blockedPageHtml });
   assert.equal(api.storageData.settingsSync.dirty, true);
   assert.deepEqual(api.registeredScripts[0].matches, core.permissionOriginsForState(defaultState));
+});
+
+test("getBlockedPageHtml reads the cached HTML without remote settings sync", async () => {
+  const fetch = globalThis.fetch;
+  const userSettingsUrls = [];
+  const api = fakeApi({
+    now: 20 * 60 * 60 * 1000,
+    supabaseConfig: configuredSupabase()
+  });
+
+  api.storageData[core.BLOCKED_PAGE_HTML_KEY] = { html: "<p>Fast.</p>" };
+  api.storageData.supabaseSession = supabaseSession();
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).includes("/user_settings")) {
+      userSettingsUrls.push(String(url));
+      return jsonResponse([]);
+    }
+
+    return fetch(url, options);
+  };
+
+  try {
+    const response = await createBackgroundController(api).handleMessage({ type: "getBlockedPageHtml" }, {});
+
+    assert.deepEqual(response, { type: "blockedPageHtml", html: "<p>Fast.</p>" });
+    assert.equal(userSettingsUrls.length, 0);
+  } finally {
+    globalThis.fetch = fetch;
+  }
+});
+
+test("getBlockedPageHtml backfills the cached HTML", async () => {
+  const api = fakeApi();
+  const state = validState([]);
+
+  api.storageData[core.STATE_KEY] = state;
+  const response = await createBackgroundController(api).getBlockedPageHtml();
+
+  assert.deepEqual(response, { type: "blockedPageHtml", html: state.blockedPageHtml });
+  assert.deepEqual(api.storageData[core.BLOCKED_PAGE_HTML_KEY], { html: state.blockedPageHtml });
 });
 
 test("getState loads default blocked pages without runtime getURL", async () => {
@@ -1118,6 +1160,7 @@ test("getState applies newer remote settings with strict selected columns", asyn
 
     assert.equal(response.type, "state");
     assert.deepEqual(response.state, remoteState);
+    assert.deepEqual(api.storageData[core.BLOCKED_PAGE_HTML_KEY], { html: remoteState.blockedPageHtml });
     assert.equal(userSettingsUrls.length, 1);
     assert.match(userSettingsUrls[0], /select=user_id,state,updated_at_ms,revision_id,device_id,updated_at/);
   } finally {
@@ -1173,6 +1216,7 @@ test("getState resets unsupported remote blocklist versions", async () => {
     assert.equal(response.type, "state");
     assert.deepEqual(response.state, defaultState);
     assert.deepEqual(api.storageData[core.STATE_KEY], defaultState);
+    assert.deepEqual(api.storageData[core.BLOCKED_PAGE_HTML_KEY], { html: defaultState.blockedPageHtml });
     assert.deepEqual(savedBody.p_state, defaultState);
     assert.equal(savedBody.p_updated_at_ms, 72000002);
     assert.equal(api.storageData.settingsSync.dirty, false);
@@ -1566,6 +1610,11 @@ function fakeApi(overrides = {}) {
         case "saveState":
           api.nativeData[core.STATE_KEY] = message.state;
           return { type: "savedState", state: message.state };
+        case "loadBlockedPageHtml":
+          return { type: "storedBlockedPageHtml", blockedPageHtml: api.nativeData[core.BLOCKED_PAGE_HTML_KEY] };
+        case "saveBlockedPageHtml":
+          api.nativeData[core.BLOCKED_PAGE_HTML_KEY] = message.blockedPageHtml;
+          return { type: "savedBlockedPageHtml", blockedPageHtml: message.blockedPageHtml };
         case "loadScreenTimeUsage":
           return { type: "storedScreenTimeUsage", usage: api.nativeData.screenTimeUsage };
         case "saveScreenTimeUsage":

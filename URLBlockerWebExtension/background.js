@@ -20,6 +20,7 @@
 
   function createBackgroundController(api) {
     const stateStorage = createStateStorage(api);
+    const blockedPageHtmlStorage = createBlockedPageHtmlStorage(api);
     const screenTimeStorage = createScreenTimeStorage(api);
     const settingsSyncStorage = createSettingsSyncStorage(api);
     const sessionStorage = createSupabaseSessionStorage(api);
@@ -36,6 +37,9 @@
         case "getLocalState":
           requireKeys(message, ["type"], "getLocalState message");
           return getLocalState();
+        case "getBlockedPageHtml":
+          requireKeys(message, ["type"], "getBlockedPageHtml message");
+          return getBlockedPageHtml();
         case "getState":
           requireKeys(message, ["type"], "getState message");
           return getState();
@@ -107,6 +111,23 @@
       }
     }
 
+    async function getBlockedPageHtml() {
+      try {
+        const cachedHtml = await blockedPageHtmlStorage.loadHtml();
+
+        if (cachedHtml !== undefined) {
+          return { type: "blockedPageHtml", html: cachedHtml };
+        }
+
+        const state = await loadState();
+
+        await blockedPageHtmlStorage.saveHtml(state.blockedPageHtml);
+        return { type: "blockedPageHtml", html: state.blockedPageHtml };
+      } catch (error) {
+        return errorResponse("blockedPageHtmlError", error);
+      }
+    }
+
     async function getDefaultState() {
       try {
         return { type: "state", state: await loadDefaultState() };
@@ -134,6 +155,8 @@
       if (storageResponse.type !== "saved") {
         throw errorFromResponse(storageResponse);
       }
+
+      await blockedPageHtmlStorage.saveHtml(storageResponse.state.blockedPageHtml);
 
       const settingsSync = await loadSettingsSync();
 
@@ -661,6 +684,7 @@
       }
 
       await stateStorage.saveState(result.state);
+      await blockedPageHtmlStorage.saveHtml(result.state.blockedPageHtml);
       await settingsSyncStorage.saveSync(sync.cleanSettingsSync(settingsSync, remoteSettings, currentTimeMs()));
       await syncWebsiteAccessForKnownPermissions(result.state);
       await redirectOpenBlockedTabs(result.state);
@@ -683,6 +707,7 @@
       const dirtySync = sync.dirtySettingsSync(settingsSync, updatedAtMs, createId);
 
       await stateStorage.saveState(state);
+      await blockedPageHtmlStorage.saveHtml(state.blockedPageHtml);
       await settingsSyncStorage.saveSync(dirtySync);
       await syncWebsiteAccessForKnownPermissions(state);
       await redirectOpenBlockedTabs(state);
@@ -873,6 +898,7 @@
 
     return {
       getLocalScreenTimeLog,
+      getBlockedPageHtml,
       getLocalState,
       getScreenTimeLog,
       getScreenTimeStats,
@@ -1119,6 +1145,46 @@
         return (await usesNativeStorage(api)) ? nativeStorage.saveState(state) : browserStorage.saveState(state);
       }
     };
+  }
+
+  function createBlockedPageHtmlStorage(api) {
+    const storage = createValueStorage(api, {
+      key: core.BLOCKED_PAGE_HTML_KEY,
+      valueKey: "blockedPageHtml",
+      loadType: "loadBlockedPageHtml",
+      loadedType: "storedBlockedPageHtml",
+      saveType: "saveBlockedPageHtml",
+      savedType: "savedBlockedPageHtml"
+    }, usesNativeStorage);
+
+    return {
+      async loadHtml() {
+        const stored = await storage.loadValue();
+
+        if (stored === undefined) {
+          return undefined;
+        }
+
+        return htmlFromBlockedPageHtmlCache(stored);
+      },
+      async saveHtml(html) {
+        await storage.saveValue({ html: core.normalizeBlockedPageHtml(html) });
+      }
+    };
+  }
+
+  function htmlFromBlockedPageHtmlCache(stored) {
+    if (!isPlainObject(stored)) {
+      throw codedError("BlockedPageHtmlCacheInvalid", "Blocked page HTML cache must be an object.");
+    }
+
+    requireKeys(stored, ["html"], "Blocked page HTML cache");
+
+    if (typeof stored.html !== "string") {
+      throw codedError("BlockedPageHtmlCacheInvalid", "Blocked page HTML cache must include an html string.");
+    }
+
+    return core.normalizeBlockedPageHtml(stored.html);
   }
 
   function createScreenTimeStorage(api) {

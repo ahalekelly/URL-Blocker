@@ -340,6 +340,7 @@ test("end-to-end options save blocks a page and renders the blocked view", async
 
   assert.equal(blocked.byId("blockedMessage").innerHTML, "<h1>Stay focused</h1>");
   assert.equal(blocked.byId("blockedTarget").textContent, "https://example.com/focus");
+  assert.equal(blocked.byId("blockedCard").dataset.loading, undefined);
 });
 
 test("options hides the save button before saved-state follow-up finishes", async () => {
@@ -688,6 +689,11 @@ function fakeBackgroundApi(overrides) {
         case "saveState":
           api.nativeData[core.STATE_KEY] = message.state;
           return { type: "savedState", state: message.state };
+        case "loadBlockedPageHtml":
+          return { type: "storedBlockedPageHtml", blockedPageHtml: api.nativeData[core.BLOCKED_PAGE_HTML_KEY] };
+        case "saveBlockedPageHtml":
+          api.nativeData[core.BLOCKED_PAGE_HTML_KEY] = message.blockedPageHtml;
+          return { type: "savedBlockedPageHtml", blockedPageHtml: message.blockedPageHtml };
         case "loadScreenTimeUsage":
           return { type: "storedScreenTimeUsage", usage: api.nativeData.screenTimeUsage };
         case "saveScreenTimeUsage":
@@ -875,7 +881,10 @@ function optionsDocument() {
 }
 
 function blockedDocument() {
-  return testDocument(["blockedMessage", "blockedTarget", "closeButton"]);
+  const document = testDocument(["blockedCard", "blockedMessage", "blockedTarget", "closeButton"]);
+
+  document.elements.blockedCard.dataset.loading = "";
+  return document;
 }
 
 function statsDocument() {
@@ -1008,6 +1017,15 @@ class TestElement {
 
   setAttribute(name, value) {
     this[name] = value;
+  }
+
+  removeAttribute(name) {
+    if (name.startsWith("data-")) {
+      delete this.dataset[name.slice(5)];
+      return;
+    }
+
+    delete this[name];
   }
 
   querySelector(selector) {

@@ -44,6 +44,10 @@
   text-align: center;
 }
 
+.blocked-card[data-loading] {
+  visibility: hidden;
+}
+
 h1,
 #blockedMessage,
 #blockedMessage > *,

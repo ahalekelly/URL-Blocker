@@ -2,6 +2,7 @@
   "use strict";
 
   const api = root.browser || root.chrome;
+  const blockedCard = document.getElementById("blockedCard");
   const blockedMessage = document.getElementById("blockedMessage");
   const blockedTarget = document.getElementById("blockedTarget");
   const closeButton = document.getElementById("closeButton");
@@ -9,28 +10,28 @@
   const fallbackHtml = "<h1>Blocked</h1><p>This page is on your blocklist.</p>";
 
   closeButton.addEventListener("click", closeCurrentTab);
-  loadState().catch((error) => {
-    console.error("URL Blocker could not load the blocked page settings.", errorDetails(error));
+  loadBlockedPageHtml().catch((error) => {
     renderBlockedPage(fallbackHtml);
+    console.warn("URL Blocker could not load the blocked page settings.", errorDetails(error));
   });
 
-  async function loadState() {
-    const response = await api.runtime.sendMessage({ type: "getState" });
+  async function loadBlockedPageHtml() {
+    const response = await api.runtime.sendMessage({ type: "getBlockedPageHtml" });
 
     switch (response.type) {
-      case "state":
-        renderBlockedPage(response.state.blockedPageHtml);
+      case "blockedPageHtml":
+        renderBlockedPage(response.html);
         return;
-      case "stateError":
+      case "blockedPageHtmlError":
       case "error":
-        console.error("URL Blocker could not load custom blocked page HTML.", {
+        renderBlockedPage(fallbackHtml);
+        console.warn("URL Blocker could not load custom blocked page HTML.", {
           message: response.error,
           code: response.errorCode || response.type
         });
-        renderBlockedPage(fallbackHtml);
         return;
       default:
-        throw new Error(`Unknown getState response: ${response.type}`);
+        throw new Error(`Unknown getBlockedPageHtml response: ${response.type}`);
     }
   }
 
@@ -39,6 +40,7 @@
     blockedMessage.hidden = html === "";
     blockedTarget.hidden = blockedUrl === "";
     blockedTarget.textContent = blockedUrl;
+    blockedCard.removeAttribute("data-loading");
   }
 
   function decodeBlockedUrl() {
