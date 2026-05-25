@@ -2,6 +2,8 @@
   "use strict";
 
   const api = root.browser || root.chrome;
+  const HOURLY_CHART_MAX_MS = 60 * 60 * 1000;
+  const HOURLY_CHART_HEIGHT = 158;
   const elements = {
     statsShell: document.getElementById("statsShell"),
     refreshButton: document.getElementById("refreshButton"),
@@ -91,7 +93,6 @@
 
   function renderHourlyTotals(hourlyTotals) {
     const maxMs = Math.max(0, ...hourlyTotals.map((entry) => entry.totalMs));
-    const chartMaxMs = Math.max(60 * 1000, Math.ceil(maxMs / (60 * 1000)) * 60 * 1000);
     const yAxis = document.createElement("div");
     const scroll = document.createElement("div");
     const plot = document.createElement("div");
@@ -102,7 +103,7 @@
     plot.className = "hourly-plot";
     xAxis.className = "hourly-x-axis";
 
-    [chartMaxMs, chartMaxMs / 2, 0].forEach((totalMs) => {
+    [HOURLY_CHART_MAX_MS, HOURLY_CHART_MAX_MS / 2, 0].forEach((totalMs) => {
       const tick = document.createElement("span");
 
       tick.textContent = formatAxisDuration(totalMs);
@@ -111,10 +112,13 @@
 
     hourlyTotals.forEach((entry) => {
       const tick = document.createElement("span");
+      const hour = new Date(entry.startedAtMs);
 
       tick.className = "hourly-x-tick";
-      tick.textContent = new Date(entry.startedAtMs).toLocaleTimeString([], { hour: "numeric" });
-      plot.append(renderHourlyBar(entry, chartMaxMs));
+      if (hour.getHours() % 2 === 0) {
+        tick.textContent = hour.toLocaleTimeString([], { hour: "numeric" });
+      }
+      plot.append(renderHourlyBar(entry));
       xAxis.append(tick);
     });
 
@@ -123,9 +127,11 @@
     elements.emptyHourlyTotals.hidden = maxMs > 0;
   }
 
-  function renderHourlyBar(entry, maxMs) {
+  function renderHourlyBar(entry) {
     const bar = document.createElement("div");
-    const height = maxMs === 0 ? 2 : Math.max(2, Math.round((entry.totalMs / maxMs) * 148));
+    const totalMs = Math.min(entry.totalMs, HOURLY_CHART_MAX_MS);
+    const ratio = totalMs / HOURLY_CHART_MAX_MS;
+    const height = Math.max(2, Math.round(ratio * HOURLY_CHART_HEIGHT));
 
     bar.className = entry.totalMs === 0 ? "hourly-bar is-empty" : "hourly-bar";
     bar.style.height = `${height}px`;
@@ -272,6 +278,10 @@
   function formatAxisDuration(totalMs) {
     if (totalMs > 0 && totalMs < 60 * 1000) {
       return "<1m";
+    }
+
+    if (totalMs >= HOURLY_CHART_MAX_MS && totalMs % HOURLY_CHART_MAX_MS === 0) {
+      return `${totalMs / HOURLY_CHART_MAX_MS}h`;
     }
 
     return formatDuration(totalMs);

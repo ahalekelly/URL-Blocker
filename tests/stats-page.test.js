@@ -24,12 +24,14 @@ test("stats page renders screen time stats", async () => {
   assert.equal(document.elements.overLimitMetric.hidden, false);
   assert.equal(document.elements.overLimitDomains.textContent, "0");
   assert.equal(document.elements.windowTitle.textContent, "Last 2 Hours");
-  assert.equal(yAxis.children[0].textContent, "1m");
-  assert.equal(yAxis.children[1].textContent, "<1m");
+  assert.equal(yAxis.children[0].textContent, "1h");
+  assert.equal(yAxis.children[1].textContent, "30m");
   assert.equal(yAxis.children[2].textContent, "0m");
   assert.equal(plot.children.length, 2);
+  assert.equal(plot.children[0].style.height, "3px");
   assert.equal(xAxis.children.length, 2);
-  assert.equal(xAxis.children[0].textContent, hourTickLabel(response.stats.hourlyTotals[0].startedAtMs));
+  assert.equal(xAxis.children[0].textContent, "");
+  assert.equal(xAxis.children[1].textContent, hourTickLabel(response.stats.hourlyTotals[1].startedAtMs));
   assert.equal(document.elements.emptyHourlyTotals.hidden, true);
   assert.equal(document.elements.domainRows.children.length, 2);
   assert.equal(document.elements.emptyDomains.hidden, true);
@@ -39,6 +41,23 @@ test("stats page renders screen time stats", async () => {
   assert.equal(document.elements.deviceRows.children.length, 1);
   assert.equal(document.elements.emptyDevices.hidden, true);
   assert.equal(document.elements.deviceRows.children[0].children[1].textContent, "1m");
+});
+
+test("stats page labels even hours on the x axis", async () => {
+  const response = screenTimeStatsResponse();
+
+  response.stats.hourlyTotals = [
+    { hour: 18, startedAtMs: localHourMs(18), totalMs: 0 },
+    { hour: 19, startedAtMs: localHourMs(19), totalMs: 0 },
+    { hour: 20, startedAtMs: localHourMs(20), totalMs: 0 }
+  ];
+
+  const { document } = await openStatsPage(response);
+  const xAxis = document.elements.hourlyBars.children[1].children[1];
+
+  assert.equal(xAxis.children[0].textContent, hourTickLabel(response.stats.hourlyTotals[0].startedAtMs));
+  assert.equal(xAxis.children[1].textContent, "");
+  assert.equal(xAxis.children[2].textContent, hourTickLabel(response.stats.hourlyTotals[2].startedAtMs));
 });
 
 test("stats page updates after synced stats load", async () => {
@@ -127,6 +146,10 @@ function responseForMessage(response, message, index) {
 
 function hourTickLabel(startedAtMs) {
   return new Date(startedAtMs).toLocaleTimeString([], { hour: "numeric" });
+}
+
+function localHourMs(hour) {
+  return new Date(2026, 0, 1, hour).getTime();
 }
 
 function screenTimeStatsResponse() {
