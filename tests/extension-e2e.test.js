@@ -25,7 +25,7 @@ test("options requests only missing website access for saved states", async () =
 
   const page = await openOptionsPage(app);
 
-  assert.deepEqual(messageTypes(app).slice(0, 4), ["getLocalState", "getLocalScreenTimeLog", "getSyncStatus", "syncNow"]);
+  assert.deepEqual(messageTypes(app).slice(0, 4), ["syncNow", "getLocalState", "getLocalScreenTimeLog", "getSyncStatus"]);
   assert.equal(page.byId("permissionPanel").hidden, false);
   assert.equal(page.byId("editorPanel").hidden, true);
   assert.equal(page.byId("permissionMessage").textContent, "URL Blocker needs access to this website before blocking can run.");
@@ -48,7 +48,7 @@ test("options renders local data before startup sync finishes", async () => {
 
   const page = await openOptionsPage(app);
 
-  assert.deepEqual(messageTypes(app).slice(0, 4), ["getLocalState", "getLocalScreenTimeLog", "getSyncStatus", "syncNow"]);
+  assert.deepEqual(messageTypes(app).slice(0, 4), ["syncNow", "getLocalState", "getLocalScreenTimeLog", "getSyncStatus"]);
   assert.equal(page.byId("editorPanel").hidden, false);
   assert.equal(page.customRows().at(-1).querySelector(".value-input").value, "example.com");
 
@@ -65,7 +65,7 @@ test("options keeps the editor hidden until local data loads", async () => {
 
   const page = await openOptionsPage(app);
 
-  assert.deepEqual(messageTypes(app), ["getLocalState"]);
+  assert.deepEqual(messageTypes(app), ["syncNow", "getLocalState"]);
   assert.equal(page.byId("editorPanel").hidden, true);
   assert.equal(page.byId("rows").children.length, 0);
 
@@ -379,7 +379,7 @@ test("end-to-end stats page renders background screen time totals", async () => 
 
   const page = await openStatsPage(app);
 
-  assert.deepEqual(messageTypes(app), ["getScreenTimeStats"]);
+  assert.deepEqual(messageTypes(app), ["getScreenTimeStats", "getLocalScreenTimeStats"]);
   assert.equal(page.byId("totalTime").textContent, "2m");
   assert.equal(page.byId("activeDomains").textContent, "1");
   assert.equal(page.byId("trackedDomains").textContent, "1");
@@ -888,7 +888,8 @@ function blockedDocument() {
 }
 
 function statsDocument() {
-  return testDocument([
+  const document = testDocument([
+    "statsShell",
     "refreshButton",
     "errorSummary",
     "totalMetric",
@@ -906,6 +907,9 @@ function statsDocument() {
     "deviceRows",
     "emptyDevices"
   ]);
+
+  document.elements.statsShell.hidden = true;
+  return document;
 }
 
 function testDocument(ids) {

@@ -609,6 +609,50 @@ test("getScreenTimeStats returns summary, hourly, device, and zero-domain rows",
   });
 });
 
+test("getLocalScreenTimeStats reads cached remote buckets without syncing", async () => {
+  const fetch = globalThis.fetch;
+  const remoteUrls = [];
+  const api = fakeApi({
+    now: 20 * 60 * 60 * 1000,
+    supabaseConfig: configuredSupabase()
+  });
+
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "domain", value: "example.com" }
+  ], core.DEFAULT_SCHEDULE, [
+    { domain: "example.com", limitMinutes: 1 }
+  ], { type: "rollingWindow", windowHours: 2 });
+  api.storageData.screenTimeUsage = screenTimeUsage({
+    "example.com": { 19: 2000 }
+  }, {
+    "other-device": {
+      "example.com": { 20: 3000 }
+    }
+  });
+  api.storageData.supabaseSession = supabaseSession();
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).includes("/screen_time_buckets")) {
+      remoteUrls.push(String(url));
+    }
+
+    return fetch(url, options);
+  };
+
+  try {
+    const response = await createBackgroundController(api).handleMessage({ type: "getLocalScreenTimeStats" }, {});
+
+    assert.equal(response.type, "screenTimeStats");
+    assert.equal(response.stats.totalMs, 5000);
+    assert.deepEqual(response.stats.deviceTotals, [
+      { label: "This Device", totalMs: 2000 },
+      { label: "Other Device 1", totalMs: 3000 }
+    ]);
+    assert.equal(remoteUrls.length, 0);
+  } finally {
+    globalThis.fetch = fetch;
+  }
+});
+
 test("getScreenTimeLog uses the latest daily reset hour", async () => {
   const now = new Date(2026, 0, 2, 10, 30).getTime();
   const resetHour = hourNumber(new Date(2026, 0, 2, 6));

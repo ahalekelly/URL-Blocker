@@ -15,8 +15,8 @@ test("stats page renders screen time stats", async () => {
   const plot = scroll.children[0];
   const xAxis = scroll.children[1];
 
-  assert.equal(messages.length, 1);
-  assert.equal(messages[0].type, "getScreenTimeStats");
+  assert.deepEqual(messages.map((message) => message.type), ["getScreenTimeStats", "getLocalScreenTimeStats"]);
+  assert.equal(document.elements.statsShell.hidden, false);
   assert.equal(document.elements.totalTime.textContent, "2m");
   assert.equal(document.elements.totalMetric.hidden, false);
   assert.equal(document.elements.activeDomains.textContent, "1");
@@ -39,6 +39,23 @@ test("stats page renders screen time stats", async () => {
   assert.equal(document.elements.deviceRows.children.length, 1);
   assert.equal(document.elements.emptyDevices.hidden, true);
   assert.equal(document.elements.deviceRows.children[0].children[1].textContent, "1m");
+});
+
+test("stats page updates after synced stats load", async () => {
+  const local = screenTimeStatsResponse();
+  const synced = screenTimeStatsResponse();
+
+  local.stats.totalMs = 60000;
+  synced.stats.totalMs = 180000;
+
+  const { document, messages } = await openStatsPage({
+    getLocalScreenTimeStats: local,
+    getScreenTimeStats: synced
+  });
+
+  assert.deepEqual(messages.map((message) => message.type), ["getScreenTimeStats", "getLocalScreenTimeStats"]);
+  assert.equal(document.elements.statsShell.hidden, false);
+  assert.equal(document.elements.totalTime.textContent, "3m");
 });
 
 test("stats page hides limits when block schedule is always", async () => {
@@ -69,6 +86,7 @@ test("stats page shows background errors", async () => {
   assert.equal(document.elements.errorSummary.hidden, false);
   assert.equal(document.elements.errorSummary.textContent, "Screen time could not be loaded.\n\nCode: ScreenTimeTestError");
   assert.equal(document.elements.refreshButton.disabled, false);
+  assert.equal(document.elements.statsShell.hidden, false);
 });
 
 async function openStatsPage(response) {
@@ -80,7 +98,7 @@ async function openStatsPage(response) {
         async sendMessage(message) {
           messages.push(message);
 
-          return response;
+          return responseForMessage(response, message, messages.length - 1);
         }
       }
     },
@@ -93,6 +111,18 @@ async function openStatsPage(response) {
   await settle();
 
   return { document, messages };
+}
+
+function responseForMessage(response, message, index) {
+  if (Array.isArray(response)) {
+    return response[index];
+  }
+
+  if (response.type) {
+    return response;
+  }
+
+  return response[message.type];
 }
 
 function hourTickLabel(startedAtMs) {
@@ -144,7 +174,8 @@ function screenTimeStatsResponse() {
 }
 
 function statsDocument() {
-  return testDocument([
+  const document = testDocument([
+    "statsShell",
     "refreshButton",
     "errorSummary",
     "totalMetric",
@@ -162,6 +193,9 @@ function statsDocument() {
     "deviceRows",
     "emptyDevices"
   ]);
+
+  document.elements.statsShell.hidden = true;
+  return document;
 }
 
 function testDocument(ids) {

@@ -3,6 +3,7 @@
 
   const api = root.browser || root.chrome;
   const elements = {
+    statsShell: document.getElementById("statsShell"),
     refreshButton: document.getElementById("refreshButton"),
     errorSummary: document.getElementById("errorSummary"),
     totalTime: document.getElementById("totalTime"),
@@ -29,19 +30,46 @@
   async function loadStats() {
     elements.errorSummary.hidden = true;
     elements.refreshButton.disabled = true;
+    const syncedStats = loadStatsResult("getScreenTimeStats");
 
-    const response = await api.runtime.sendMessage({ type: "getScreenTimeStats" });
+    try {
+      renderStats(await loadStatsMessage("getLocalScreenTimeStats"));
+      elements.statsShell.hidden = false;
+      renderStats(await unwrapStatsResult(await syncedStats));
+    } finally {
+      elements.refreshButton.disabled = false;
+    }
+  }
 
-    elements.refreshButton.disabled = false;
+  async function loadStatsResult(messageType) {
+    try {
+      return { type: "loaded", stats: await loadStatsMessage(messageType) };
+    } catch (error) {
+      return { type: "error", error };
+    }
+  }
+
+  function unwrapStatsResult(result) {
+    switch (result.type) {
+      case "loaded":
+        return result.stats;
+      case "error":
+        throw result.error;
+      default:
+        throw new Error(`Unknown stats result: ${result.type}`);
+    }
+  }
+
+  async function loadStatsMessage(messageType) {
+    const response = await api.runtime.sendMessage({ type: messageType });
 
     switch (response.type) {
       case "screenTimeStats":
-        renderStats(normalizeStats(response.stats));
-        return;
+        return normalizeStats(response.stats);
       case "error":
         throw errorFromResponse(response);
       default:
-        throw new Error(`Unknown screen time stats response: ${response.type}`);
+        throw new Error(`Unknown ${messageType} response: ${response.type}`);
     }
   }
 
@@ -268,6 +296,7 @@
     elements.errorSummary.hidden = false;
     elements.errorSummary.textContent = errorMessage(error);
     elements.refreshButton.disabled = false;
+    elements.statsShell.hidden = false;
   }
 
   function errorFromResponse(response) {

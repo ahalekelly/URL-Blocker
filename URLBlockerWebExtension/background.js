@@ -70,6 +70,9 @@
         case "getLocalScreenTimeLog":
           requireKeys(message, ["type"], "getLocalScreenTimeLog message");
           return getLocalScreenTimeLog();
+        case "getLocalScreenTimeStats":
+          requireKeys(message, ["type"], "getLocalScreenTimeStats message");
+          return getLocalScreenTimeStats();
         case "getScreenTimeStats":
           requireKeys(message, ["type"], "getScreenTimeStats message");
           return getScreenTimeStats();
@@ -245,6 +248,15 @@
       return {
         type: "screenTimeStats",
         stats: screenTimeStats(state, await loadScreenTimeUsage(), nowMs)
+      };
+    }
+
+    async function getLocalScreenTimeStats() {
+      const state = await loadState();
+
+      return {
+        type: "screenTimeStats",
+        stats: screenTimeStats(state, await loadScreenTimeUsage(), currentTimeMs())
       };
     }
 
@@ -900,6 +912,7 @@
       getLocalScreenTimeLog,
       getBlockedPageHtml,
       getLocalState,
+      getLocalScreenTimeStats,
       getScreenTimeLog,
       getScreenTimeStats,
       getState,

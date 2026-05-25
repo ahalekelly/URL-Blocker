@@ -102,25 +102,50 @@
 
   function start() {
     completeOAuthRedirect()
-      .then(loadLocalState)
-      .then(syncOnOpen)
+      .then(loadLocalStateThenSync)
       .catch(showFatalError);
   }
 
-  async function syncOnOpen() {
+  async function loadLocalStateThenSync() {
+    const syncResult = syncOnOpenResult();
+
+    await loadLocalState();
+    await applySyncOnOpenResult(await syncResult);
+  }
+
+  async function syncOnOpenResult() {
+    try {
+      return await loadSyncOnOpenResult();
+    } catch (error) {
+      return { type: "syncError", error };
+    }
+  }
+
+  async function loadSyncOnOpenResult() {
     const response = await api.runtime.sendMessage({ type: "syncNow" });
 
     switch (response.type) {
       case "synced":
-        state.syncStatus = normalizeSyncStatus(response.status);
+        return { type: "synced", status: normalizeSyncStatus(response.status) };
+      case "error":
+        return { type: "syncError", error: errorFromResponse(response) };
+      default:
+        throw codedError("UnexpectedSyncOnOpenResponse", `Unknown syncNow response: ${response.type}`);
+    }
+  }
+
+  async function applySyncOnOpenResult(result) {
+    switch (result.type) {
+      case "synced":
+        state.syncStatus = result.status;
         await loadLocalState();
         return;
-      case "error":
-        state.syncStatus = syncStatusFromError(errorFromResponse(response));
+      case "syncError":
+        state.syncStatus = syncStatusFromError(result.error);
         render();
         return;
       default:
-        throw codedError("UnexpectedSyncOnOpenResponse", `Unknown syncNow response: ${response.type}`);
+        throw codedError("UnexpectedSyncOnOpenResult", `Unknown sync-on-open result: ${result.type}`);
     }
   }
 
