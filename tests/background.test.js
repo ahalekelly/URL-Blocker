@@ -1356,6 +1356,20 @@ test("getSyncStatus reads the native mac session", async () => {
   assert.equal(response.status, "signedIn");
 });
 
+test("getSyncStatus reads the native session in the iOS containing app webview", async () => {
+  const api = fakeApi({
+    nativeStorage: true,
+    runtimeScheme: "file",
+    supabaseConfig: configuredSupabase()
+  });
+  api.nativeData.supabaseSession = supabaseSession();
+  const controller = createBackgroundController(api);
+  const response = await controller.handleMessage({ type: "getSyncStatus" }, {});
+
+  assert.equal(response.type, "syncStatus");
+  assert.equal(response.status, "signedIn");
+});
+
 test("getSyncStatus requires native sign-in on iOS when signed out", async () => {
   const api = fakeApi({
     nativeStorage: true,

@@ -1350,6 +1350,10 @@
   }
 
   async function usesNativeSessionStorage(api) {
+    if (await usesNativeStorage(api)) {
+      return true;
+    }
+
     return canSendNativeMessage(api) && api.runtime.getURL("options.html").startsWith("safari-web-extension://");
   }
 
