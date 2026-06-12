@@ -672,7 +672,7 @@
     try {
       domain = core.domainForEntry(entry);
     } catch {
-      state.rowErrors.delete(id);
+      clearRowError(id);
       clearMessages();
       renderSaveButton();
       return;
@@ -688,9 +688,9 @@
       }
     });
 
-    state.rowErrors.delete(id);
+    clearRowError(id);
     clearMessages();
-    render();
+    renderSaveButton();
   }
 
   function updateBlockedPageHtml() {
