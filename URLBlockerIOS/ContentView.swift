@@ -293,6 +293,10 @@ private struct BlocklistWebView: UIViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: configuration)
         context.coordinator.webView = webView
         webView.navigationDelegate = context.coordinator
+        webView.scrollView.minimumZoomScale = 1
+        webView.scrollView.maximumZoomScale = 1
+        webView.scrollView.bouncesZoom = false
+        webView.scrollView.pinchGestureRecognizer?.isEnabled = false
         webView.loadFileURL(Safari.optionsPageURL, allowingReadAccessTo: Safari.resourcesURL)
         return webView
     }

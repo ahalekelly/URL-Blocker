@@ -31,6 +31,7 @@ test("provider sign-in buttons show hover feedback", () => {
 
 test("daily reset select uses the shared form control styling", () => {
   assert.match(css, /input,\s*select,\s*textarea\s*\{[^}]*border:\s*1px\s+solid\s+var\(--border\);/s);
+  assert.match(css, /input,\s*select,\s*textarea\s*\{[^}]*font-size:\s*16px;/s);
   assert.match(css, /input,\s*select\s*\{[^}]*min-height:\s*44px;/s);
   assert.match(css, /\nselect\s*\{[^}]*appearance:\s*none;/s);
   assert.match(rule("select option"), /background:\s*var\(--surface\);/);
