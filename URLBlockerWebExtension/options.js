@@ -60,9 +60,6 @@
   const dailyResetFields = document.getElementById("dailyResetFields");
   const rollingWindowHoursInput = document.getElementById("rollingWindowHoursInput");
   const dailyResetHourSelect = document.getElementById("dailyResetHourSelect");
-  const immediateSettingsDelayInput = document.getElementById("immediateSettingsDelayInput");
-  const delayedSettingsDelayInput = document.getElementById("delayedSettingsDelayInput");
-  const settingsDelayFields = document.getElementById("settingsDelayFields");
   const settingsDelayMinutesInput = document.getElementById("settingsDelayMinutesInput");
   const settingsActivationText = document.getElementById("settingsActivationText");
   const errorSummary = document.getElementById("errorSummary");
@@ -94,8 +91,6 @@
   dailyResetInput.addEventListener("change", () => updateLimitResetType("daily"));
   rollingWindowHoursInput.addEventListener("input", updateRollingWindow);
   dailyResetHourSelect.addEventListener("change", updateDailyResetHour);
-  immediateSettingsDelayInput.addEventListener("change", () => updateSettingsDelayType("immediate"));
-  delayedSettingsDelayInput.addEventListener("change", () => updateSettingsDelayType("delayed"));
   settingsDelayMinutesInput.addEventListener("input", updateSettingsDelayMinutes);
   resetButton.addEventListener("click", resetBlocklist);
   grantAccessButton.addEventListener("click", requestMissingWebsiteAccess);
@@ -204,10 +199,7 @@
     dailyResetFields.hidden = state.draftLimitReset.type !== "daily";
     rollingWindowHoursInput.value = String(rollingWindowHours());
     dailyResetHourSelect.value = String(dailyResetHour());
-    immediateSettingsDelayInput.checked = state.draftSettingsDelay.type === "immediate";
-    delayedSettingsDelayInput.checked = state.draftSettingsDelay.type === "delayed";
-    settingsDelayFields.hidden = state.draftSettingsDelay.type !== "delayed";
-    settingsDelayMinutesInput.value = String(settingsDelayMinutes());
+    settingsDelayMinutesInput.value = String(state.draftSettingsDelay.delayMinutes);
     renderSettingsActivation();
     renderSaveButton();
     grantAccessButton.disabled = state.isRequestingPermissions;
@@ -803,26 +795,9 @@
     renderSaveButton();
   }
 
-  function updateSettingsDelayType(type) {
-    switch (type) {
-      case "immediate":
-        state.draftSettingsDelay = { type: "immediate" };
-        break;
-      case "delayed":
-        state.draftSettingsDelay = existingDelayedSettingsDelay();
-        break;
-      default:
-        throw new Error(`Unknown settings delay type: ${type}`);
-    }
-
-    clearMessages();
-    render();
-  }
-
   function updateSettingsDelayMinutes() {
     state.draftSettingsDelay = {
-      type: "delayed",
-      delayMinutes: Number(settingsDelayMinutesInput.value)
+      delayMinutes: settingsDelayMinutesInput.valueAsNumber
     };
     clearMessages();
     renderSaveButton();
@@ -1481,14 +1456,7 @@
   }
 
   function editableSettingsDelay(settingsDelay) {
-    switch (settingsDelay.type) {
-      case "immediate":
-        return { type: "immediate" };
-      case "delayed":
-        return { type: "delayed", delayMinutes: settingsDelay.delayMinutes };
-      default:
-        throw new Error(`Unknown settings delay type: ${settingsDelay.type}`);
-    }
+    return { delayMinutes: settingsDelay.delayMinutes };
   }
 
   function existingDailyWindow() {
@@ -1527,18 +1495,6 @@
     return { type: "daily", resetHour: 0 };
   }
 
-  function existingDelayedSettingsDelay() {
-    if (state.draftSettingsDelay.type === "delayed") {
-      return state.draftSettingsDelay;
-    }
-
-    if (state.savedDraft.settingsDelay.type === "delayed") {
-      return state.savedDraft.settingsDelay;
-    }
-
-    return core.DEFAULT_SETTINGS_DELAY;
-  }
-
   function rollingWindowHours() {
     if (state.draftLimitReset.type === "rollingWindow") {
       return state.draftLimitReset.windowHours;
@@ -1553,14 +1509,6 @@
     }
 
     return 0;
-  }
-
-  function settingsDelayMinutes() {
-    if (state.draftSettingsDelay.type === "delayed") {
-      return state.draftSettingsDelay.delayMinutes;
-    }
-
-    return core.DEFAULT_SETTINGS_DELAY.delayMinutes;
   }
 
   function minuteToTime(minute) {

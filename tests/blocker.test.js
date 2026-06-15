@@ -59,7 +59,7 @@ test("loads default blocked pages for new installs", () => {
   ]);
   assert.deepEqual(state.schedule, { type: "dailyWindow", startMinute: 1380, endMinute: 1140 });
   assert.deepEqual(state.limitReset, { type: "rollingWindow", windowHours: 24 });
-  assert.deepEqual(state.settingsDelay, { type: "delayed", delayMinutes: 60 });
+  assert.deepEqual(state.settingsDelay, { delayMinutes: 60 });
   assert.deepEqual(state.domainLimits, [
     { domain: "bsky.app", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
     { domain: "facebook.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
@@ -267,6 +267,23 @@ test("migrates schema 8 states to default rolling limit resets", () => {
   assert.deepEqual(state.limitReset, core.DEFAULT_LIMIT_RESET);
 });
 
+test("migrates schema 12 settings delay modes to minute values", () => {
+  const oldState = validState([]);
+  const immediate = validStoredState({
+    ...oldState,
+    schemaVersion: 12,
+    settingsDelay: { type: "immediate" }
+  }, []);
+  const delayed = validStoredState({
+    ...oldState,
+    schemaVersion: 12,
+    settingsDelay: { type: "delayed", delayMinutes: 17 }
+  }, []);
+
+  assert.deepEqual(immediate.settingsDelay, { delayMinutes: 0 });
+  assert.deepEqual(delayed.settingsDelay, { delayMinutes: 17 });
+});
+
 test("maps URL alias source hosts to permissions", () => {
   const state = validState([
     { id: ids[0], kind: "url", value: "x.com" }
@@ -451,7 +468,7 @@ test("validates settings delay settings", () => {
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: core.DEFAULT_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
-    settingsDelay: { type: "immediate" },
+    settingsDelay: { delayMinutes: 0 },
     domainLimits: []
   }, []);
   const invalidDelay = core.validateState({
@@ -460,14 +477,14 @@ test("validates settings delay settings", () => {
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: core.DEFAULT_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
-    settingsDelay: { type: "delayed", delayMinutes: 0 },
+    settingsDelay: { delayMinutes: -1 },
     domainLimits: []
   }, []);
 
   assert.equal(immediate.type, "valid");
   assert.equal(core.settingsDelayMinutes(immediate.state.settingsDelay), 0);
   assert.equal(invalidDelay.type, "invalid");
-  assert.match(invalidDelay.errors[0].message, /between 1/);
+  assert.match(invalidDelay.errors[0].message, /between 0/);
 });
 
 test("matches only when the schedule is active", () => {

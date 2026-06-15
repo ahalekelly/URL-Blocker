@@ -307,8 +307,6 @@ input[type="checkbox"].enabled-input:checked::before {
 .schedule-window-fields,
 .reset-options,
 .reset-fields,
-.delay-options,
-.delay-fields,
 .sync-panel,
 .sync-actions,
 .screen-time-row {
@@ -408,7 +406,6 @@ input[type="checkbox"].enabled-input:checked::before {
 
 .schedule-window-fields[hidden],
 .reset-fields[hidden],
-.delay-fields[hidden],
 .settings-panel[hidden] {
   display: none;
 }
@@ -618,8 +615,6 @@ input[readonly] {
   .schedule-window-fields,
   .reset-options,
   .reset-fields,
-  .delay-options,
-  .delay-fields,
   .sync-panel,
   .list-actions {
     display: grid;

@@ -395,10 +395,6 @@
       const activation = currentActivation || await loadSettledSettingsActivation();
       const delayMinutes = core.settingsDelayMinutes(activation.activeState.settingsDelay);
 
-      if (delayMinutes === 0) {
-        return activateSettings(state);
-      }
-
       const pending = {
         type: "pending",
         state,
@@ -413,9 +409,8 @@
       await settingsActivationStorage.saveActivation(nextActivation);
       await blockedPageHtmlStorage.saveHtml(activation.activeState.blockedPageHtml);
       await syncContentScripts(activation.activeState);
-      scheduleSettingsActivation(nextActivation);
 
-      return nextActivation;
+      return loadSettledSettingsActivation();
     }
 
     async function activateSettings(state) {

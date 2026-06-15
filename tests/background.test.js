@@ -38,6 +38,36 @@ test("saveState validates, writes storage, and queues settings activation", asyn
   assert.deepEqual(api.storageData[core.BLOCKED_PAGE_HTML_KEY], { html: "<p>Blocked.</p>" });
 });
 
+test("saveState settles zero-minute settings delay through activation", async () => {
+  const api = fakeApi({ now: 5000 });
+  const controller = createBackgroundController(api);
+  const activeState = {
+    ...core.emptyState(defaultBlockedPages),
+    settingsDelay: { delayMinutes: 0 }
+  };
+  const nextState = validState([{ id, kind: "url", value: "https://x.com/home" }]);
+
+  api.storageData[core.STATE_KEY] = activeState;
+  api.storageData.settingsActivation = {
+    schemaVersion: 1,
+    activeState,
+    pending: { type: "none" }
+  };
+  api.storageData[core.BLOCKED_PAGE_HTML_KEY] = { html: activeState.blockedPageHtml };
+
+  const response = await controller.handleMessage({ type: "saveState", state: nextState }, {});
+
+  assert.equal(response.type, "saved");
+  assert.deepEqual(response.activation, { type: "active" });
+  assert.deepEqual(api.storageData.settingsActivation, {
+    schemaVersion: 1,
+    activeState: response.state,
+    pending: { type: "none" }
+  });
+  assert.deepEqual(api.storageData[core.BLOCKED_PAGE_HTML_KEY], { html: response.state.blockedPageHtml });
+  assert.deepEqual(api.registeredScripts.at(-1).matches, core.permissionOriginsForState(response.state));
+});
+
 test("saveState keeps matching content script registration", async () => {
   const api = fakeApi();
   const controller = createBackgroundController(api);

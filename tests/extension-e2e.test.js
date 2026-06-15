@@ -879,9 +879,6 @@ function optionsDocument() {
     "dailyResetFields",
     "rollingWindowHoursInput",
     "dailyResetHourSelect",
-    "immediateSettingsDelayInput",
-    "delayedSettingsDelayInput",
-    "settingsDelayFields",
     "settingsDelayMinutesInput",
     "settingsActivationText",
     "errorSummary",
@@ -1045,6 +1042,10 @@ class TestElement {
 
     await Promise.all(listeners.map((listener) => listener({ target: this, preventDefault() {}, ...event })));
     await settle();
+  }
+
+  get valueAsNumber() {
+    return this.value === "" ? NaN : Number(this.value);
   }
 
   setAttribute(name, value) {
