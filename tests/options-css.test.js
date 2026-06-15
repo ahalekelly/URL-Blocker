@@ -37,6 +37,14 @@ test("daily reset select uses the shared form control styling", () => {
   assert.match(rule("select option"), /background:\s*var\(--surface\);/);
 });
 
+test("daily schedule time controls clip native iOS input chrome", () => {
+  assert.match(rule(".schedule-window-fields"), /grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/);
+  assert.match(rule(".time-control"), /overflow:\s*hidden;/);
+  assert.match(rule(".time-control"), /border:\s*1px\s+solid\s+var\(--border\);/);
+  assert.match(rule(".time-control input[type=\"time\"]"), /-webkit-appearance:\s*none;/);
+  assert.match(rule(".time-control input[type=\"time\"]"), /border:\s*0;/);
+});
+
 test("hidden time limit controls are not displayed", () => {
   assert.match(css, /\.settings-panel\[hidden\]\s*\{[^}]*display:\s*none;/s);
   assert.match(css, /\.default-group-limit\[hidden\],\s*\.row-limit\[hidden\]\s*\{[^}]*display:\s*none;/s);
