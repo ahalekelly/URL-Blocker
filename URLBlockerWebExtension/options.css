@@ -307,6 +307,8 @@ input[type="checkbox"].enabled-input:checked::before {
 .schedule-window-fields,
 .reset-options,
 .reset-fields,
+.delay-options,
+.delay-fields,
 .sync-panel,
 .sync-actions,
 .screen-time-row {
@@ -322,6 +324,14 @@ input[type="checkbox"].enabled-input:checked::before {
 .sync-status-text {
   margin-top: 6px;
   color: var(--muted);
+  line-height: 1.35;
+}
+
+.settings-activation-text {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
   line-height: 1.35;
 }
 
@@ -398,6 +408,7 @@ input[type="checkbox"].enabled-input:checked::before {
 
 .schedule-window-fields[hidden],
 .reset-fields[hidden],
+.delay-fields[hidden],
 .settings-panel[hidden] {
   display: none;
 }
@@ -607,6 +618,8 @@ input[readonly] {
   .schedule-window-fields,
   .reset-options,
   .reset-fields,
+  .delay-options,
+  .delay-fields,
   .sync-panel,
   .list-actions {
     display: grid;

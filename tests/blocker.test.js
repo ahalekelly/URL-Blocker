@@ -59,6 +59,7 @@ test("loads default blocked pages for new installs", () => {
   ]);
   assert.deepEqual(state.schedule, { type: "dailyWindow", startMinute: 1380, endMinute: 1140 });
   assert.deepEqual(state.limitReset, { type: "rollingWindow", windowHours: 24 });
+  assert.deepEqual(state.settingsDelay, { type: "delayed", delayMinutes: 60 });
   assert.deepEqual(state.domainLimits, [
     { domain: "bsky.app", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
     { domain: "facebook.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
@@ -89,6 +90,7 @@ test("keeps default entries locked but configurable", () => {
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: core.DEFAULT_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
+    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     domainLimits: [{ domain: "x.com", limitMinutes: 12 }]
   }, defaultBlockedPages.slice(0, 1));
 
@@ -104,6 +106,7 @@ test("keeps default entries locked but configurable", () => {
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: core.DEFAULT_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
+    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
   }, defaultBlockedPages.slice(0, 1));
 
@@ -116,6 +119,7 @@ test("keeps default entries locked but configurable", () => {
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: core.DEFAULT_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
+    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     domainLimits: []
   }, defaultBlockedPages.slice(0, 1));
 
@@ -131,6 +135,7 @@ test("normalizes old linkedin feed default entries", () => {
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: core.DEFAULT_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
+    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     domainLimits: [{ domain: "linkedin.com", limitMinutes: 30 }]
   }, [linkedinDefault]);
 
@@ -307,6 +312,7 @@ test("validates state strictly", () => {
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "always" },
     limitReset: core.DEFAULT_LIMIT_RESET,
+    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
   }, []);
 
@@ -319,6 +325,7 @@ test("validates state strictly", () => {
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "always" },
     limitReset: core.DEFAULT_LIMIT_RESET,
+    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
   }, []);
 
@@ -331,6 +338,7 @@ test("validates state strictly", () => {
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "always" },
     limitReset: core.DEFAULT_LIMIT_RESET,
+    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     domainLimits: []
   }, []);
 
@@ -346,6 +354,7 @@ test("validates state strictly", () => {
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "always" },
     limitReset: core.DEFAULT_LIMIT_RESET,
+    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
   }, []);
 
@@ -368,6 +377,7 @@ test("validates blocked page HTML and rejects old state", () => {
     blockedPageHtml: " <p><strong>Nope.</strong></p> ",
     schedule: { type: "always" },
     limitReset: core.DEFAULT_LIMIT_RESET,
+    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     domainLimits: []
   }, []);
 
@@ -380,6 +390,7 @@ test("validates blocked page HTML and rejects old state", () => {
     blockedPageHtml: "<img src=x onerror=alert(1)>",
     schedule: { type: "always" },
     limitReset: core.DEFAULT_LIMIT_RESET,
+    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     domainLimits: []
   }, []);
 
@@ -401,6 +412,7 @@ test("validates schedules and detects active windows", () => {
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "dailyWindow", startMinute: 540, endMinute: 540 },
     limitReset: core.DEFAULT_LIMIT_RESET,
+    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     domainLimits: []
   }, []);
 
@@ -424,11 +436,38 @@ test("validates limit reset settings", () => {
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: core.DEFAULT_SCHEDULE,
     limitReset: { type: "daily", resetHour: 6.5 },
+    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     domainLimits: []
   }, []);
 
   assert.equal(invalidDailyReset.type, "invalid");
   assert.match(invalidDailyReset.errors[0].message, /hour/);
+});
+
+test("validates settings delay settings", () => {
+  const immediate = core.validateState({
+    schemaVersion: core.SCHEMA_VERSION,
+    entries: [],
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: core.DEFAULT_SCHEDULE,
+    limitReset: core.DEFAULT_LIMIT_RESET,
+    settingsDelay: { type: "immediate" },
+    domainLimits: []
+  }, []);
+  const invalidDelay = core.validateState({
+    schemaVersion: core.SCHEMA_VERSION,
+    entries: [],
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: core.DEFAULT_SCHEDULE,
+    limitReset: core.DEFAULT_LIMIT_RESET,
+    settingsDelay: { type: "delayed", delayMinutes: 0 },
+    domainLimits: []
+  }, []);
+
+  assert.equal(immediate.type, "valid");
+  assert.equal(core.settingsDelayMinutes(immediate.state.settingsDelay), 0);
+  assert.equal(invalidDelay.type, "invalid");
+  assert.match(invalidDelay.errors[0].message, /between 1/);
 });
 
 test("matches only when the schedule is active", () => {
@@ -512,6 +551,7 @@ test("validates domain limits against associated domains", () => {
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "always" },
     limitReset: core.DEFAULT_LIMIT_RESET,
+    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     domainLimits: []
   }, []);
 
@@ -524,6 +564,7 @@ test("validates domain limits against associated domains", () => {
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "always" },
     limitReset: core.DEFAULT_LIMIT_RESET,
+    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
   }, []);
 
@@ -554,6 +595,7 @@ test("rejects duplicate entries after normalization", () => {
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: { type: "always" },
     limitReset: core.DEFAULT_LIMIT_RESET,
+    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     domainLimits: [{ domain: "x.com", limitMinutes: 30 }]
   }, []);
 
@@ -689,6 +731,7 @@ function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits, lim
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule,
     limitReset,
+    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     domainLimits: domainLimits === undefined ? core.domainLimitsForEntries(typedEntries, []) : domainLimits
   }, []);
 

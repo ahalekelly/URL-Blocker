@@ -6,6 +6,7 @@ enum NativeBlocklistStore {
         case blockedPageHtml
         case screenTimeUsage
         case settingsSync
+        case settingsActivation
         case supabaseSession
 
         var storageKey: String {
@@ -18,6 +19,8 @@ enum NativeBlocklistStore {
                 return "screenTimeUsage"
             case .settingsSync:
                 return "settingsSync"
+            case .settingsActivation:
+                return "settingsActivation"
             case .supabaseSession:
                 return "supabaseSession"
             }
@@ -33,6 +36,8 @@ enum NativeBlocklistStore {
                 return "usage"
             case .settingsSync:
                 return "sync"
+            case .settingsActivation:
+                return "activation"
             case .supabaseSession:
                 return "session"
             }
@@ -48,6 +53,8 @@ enum NativeBlocklistStore {
                 return "Screen time usage"
             case .settingsSync:
                 return "Settings sync metadata"
+            case .settingsActivation:
+                return "Settings activation"
             case .supabaseSession:
                 return "Supabase session"
             }
@@ -63,6 +70,8 @@ enum NativeBlocklistStore {
                 return "storedScreenTimeUsage"
             case .settingsSync:
                 return "storedSettingsSync"
+            case .settingsActivation:
+                return "storedSettingsActivation"
             case .supabaseSession:
                 return "storedSupabaseSession"
             }
@@ -78,6 +87,8 @@ enum NativeBlocklistStore {
                 return "savedScreenTimeUsage"
             case .settingsSync:
                 return "savedSettingsSync"
+            case .settingsActivation:
+                return "savedSettingsActivation"
             case .supabaseSession:
                 return "savedSupabaseSession"
             }
@@ -115,6 +126,12 @@ enum NativeBlocklistStore {
             case "saveSettingsSync":
                 try requireKeys(message, ["type", "sync"], "saveSettingsSync message")
                 return try save(message["sync"], .settingsSync)
+            case "loadSettingsActivation":
+                try requireKeys(message, ["type"], "loadSettingsActivation message")
+                return try load(.settingsActivation)
+            case "saveSettingsActivation":
+                try requireKeys(message, ["type", "activation"], "saveSettingsActivation message")
+                return try save(message["activation"], .settingsActivation)
             case "loadSupabaseSession":
                 try requireKeys(message, ["type"], "loadSupabaseSession message")
                 return try load(.supabaseSession)

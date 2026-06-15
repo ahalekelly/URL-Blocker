@@ -9,9 +9,10 @@ const { createBackgroundController } = require("../URLBlockerWebExtension/backgr
 
 const id = "11111111-1111-4111-8111-111111111111";
 
-test("saveState validates, writes storage, and syncs content scripts", async () => {
-  const api = fakeApi();
+test("saveState validates, writes storage, and queues settings activation", async () => {
+  const api = fakeApi({ now: 0 });
   const controller = createBackgroundController(api);
+  const defaultState = core.emptyState(defaultBlockedPages);
   const response = await controller.handleMessage({
     type: "saveState",
     state: validState([{ id, kind: "url", value: "https://x.com/home?foo=bar" }])
@@ -21,20 +22,32 @@ test("saveState validates, writes storage, and syncs content scripts", async () 
   assert.equal(response.state.entries[0].value, "x.com");
   assert.equal(response.state.blockedPageHtml, "<p>Blocked.</p>");
   assert.equal(api.storageData[core.STATE_KEY].entries[0].value, "x.com");
-  assert.deepEqual(api.storageData[core.BLOCKED_PAGE_HTML_KEY], { html: "<p>Blocked.</p>" });
+  assert.deepEqual(api.storageData[core.BLOCKED_PAGE_HTML_KEY], { html: defaultState.blockedPageHtml });
+  assert.deepEqual(api.storageData.settingsActivation.activeState, defaultState);
+  assert.deepEqual(api.storageData.settingsActivation.pending, {
+    type: "pending",
+    state: response.state,
+    effectiveAtMs: 60 * 60 * 1000
+  });
   assert.deepEqual(api.registeredScripts[0].js, ["content.js"]);
-  assert.deepEqual(api.registeredScripts[0].matches, ["*://*.twitter.com/*", "*://*.x.com/*"]);
+  assert.deepEqual(api.registeredScripts[0].matches, core.permissionOriginsForState(defaultState));
+
+  api.nowValue = 60 * 60 * 1000;
+
+  assert.deepEqual(await controller.loadState(), response.state);
+  assert.deepEqual(api.storageData[core.BLOCKED_PAGE_HTML_KEY], { html: "<p>Blocked.</p>" });
 });
 
 test("saveState keeps matching content script registration", async () => {
   const api = fakeApi();
   const controller = createBackgroundController(api);
   const state = validState([{ id, kind: "url", value: "https://x.com/home" }]);
+  const defaultState = core.emptyState(defaultBlockedPages);
 
   api.registeredScripts = [{
     id: "url-blocker-content",
     js: ["content.js"],
-    matches: ["*://*.twitter.com/*", "*://*.x.com/*"],
+    matches: core.permissionOriginsForState(defaultState),
     runAt: "document_start"
   }];
 
@@ -43,7 +56,7 @@ test("saveState keeps matching content script registration", async () => {
   assert.equal(response.type, "saved");
   assert.deepEqual(api.scriptRegistrations, []);
   assert.deepEqual(api.scriptUnregistrations, []);
-  assert.deepEqual(api.registeredScripts[0].matches, ["*://*.twitter.com/*", "*://*.x.com/*"]);
+  assert.deepEqual(api.registeredScripts[0].matches, core.permissionOriginsForState(defaultState));
 });
 
 test("getState loads default blocked pages when storage is empty", async () => {
@@ -189,7 +202,7 @@ test("saveState removes access for sites no longer blocked", async () => {
 
   assert.equal(response.type, "saved");
   assert.equal(finishResponse.type, "finishedSavedState");
-  assert.deepEqual(api.registeredScripts[0].matches, ["*://*.reddit.com/*", "*://*.twitter.com/*", "*://*.x.com/*"]);
+  assert.deepEqual(api.registeredScripts[0].matches, core.permissionOriginsForState(core.emptyState(defaultBlockedPages)));
   assert.deepEqual(api.removedOrigins, ["*://*.example.com/*"]);
 });
 
@@ -253,7 +266,7 @@ test("saveState registers the literal regex host", async () => {
 
   assert.equal(response.type, "saved");
   assert.equal(finishResponse.type, "finishedSavedState");
-  assert.deepEqual(api.registeredScripts[0].matches, ["*://*.x.com/*"]);
+  assert.deepEqual(api.registeredScripts[0].matches, core.permissionOriginsForState(core.emptyState(defaultBlockedPages)));
   assert.deepEqual(api.removedOrigins, ["*://*.example.com/*"]);
 });
 
@@ -1201,10 +1214,14 @@ test("getState applies newer remote settings with strict selected columns", asyn
   try {
     const controller = createBackgroundController(api);
     const response = await controller.getState();
+    const defaultState = core.emptyState(defaultBlockedPages);
 
     assert.equal(response.type, "state");
-    assert.deepEqual(response.state, remoteState);
-    assert.deepEqual(api.storageData[core.BLOCKED_PAGE_HTML_KEY], { html: remoteState.blockedPageHtml });
+    assert.deepEqual(response.state, defaultState);
+    assert.deepEqual(api.storageData[core.STATE_KEY], remoteState);
+    assert.deepEqual(api.storageData.settingsActivation.activeState, defaultState);
+    assert.deepEqual(api.storageData.settingsActivation.pending.state, remoteState);
+    assert.deepEqual(api.storageData[core.BLOCKED_PAGE_HTML_KEY], { html: defaultState.blockedPageHtml });
     assert.equal(userSettingsUrls.length, 1);
     assert.match(userSettingsUrls[0], /select=user_id,state,updated_at_ms,revision_id,device_id,updated_at/);
   } finally {
@@ -1415,6 +1432,7 @@ function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits, lim
     blockedPageHtml: "<p>Blocked.</p>",
     schedule,
     limitReset,
+    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     domainLimits: core.domainLimitsForEntries(stateEntries, domainLimits === undefined ? [] : domainLimits)
   };
 }
@@ -1683,6 +1701,11 @@ function fakeApi(overrides = {}) {
         case "saveSettingsSync":
           api.nativeData.settingsSync = message.sync;
           return { type: "savedSettingsSync", sync: message.sync };
+        case "loadSettingsActivation":
+          return { type: "storedSettingsActivation", activation: api.nativeData.settingsActivation };
+        case "saveSettingsActivation":
+          api.nativeData.settingsActivation = message.activation;
+          return { type: "savedSettingsActivation", activation: message.activation };
         case "loadSupabaseSession":
           return { type: "storedSupabaseSession", session: api.nativeData.supabaseSession };
         case "saveSupabaseSession":

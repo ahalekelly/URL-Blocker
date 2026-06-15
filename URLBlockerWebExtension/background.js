@@ -12,20 +12,26 @@
   const core = root.BlockerCore || require("./blocker.js");
   const sync = root.SupabaseSync || require("./supabase-sync.js");
   const CONTENT_SCRIPT_ID = "url-blocker-content";
+  const MINUTE_MS = 60 * 1000;
   const HOUR_MS = 60 * 60 * 1000;
   const MAX_SCREEN_TIME_ELAPSED_MS = 30 * 1000;
   const SCREEN_TIME_USAGE_KEY = "screenTimeUsage";
   const SETTINGS_SYNC_KEY = "settingsSync";
+  const SETTINGS_ACTIVATION_KEY = "settingsActivation";
+  const SETTINGS_ACTIVATION_SCHEMA_VERSION = 1;
   const SUPABASE_SESSION_KEY = "supabaseSession";
 
   function createBackgroundController(api) {
     const stateStorage = createStateStorage(api);
+    const settingsActivationStorage = createSettingsActivationStorage(api);
     const blockedPageHtmlStorage = createBlockedPageHtmlStorage(api);
     const screenTimeStorage = createScreenTimeStorage(api);
     const settingsSyncStorage = createSettingsSyncStorage(api);
     const sessionStorage = createSupabaseSessionStorage(api);
     let configPromise;
     let lastSyncError = "";
+    let activationTimer = 0;
+    let activationTimerAtMs = 0;
     let usageSyncTimer = 0;
 
     async function handleMessage(message, sender) {
@@ -108,7 +114,10 @@
 
     async function getLocalState() {
       try {
-        return { type: "state", state: await loadState() };
+        const state = await loadSavedState();
+        const activation = await loadSettledSettingsActivation();
+
+        return { type: "state", state, activation: settingsActivationStatus(activation) };
       } catch (error) {
         return errorResponse("stateError", error);
       }
@@ -116,6 +125,10 @@
 
     async function getBlockedPageHtml() {
       try {
+        if (await settingsActivationStorage.loadActivation() !== undefined) {
+          await loadSettledSettingsActivation();
+        }
+
         const cachedHtml = await blockedPageHtmlStorage.loadHtml();
 
         if (cachedHtml !== undefined) {
@@ -148,7 +161,7 @@
       }
 
       await requireWebsiteAccess(result.state);
-      await syncContentScripts(result.state);
+      const currentActivation = await loadSettledSettingsActivation();
       const storageResponse = await stateStorage.saveState(result.state);
 
       if (storageResponse.type === "validationError") {
@@ -159,21 +172,23 @@
         throw errorFromResponse(storageResponse);
       }
 
-      await blockedPageHtmlStorage.saveHtml(storageResponse.state.blockedPageHtml);
+      const activation = await saveSettingsActivation(storageResponse.state, currentActivation);
 
       const settingsSync = await loadSettingsSync();
 
       await settingsSyncStorage.saveSync(sync.dirtySettingsSync(settingsSync, currentTimeMs(), createId));
-      return { type: "saved", state: storageResponse.state };
+      return { type: "saved", state: storageResponse.state, activation: settingsActivationStatus(activation) };
     }
 
     async function finishSavedState() {
-      const savedState = await syncSettingsIfPossible(await loadState());
+      const savedState = await syncSettingsIfPossible(await loadSavedState());
+      const activation = await loadSettledSettingsActivation();
+      const activeState = activation.activeState;
 
-      await redirectOpenBlockedTabs(savedState);
-      await removeUnusedWebsiteAccess(savedState);
+      await redirectOpenBlockedTabs(activeState);
+      await removeUnusedWebsiteAccessForStates(activeAndPendingStates(activation));
 
-      return { type: "finishedSavedState", state: savedState };
+      return { type: "finishedSavedState", state: savedState, activation: settingsActivationStatus(activation) };
     }
 
     async function openOptions() {
@@ -311,6 +326,12 @@
     }
 
     async function loadState() {
+      const activation = await loadSettledSettingsActivation();
+
+      return activation.activeState;
+    }
+
+    async function loadSavedState() {
       const stored = await stateStorage.loadState();
 
       if (stored === undefined) {
@@ -331,6 +352,202 @@
       }
 
       throw new Error(result.errors.map((error) => error.message).join("\n"));
+    }
+
+    async function loadSettledSettingsActivation() {
+      const activation = await loadSettingsActivation();
+
+      switch (activation.pending.type) {
+        case "none":
+          return activation;
+        case "pending":
+          if (activation.pending.effectiveAtMs > currentTimeMs()) {
+            scheduleSettingsActivation(activation);
+            return activation;
+          }
+
+          return activateSettings(activation.pending.state);
+        default:
+          throw new Error(`Unknown settings activation type: ${activation.pending.type}`);
+      }
+    }
+
+    async function loadSettingsActivation() {
+      const rawActivation = await settingsActivationStorage.loadActivation();
+      const savedState = await loadSavedState();
+
+      if (rawActivation === undefined) {
+        const activation = activeSettingsActivation(savedState);
+
+        await settingsActivationStorage.saveActivation(activation);
+        await blockedPageHtmlStorage.saveHtml(savedState.blockedPageHtml);
+        scheduleSettingsActivation(activation);
+        return activation;
+      }
+
+      const activation = await parseSettingsActivation(rawActivation);
+
+      scheduleSettingsActivation(activation);
+      return activation;
+    }
+
+    async function saveSettingsActivation(state, currentActivation) {
+      const activation = currentActivation || await loadSettledSettingsActivation();
+      const delayMinutes = core.settingsDelayMinutes(activation.activeState.settingsDelay);
+
+      if (delayMinutes === 0) {
+        return activateSettings(state);
+      }
+
+      const pending = {
+        type: "pending",
+        state,
+        effectiveAtMs: currentTimeMs() + delayMinutes * MINUTE_MS
+      };
+      const nextActivation = {
+        schemaVersion: SETTINGS_ACTIVATION_SCHEMA_VERSION,
+        activeState: activation.activeState,
+        pending
+      };
+
+      await settingsActivationStorage.saveActivation(nextActivation);
+      await blockedPageHtmlStorage.saveHtml(activation.activeState.blockedPageHtml);
+      await syncContentScripts(activation.activeState);
+      scheduleSettingsActivation(nextActivation);
+
+      return nextActivation;
+    }
+
+    async function activateSettings(state) {
+      const activation = activeSettingsActivation(state);
+
+      await settingsActivationStorage.saveActivation(activation);
+      await blockedPageHtmlStorage.saveHtml(state.blockedPageHtml);
+      await syncContentScripts(state);
+      await redirectOpenBlockedTabs(state);
+      await removeUnusedWebsiteAccessForStates([state]);
+
+      return activation;
+    }
+
+    function activeSettingsActivation(state) {
+      return {
+        schemaVersion: SETTINGS_ACTIVATION_SCHEMA_VERSION,
+        activeState: state,
+        pending: { type: "none" }
+      };
+    }
+
+    async function parseSettingsActivation(rawActivation) {
+      if (!isPlainObject(rawActivation)) {
+        throw codedError("SettingsActivationInvalid", "Settings activation must be an object.");
+      }
+
+      requireKeys(rawActivation, ["schemaVersion", "activeState", "pending"], "Settings activation");
+
+      if (rawActivation.schemaVersion !== SETTINGS_ACTIVATION_SCHEMA_VERSION) {
+        throw codedError("SettingsActivationInvalid", "Unsupported settings activation version.");
+      }
+
+      if (!isPlainObject(rawActivation.pending) || typeof rawActivation.pending.type !== "string") {
+        throw codedError("SettingsActivationInvalid", "Settings activation pending value must include a type.");
+      }
+
+      const activeState = await normalizeStoredState(rawActivation.activeState, "Active settings");
+
+      switch (rawActivation.pending.type) {
+        case "none":
+          requireKeys(rawActivation.pending, ["type"], "Settings activation pending value");
+          return {
+            schemaVersion: SETTINGS_ACTIVATION_SCHEMA_VERSION,
+            activeState,
+            pending: { type: "none" }
+          };
+        case "pending": {
+          requireKeys(rawActivation.pending, ["type", "state", "effectiveAtMs"], "Settings activation pending value");
+
+          if (!Number.isInteger(rawActivation.pending.effectiveAtMs) || rawActivation.pending.effectiveAtMs < 0) {
+            throw codedError("SettingsActivationInvalid", "Settings activation time must be a non-negative integer.");
+          }
+
+          return {
+            schemaVersion: SETTINGS_ACTIVATION_SCHEMA_VERSION,
+            activeState,
+            pending: {
+              type: "pending",
+              state: await normalizeStoredState(rawActivation.pending.state, "Pending settings"),
+              effectiveAtMs: rawActivation.pending.effectiveAtMs
+            }
+          };
+        }
+        default:
+          throw codedError("SettingsActivationInvalid", `Unknown settings activation type: ${rawActivation.pending.type}.`);
+      }
+    }
+
+    async function normalizeStoredState(rawState, label) {
+      const defaultEntries = await loadDefaultEntries();
+      const result = core.validateStoredState(rawState, defaultEntries);
+
+      if (result.type === "valid") {
+        return result.state;
+      }
+
+      throw codedError("SettingsActivationInvalid", `${label} are invalid: ${result.errors.map((error) => error.message).join("\n")}`);
+    }
+
+    function settingsActivationStatus(activation) {
+      switch (activation.pending.type) {
+        case "none":
+          return { type: "active" };
+        case "pending":
+          return { type: "pending", effectiveAtMs: activation.pending.effectiveAtMs };
+        default:
+          throw new Error(`Unknown settings activation type: ${activation.pending.type}`);
+      }
+    }
+
+    function activeAndPendingStates(activation) {
+      switch (activation.pending.type) {
+        case "none":
+          return [activation.activeState];
+        case "pending":
+          return [activation.activeState, activation.pending.state];
+        default:
+          throw new Error(`Unknown settings activation type: ${activation.pending.type}`);
+      }
+    }
+
+    function scheduleSettingsActivation(activation) {
+      if (activation.pending.type === "none") {
+        return;
+      }
+
+      if (activation.pending.type !== "pending") {
+        throw new Error(`Unknown settings activation type: ${activation.pending.type}`);
+      }
+
+      const setTimer = api.setTimeout || root.setTimeout;
+
+      if (typeof setTimer !== "function") {
+        return;
+      }
+
+      if (activationTimer !== 0 && activationTimerAtMs <= activation.pending.effectiveAtMs) {
+        return;
+      }
+
+      activationTimerAtMs = activation.pending.effectiveAtMs;
+      activationTimer = setTimer(() => {
+        activationTimer = 0;
+        activationTimerAtMs = 0;
+        loadSettledSettingsActivation()
+          .catch((error) => rememberSyncError(error));
+      }, Math.max(0, activation.pending.effectiveAtMs - currentTimeMs()));
+
+      if (activationTimer && typeof activationTimer.unref === "function") {
+        activationTimer.unref();
+      }
     }
 
     async function saveScreenTimeAndRedirect(state, domain, rawUrl, elapsedMs, sender) {
@@ -469,8 +686,8 @@
       return left.every((item) => rightItems.has(item));
     }
 
-    async function removeUnusedWebsiteAccess(state) {
-      const requiredOrigins = new Set(core.permissionOriginsForState(state));
+    async function removeUnusedWebsiteAccessForStates(states) {
+      const requiredOrigins = new Set(states.flatMap(core.permissionOriginsForState));
       const installTimeOrigins = new Set(api.runtime.getManifest().host_permissions);
       const granted = await api.permissions.getAll();
       const unusedOrigins = (granted.origins || []).filter((origin) => (
@@ -516,10 +733,10 @@
     }
 
     async function syncNow() {
-      const state = await loadState();
-      const savedState = await syncSettingsIfPossible(state);
+      const savedState = await syncSettingsIfPossible(await loadSavedState());
+      const activeState = await loadState();
 
-      await syncScreenTimeIfReady(savedState, { force: true });
+      await syncScreenTimeIfReady(activeState, { force: true });
 
       return { type: "synced", status: await getSyncStatus() };
     }
@@ -627,7 +844,7 @@
         const settingsSync = sync.parseSettingsSync(rawSync, createId, currentTimeMs());
 
         if (settingsSync.dirty) {
-          await syncSettingsIfPossible(await loadState());
+          await syncSettingsIfPossible(await loadSavedState());
           return;
         }
 
@@ -685,7 +902,7 @@
 
     async function applyRemoteSettings(active, remoteSettings, settingsSync) {
       const defaultEntries = await loadDefaultEntries();
-      const result = core.validateState(remoteSettings.state, defaultEntries);
+      const result = core.validateStoredState(remoteSettings.state, defaultEntries);
 
       if (result.type === "invalid") {
         if (core.hasUnsupportedBlocklistVersion(result.errors)) {
@@ -695,11 +912,12 @@
         throw codedError("RemoteSettingsInvalid", result.errors.map((error) => error.message).join("\n"));
       }
 
+      const currentActivation = await loadSettledSettingsActivation();
+
       await stateStorage.saveState(result.state);
-      await blockedPageHtmlStorage.saveHtml(result.state.blockedPageHtml);
+      const activation = await saveSettingsActivation(result.state, currentActivation);
       await settingsSyncStorage.saveSync(sync.cleanSettingsSync(settingsSync, remoteSettings, currentTimeMs()));
-      await syncWebsiteAccessForKnownPermissions(result.state);
-      await redirectOpenBlockedTabs(result.state);
+      await syncWebsiteAccessForKnownPermissions(activation.activeState);
       lastSyncError = "";
 
       return result.state;
@@ -719,10 +937,12 @@
       const dirtySync = sync.dirtySettingsSync(settingsSync, updatedAtMs, createId);
 
       await stateStorage.saveState(state);
+      await settingsActivationStorage.saveActivation(activeSettingsActivation(state));
       await blockedPageHtmlStorage.saveHtml(state.blockedPageHtml);
       await settingsSyncStorage.saveSync(dirtySync);
       await syncWebsiteAccessForKnownPermissions(state);
       await redirectOpenBlockedTabs(state);
+      await removeUnusedWebsiteAccessForStates([state]);
       lastSyncError = "";
 
       return { state, dirtySync };
@@ -1236,6 +1456,26 @@
       },
       async saveSync(settingsSync) {
         return storage.saveValue(settingsSync);
+      }
+    };
+  }
+
+  function createSettingsActivationStorage(api) {
+    const storage = createValueStorage(api, {
+      key: SETTINGS_ACTIVATION_KEY,
+      valueKey: "activation",
+      loadType: "loadSettingsActivation",
+      loadedType: "storedSettingsActivation",
+      saveType: "saveSettingsActivation",
+      savedType: "savedSettingsActivation"
+    }, usesNativeStorage);
+
+    return {
+      async loadActivation() {
+        return storage.loadValue();
+      },
+      async saveActivation(activation) {
+        return storage.saveValue(activation);
       }
     };
   }

@@ -3,12 +3,13 @@
 
   const STATE_KEY = "blockerState";
   const BLOCKED_PAGE_HTML_KEY = "blockedPageHtml";
-  const SCHEMA_VERSION = 11;
+  const SCHEMA_VERSION = 12;
   const LEGACY_SCHEMA_VERSION = 6;
   const SUBREDDIT_SCHEMA_VERSION = 7;
   const LIMIT_RESET_SCHEMA_VERSION = 8;
   const FACEBOOK_HOME_SCHEMA_VERSION = 9;
   const SOCIAL_DEFAULTS_SCHEMA_VERSION = 10;
+  const SETTINGS_DELAY_SCHEMA_VERSION = 11;
   const SUBREDDIT_FEEDS_VALUE = "reddit.com/r/*";
   const REMOVED_DEFAULT_IDS = new Set([
     "10000000-0000-4000-8000-000000000012",
@@ -20,9 +21,12 @@
   const DEFAULT_LIMIT_MINUTES = 30;
   const MAX_LIMIT_MINUTES = 960;
   const MAX_ROLLING_WINDOW_HOURS = 168;
+  const DEFAULT_SETTINGS_DELAY_MINUTES = 60;
+  const MAX_SETTINGS_DELAY_MINUTES = 10080;
   const DEFAULT_BLOCKED_PAGE_HTML = "<h1>Blocked</h1><p>This page is on your blocklist.</p>";
   const DEFAULT_SCHEDULE = { type: "dailyWindow", startMinute: 1380, endMinute: 1140 };
   const DEFAULT_LIMIT_RESET = { type: "rollingWindow", windowHours: 24 };
+  const DEFAULT_SETTINGS_DELAY = { type: "delayed", delayMinutes: DEFAULT_SETTINGS_DELAY_MINUTES };
   const UNSUPPORTED_BLOCKLIST_VERSION_MESSAGE = "Unsupported blocklist version. Reset the blocklist to repair it.";
   const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const URL_ALIASES = [
@@ -61,6 +65,7 @@
       blockedPageHtml: DEFAULT_BLOCKED_PAGE_HTML,
       schedule: DEFAULT_SCHEDULE,
       limitReset: DEFAULT_LIMIT_RESET,
+      settingsDelay: DEFAULT_SETTINGS_DELAY,
       domainLimits: domainLimitsForEntries(entries, [])
     }, entries);
 
@@ -109,6 +114,10 @@
       errors.push({ index: null, message: "Limit reset must be an object." });
     }
 
+    if (!isPlainObject(rawState.settingsDelay)) {
+      errors.push({ index: null, message: "Settings delay must be an object." });
+    }
+
     if (!Array.isArray(rawState.domainLimits)) {
       errors.push({ index: null, message: "Domain limits must be an array." });
     }
@@ -120,6 +129,7 @@
     let blockedPageHtml = "";
     let schedule = DEFAULT_SCHEDULE;
     let limitReset = DEFAULT_LIMIT_RESET;
+    let settingsDelay = DEFAULT_SETTINGS_DELAY;
 
     try {
       blockedPageHtml = normalizeBlockedPageHtml(rawState.blockedPageHtml);
@@ -141,6 +151,14 @@
       errors.push(...limitResetResult.errors);
     } else {
       limitReset = limitResetResult.limitReset;
+    }
+
+    const settingsDelayResult = normalizeSettingsDelay(rawState.settingsDelay);
+
+    if (settingsDelayResult.type === "invalid") {
+      errors.push(...settingsDelayResult.errors);
+    } else {
+      settingsDelay = settingsDelayResult.settingsDelay;
     }
 
     if (rawState.entries.length > MAX_ENTRIES) {
@@ -213,6 +231,7 @@
         blockedPageHtml,
         schedule,
         limitReset,
+        settingsDelay,
         domainLimits: limitsResult.domainLimits
       }
     };
@@ -232,9 +251,18 @@
       SUBREDDIT_SCHEMA_VERSION,
       LIMIT_RESET_SCHEMA_VERSION,
       FACEBOOK_HOME_SCHEMA_VERSION,
-      SOCIAL_DEFAULTS_SCHEMA_VERSION
+      SOCIAL_DEFAULTS_SCHEMA_VERSION,
+      SETTINGS_DELAY_SCHEMA_VERSION
     ].includes(rawState.schemaVersion) || !Array.isArray(rawState.entries)) {
       return rawState;
+    }
+
+    if (rawState.schemaVersion === SETTINGS_DELAY_SCHEMA_VERSION) {
+      return {
+        ...rawState,
+        schemaVersion: SCHEMA_VERSION,
+        settingsDelay: DEFAULT_SETTINGS_DELAY
+      };
     }
 
     const defaultCatalog = defaultEntryCatalog(defaultEntries);
@@ -281,6 +309,7 @@
       blockedPageHtml: rawState.blockedPageHtml,
       schedule: rawState.schedule,
       limitReset: DEFAULT_LIMIT_RESET,
+      settingsDelay: DEFAULT_SETTINGS_DELAY,
       domainLimits: domainLimitsForEntries(entries, Array.isArray(rawState.domainLimits) ? rawState.domainLimits : [])
     };
   }
@@ -644,6 +673,46 @@
     }
   }
 
+  function normalizeSettingsDelay(settingsDelay) {
+    const errors = [];
+
+    if (!isPlainObject(settingsDelay)) {
+      return invalid([{ index: null, message: "Settings delay must be an object." }]);
+    }
+
+    if (typeof settingsDelay.type !== "string") {
+      return invalid([{ index: null, message: "Settings delay type must be a string." }]);
+    }
+
+    switch (settingsDelay.type) {
+      case "immediate":
+        pushUnknownKeyErrors(errors, settingsDelay, ["type"], "Settings delay");
+
+        if (errors.length > 0) {
+          return invalid(errors);
+        }
+
+        return { type: "valid", settingsDelay: { type: "immediate" } };
+      case "delayed":
+        pushUnknownKeyErrors(errors, settingsDelay, ["type", "delayMinutes"], "Settings delay");
+
+        if (!Number.isInteger(settingsDelay.delayMinutes) || settingsDelay.delayMinutes < 1 || settingsDelay.delayMinutes > MAX_SETTINGS_DELAY_MINUTES) {
+          errors.push({ index: null, message: `Settings delay minutes must be between 1 and ${MAX_SETTINGS_DELAY_MINUTES}.` });
+        }
+
+        if (errors.length > 0) {
+          return invalid(errors);
+        }
+
+        return {
+          type: "valid",
+          settingsDelay: { type: "delayed", delayMinutes: settingsDelay.delayMinutes }
+        };
+      default:
+        return invalid([{ index: null, message: `Unknown settings delay type: ${settingsDelay.type}` }]);
+    }
+  }
+
   function normalizeDomainLimits(rawDomainLimits, entries) {
     const errors = [];
 
@@ -911,6 +980,17 @@
         return isDailyWindowActive(schedule, date);
       default:
         throw new Error(`Unknown schedule type: ${schedule.type}`);
+    }
+  }
+
+  function settingsDelayMinutes(settingsDelay) {
+    switch (settingsDelay.type) {
+      case "immediate":
+        return 0;
+      case "delayed":
+        return settingsDelay.delayMinutes;
+      default:
+        throw new Error(`Unknown settings delay type: ${settingsDelay.type}`);
     }
   }
 
@@ -1232,6 +1312,8 @@
   function stateKeys(schemaVersion) {
     switch (schemaVersion) {
       case SCHEMA_VERSION:
+        return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "limitReset", "settingsDelay", "domainLimits"];
+      case SETTINGS_DELAY_SCHEMA_VERSION:
         return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "limitReset", "domainLimits"];
       default:
         return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "limitReset", "domainLimits"];
@@ -1239,6 +1321,8 @@
   }
 
   const BlockerCore = {
+    DEFAULT_SETTINGS_DELAY,
+    DEFAULT_SETTINGS_DELAY_MINUTES,
     DEFAULT_LIMIT_MINUTES,
     DEFAULT_BLOCKED_PAGE_HTML,
     DEFAULT_LIMIT_RESET,
@@ -1248,6 +1332,7 @@
     KIND_LABELS,
     MAX_LIMIT_MINUTES,
     MAX_ROLLING_WINDOW_HOURS,
+    MAX_SETTINGS_DELAY_MINUTES,
     MAX_BLOCKED_PAGE_HTML_LENGTH,
     MAX_ENTRIES,
     SCHEMA_VERSION,
@@ -1267,6 +1352,7 @@
     normalizePageUrl,
     normalizeRegexEntryValue,
     permissionOriginsForState,
+    settingsDelayMinutes,
     normalizeUrlEntryValue,
     hasUnsupportedBlocklistVersion,
     screenTimeDomainForUrl,

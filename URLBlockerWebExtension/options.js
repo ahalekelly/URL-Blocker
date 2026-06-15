@@ -25,12 +25,15 @@
     draftBlockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     draftSchedule: core.DEFAULT_SCHEDULE,
     draftLimitReset: core.DEFAULT_LIMIT_RESET,
+    draftSettingsDelay: core.DEFAULT_SETTINGS_DELAY,
     savedDraft: {
       entries: [],
       blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
       schedule: core.DEFAULT_SCHEDULE,
-      limitReset: core.DEFAULT_LIMIT_RESET
+      limitReset: core.DEFAULT_LIMIT_RESET,
+      settingsDelay: core.DEFAULT_SETTINGS_DELAY
     },
+    settingsActivation: { type: "active" },
     rowErrors: new Map(),
     pageError: "",
     isSaving: false,
@@ -57,6 +60,11 @@
   const dailyResetFields = document.getElementById("dailyResetFields");
   const rollingWindowHoursInput = document.getElementById("rollingWindowHoursInput");
   const dailyResetHourSelect = document.getElementById("dailyResetHourSelect");
+  const immediateSettingsDelayInput = document.getElementById("immediateSettingsDelayInput");
+  const delayedSettingsDelayInput = document.getElementById("delayedSettingsDelayInput");
+  const settingsDelayFields = document.getElementById("settingsDelayFields");
+  const settingsDelayMinutesInput = document.getElementById("settingsDelayMinutesInput");
+  const settingsActivationText = document.getElementById("settingsActivationText");
   const errorSummary = document.getElementById("errorSummary");
   const screenTimeRows = document.getElementById("screenTimeRows");
   const emptyScreenTime = document.getElementById("emptyScreenTime");
@@ -86,6 +94,9 @@
   dailyResetInput.addEventListener("change", () => updateLimitResetType("daily"));
   rollingWindowHoursInput.addEventListener("input", updateRollingWindow);
   dailyResetHourSelect.addEventListener("change", updateDailyResetHour);
+  immediateSettingsDelayInput.addEventListener("change", () => updateSettingsDelayType("immediate"));
+  delayedSettingsDelayInput.addEventListener("change", () => updateSettingsDelayType("delayed"));
+  settingsDelayMinutesInput.addEventListener("input", updateSettingsDelayMinutes);
   resetButton.addEventListener("click", resetBlocklist);
   grantAccessButton.addEventListener("click", requestMissingWebsiteAccess);
   googleSignInButton.addEventListener("click", () => signInWithProvider("google"));
@@ -154,7 +165,7 @@
 
     switch (response.type) {
       case "state":
-        setDraftState(response.state);
+        setDraftState(response.state, response.activation);
         await refreshWebsiteAccess(response.state);
         await loadScreenTimeLog("getLocalScreenTimeLog");
         await loadSyncStatus();
@@ -193,6 +204,11 @@
     dailyResetFields.hidden = state.draftLimitReset.type !== "daily";
     rollingWindowHoursInput.value = String(rollingWindowHours());
     dailyResetHourSelect.value = String(dailyResetHour());
+    immediateSettingsDelayInput.checked = state.draftSettingsDelay.type === "immediate";
+    delayedSettingsDelayInput.checked = state.draftSettingsDelay.type === "delayed";
+    settingsDelayFields.hidden = state.draftSettingsDelay.type !== "delayed";
+    settingsDelayMinutesInput.value = String(settingsDelayMinutes());
+    renderSettingsActivation();
     renderSaveButton();
     grantAccessButton.disabled = state.isRequestingPermissions;
     permissionMessage.textContent = needsWebsiteAccess ? permissionPanelMessage() : "";
@@ -314,7 +330,8 @@
       entries: state.draftEntries.map(draftEntrySnapshot),
       blockedPageHtml: state.draftBlockedPageHtml,
       schedule: editableSchedule(state.draftSchedule),
-      limitReset: editableLimitReset(state.draftLimitReset)
+      limitReset: editableLimitReset(state.draftLimitReset),
+      settingsDelay: editableSettingsDelay(state.draftSettingsDelay)
     };
   }
 
@@ -462,6 +479,31 @@
       default:
         throw new Error(`Unknown sync status: ${state.syncStatus.status}`);
     }
+  }
+
+  function renderSettingsActivation() {
+    switch (state.settingsActivation.type) {
+      case "active":
+        settingsActivationText.hidden = true;
+        settingsActivationText.textContent = "";
+        return;
+      case "pending":
+        settingsActivationText.hidden = false;
+        settingsActivationText.textContent = `Pending changes take effect in ${formatPendingDelay(state.settingsActivation.effectiveAtMs)}.`;
+        return;
+      default:
+        throw new Error(`Unknown settings activation status: ${state.settingsActivation.type}`);
+    }
+  }
+
+  function formatPendingDelay(effectiveAtMs) {
+    const minutes = Math.ceil(Math.max(0, effectiveAtMs - Date.now()) / (60 * 1000));
+
+    if (minutes <= 0) {
+      return "less than 1 minute";
+    }
+
+    return pluralize(minutes, "minute");
   }
 
   function syncStatusErrorText(text) {
@@ -761,6 +803,31 @@
     renderSaveButton();
   }
 
+  function updateSettingsDelayType(type) {
+    switch (type) {
+      case "immediate":
+        state.draftSettingsDelay = { type: "immediate" };
+        break;
+      case "delayed":
+        state.draftSettingsDelay = existingDelayedSettingsDelay();
+        break;
+      default:
+        throw new Error(`Unknown settings delay type: ${type}`);
+    }
+
+    clearMessages();
+    render();
+  }
+
+  function updateSettingsDelayMinutes() {
+    state.draftSettingsDelay = {
+      type: "delayed",
+      delayMinutes: Number(settingsDelayMinutesInput.value)
+    };
+    clearMessages();
+    renderSaveButton();
+  }
+
   function deleteRow(id) {
     const entry = findDraftEntry(id);
 
@@ -832,7 +899,7 @@
     switch (response.type) {
       case "saved":
         finishSavedState();
-        await applySavedState(response.state);
+        await applySavedState(response.state, response.activation);
         return;
       case "validationError":
         showValidationErrors(response.errors);
@@ -1055,7 +1122,7 @@
 
     switch (response.type) {
       case "state":
-        setDraftState(response.state);
+        setDraftState(response.state, { type: "active" });
         return;
       case "error":
         throw errorFromResponse(response);
@@ -1092,6 +1159,7 @@
         blockedPageHtml: state.draftBlockedPageHtml,
         schedule: state.draftSchedule,
         limitReset: state.draftLimitReset,
+        settingsDelay: state.draftSettingsDelay,
         domainLimits: domainLimitsForDraft()
       }, state.defaultEntries);
     }
@@ -1102,6 +1170,7 @@
       blockedPageHtml: state.draftBlockedPageHtml,
       schedule: state.draftSchedule,
       limitReset: state.draftLimitReset,
+      settingsDelay: state.draftSettingsDelay,
       domainLimits: domainLimitsForDraft()
     }, state.defaultEntries);
 
@@ -1110,6 +1179,7 @@
       state.draftBlockedPageHtml = result.state.blockedPageHtml;
       state.draftSchedule = editableSchedule(result.state.schedule);
       state.draftLimitReset = editableLimitReset(result.state.limitReset);
+      state.draftSettingsDelay = editableSettingsDelay(result.state.settingsDelay);
     }
 
     return result;
@@ -1184,7 +1254,7 @@
       case "saved":
         resetButton.disabled = false;
         finishSavedState();
-        await applySavedState(response.state);
+        await applySavedState(response.state, response.activation);
         return;
       case "validationError":
         showRepair(codedError("ValidationError", response.errors.map((error) => error.message).join("\n")));
@@ -1197,8 +1267,8 @@
     }
   }
 
-  async function applySavedState(savedState) {
-    setDraftState(savedState);
+  async function applySavedState(savedState, activation) {
+    setDraftState(savedState, activation);
     render();
 
     await loadScreenTimeLog("getScreenTimeLog");
@@ -1219,7 +1289,7 @@
     switch (response.type) {
       case "finishedSavedState":
         if (!draftHasUnsavedChanges()) {
-          setDraftState(response.state);
+          setDraftState(response.state, response.activation);
         }
 
         await loadSyncStatus();
@@ -1234,12 +1304,14 @@
     }
   }
 
-  function setDraftState(blockerState) {
+  function setDraftState(blockerState, activation) {
     state.defaultEntries = defaultEntriesFromState(blockerState.entries);
     state.draftEntries = editableEntries(blockerState.entries, blockerState.domainLimits);
     state.draftBlockedPageHtml = blockerState.blockedPageHtml;
     state.draftSchedule = editableSchedule(blockerState.schedule);
     state.draftLimitReset = editableLimitReset(blockerState.limitReset);
+    state.draftSettingsDelay = editableSettingsDelay(blockerState.settingsDelay);
+    state.settingsActivation = activation || { type: "active" };
     state.savedDraft = draftSnapshot();
   }
 
@@ -1408,6 +1480,17 @@
     }
   }
 
+  function editableSettingsDelay(settingsDelay) {
+    switch (settingsDelay.type) {
+      case "immediate":
+        return { type: "immediate" };
+      case "delayed":
+        return { type: "delayed", delayMinutes: settingsDelay.delayMinutes };
+      default:
+        throw new Error(`Unknown settings delay type: ${settingsDelay.type}`);
+    }
+  }
+
   function existingDailyWindow() {
     if (state.draftSchedule.type === "dailyWindow") {
       return state.draftSchedule;
@@ -1444,6 +1527,18 @@
     return { type: "daily", resetHour: 0 };
   }
 
+  function existingDelayedSettingsDelay() {
+    if (state.draftSettingsDelay.type === "delayed") {
+      return state.draftSettingsDelay;
+    }
+
+    if (state.savedDraft.settingsDelay.type === "delayed") {
+      return state.savedDraft.settingsDelay;
+    }
+
+    return core.DEFAULT_SETTINGS_DELAY;
+  }
+
   function rollingWindowHours() {
     if (state.draftLimitReset.type === "rollingWindow") {
       return state.draftLimitReset.windowHours;
@@ -1458,6 +1553,14 @@
     }
 
     return 0;
+  }
+
+  function settingsDelayMinutes() {
+    if (state.draftSettingsDelay.type === "delayed") {
+      return state.draftSettingsDelay.delayMinutes;
+    }
+
+    return core.DEFAULT_SETTINGS_DELAY.delayMinutes;
   }
 
   function minuteToTime(minute) {

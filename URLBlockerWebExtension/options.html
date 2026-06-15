@@ -115,6 +115,27 @@
         </div>
       </section>
 
+      <section class="settings-panel">
+        <h2>Settings Delay</h2>
+        <div class="delay-options">
+          <label class="choice-label">
+            <input id="immediateSettingsDelayInput" type="radio" name="settingsDelayType" value="immediate">
+            <span>Immediate</span>
+          </label>
+          <label class="choice-label">
+            <input id="delayedSettingsDelayInput" type="radio" name="settingsDelayType" value="delayed">
+            <span>Delayed</span>
+          </label>
+        </div>
+        <div id="settingsDelayFields" class="delay-fields">
+          <label>
+            Delay Minutes
+            <input id="settingsDelayMinutesInput" type="number" min="1" max="10080" step="1" inputmode="numeric" aria-label="Settings delay minutes">
+          </label>
+        </div>
+        <p id="settingsActivationText" class="settings-activation-text"></p>
+      </section>
+
       <div id="rows" class="rows"></div>
       <div class="list-actions">
         <button id="addRowButton" type="button">Add Row</button>

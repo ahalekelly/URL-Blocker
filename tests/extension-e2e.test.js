@@ -322,7 +322,18 @@ test("end-to-end options save blocks a page and renders the blocked view", async
 
   assert.equal(page.byId("saveButton").hidden, true);
   assert.equal(savedState.entries.at(-1).value, "example.com/focus");
+  assert.equal(page.byId("settingsActivationText").hidden, false);
   assert.deepEqual(app.optionsApi.permissionRequests, [["*://*.example.com/*"]]);
+  assert.equal(app.backgroundApi.registeredScripts.at(-1).matches.includes("*://*.example.com/*"), false);
+  assert.deepEqual(app.backgroundApi.updatedTabs, []);
+
+  await runContentScript(app, "https://example.com/focus", 3);
+
+  assert.deepEqual(app.backgroundApi.updatedTabs, []);
+
+  app.backgroundApi.nowValue = app.backgroundApi.storageData.settingsActivation.pending.effectiveAtMs;
+  await app.controller.loadState();
+
   assert.ok(app.backgroundApi.registeredScripts.at(-1).matches.includes("*://*.example.com/*"));
   assert.deepEqual(app.backgroundApi.updatedTabs, [{
     tabId: 2,
@@ -598,10 +609,16 @@ function fakeBackgroundApi(overrides) {
     registeredScripts: [],
     removedOrigins: [],
     updatedTabs: [],
+    timers: [],
     uuidIndex: 1,
     nowValue: new Date(2026, 0, 1, 12).getTime(),
     now() {
       return api.nowValue;
+    },
+    setTimeout(listener, delayMs) {
+      api.timers.push({ listener, delayMs });
+
+      return api.timers.length;
     },
     randomUUID() {
       const suffix = String(api.uuidIndex).padStart(12, "0");
@@ -704,6 +721,11 @@ function fakeBackgroundApi(overrides) {
         case "saveSettingsSync":
           api.nativeData.settingsSync = message.sync;
           return { type: "savedSettingsSync", sync: message.sync };
+        case "loadSettingsActivation":
+          return { type: "storedSettingsActivation", activation: api.nativeData.settingsActivation };
+        case "saveSettingsActivation":
+          api.nativeData.settingsActivation = message.activation;
+          return { type: "savedSettingsActivation", activation: message.activation };
         case "loadSupabaseSession":
           return { type: "storedSupabaseSession", session: api.nativeData.supabaseSession };
         case "saveSupabaseSession":
@@ -730,6 +752,7 @@ function validState(entries, schedule = core.DEFAULT_SCHEDULE) {
     blockedPageHtml: "<h1>Stay focused</h1>",
     schedule,
     limitReset: core.DEFAULT_LIMIT_RESET,
+    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     domainLimits: core.domainLimitsForEntries(stateEntries, [])
   };
 }
@@ -856,6 +879,11 @@ function optionsDocument() {
     "dailyResetFields",
     "rollingWindowHoursInput",
     "dailyResetHourSelect",
+    "immediateSettingsDelayInput",
+    "delayedSettingsDelayInput",
+    "settingsDelayFields",
+    "settingsDelayMinutesInput",
+    "settingsActivationText",
     "errorSummary",
     "screenTimeRows",
     "emptyScreenTime",
