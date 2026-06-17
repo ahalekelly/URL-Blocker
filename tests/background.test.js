@@ -1259,6 +1259,56 @@ test("getState applies newer remote settings with strict selected columns", asyn
   }
 });
 
+test("syncNow repairs remote settings missing added defaults", async () => {
+  const fetch = globalThis.fetch;
+  const api = fakeApi({
+    now: 20 * 60 * 60 * 1000,
+    supabaseConfig: configuredSupabase()
+  });
+  const previousDefaults = defaultBlockedPages.filter((entry) => entry.value !== "youtube.com/feed/subscriptions");
+  const previousEntries = previousDefaults.map((entry) => ({ ...entry, enabled: entry.value === "youtube.com" }));
+  const remoteState = {
+    schemaVersion: core.SCHEMA_VERSION,
+    entries: previousEntries,
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: core.DEFAULT_SCHEDULE,
+    limitReset: core.DEFAULT_LIMIT_RESET,
+    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
+    domainLimits: core.domainLimitsForEntries(previousEntries, [])
+  };
+
+  api.storageData.supabaseSession = supabaseSession();
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).includes("/user_settings")) {
+      return jsonResponse([{
+        user_id: "22222222-2222-4222-8222-222222222222",
+        state: remoteState,
+        updated_at_ms: 72000001,
+        revision_id: "remote-revision",
+        device_id: "remote-device",
+        updated_at: "2026-05-23T00:00:00.000Z"
+      }]);
+    }
+
+    if (String(url).includes("/screen_time_buckets")) {
+      return jsonResponse([]);
+    }
+
+    return fetch(url, options);
+  };
+
+  try {
+    const controller = createBackgroundController(api);
+    const response = await controller.syncNow();
+    const repairedEntry = api.storageData[core.STATE_KEY].entries.find((entry) => entry.value === "youtube.com/feed/subscriptions");
+
+    assert.equal(response.status.error, "");
+    assert.equal(repairedEntry.enabled, true);
+  } finally {
+    globalThis.fetch = fetch;
+  }
+});
+
 test("getState resets unsupported remote blocklist versions", async () => {
   const fetch = globalThis.fetch;
   const defaultState = core.emptyState(defaultBlockedPages);

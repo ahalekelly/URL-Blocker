@@ -261,27 +261,13 @@
       SOCIAL_DEFAULTS_SCHEMA_VERSION,
       SETTINGS_DELAY_SCHEMA_VERSION,
       SETTINGS_DELAY_MODE_SCHEMA_VERSION,
+      SCHEMA_VERSION,
       YOUTUBE_SUBSCRIPTIONS_SCHEMA_VERSION
     ].includes(rawState.schemaVersion) || !Array.isArray(rawState.entries)) {
       return rawState;
     }
 
-    if (rawState.schemaVersion === SETTINGS_DELAY_MODE_SCHEMA_VERSION) {
-      return {
-        ...rawState,
-        schemaVersion: SCHEMA_VERSION,
-        settingsDelay: migrateSettingsDelay(rawState.settingsDelay)
-      };
-    }
-
-    if (rawState.schemaVersion === SETTINGS_DELAY_SCHEMA_VERSION) {
-      return {
-        ...rawState,
-        schemaVersion: SCHEMA_VERSION,
-        settingsDelay: DEFAULT_SETTINGS_DELAY
-      };
-    }
-
+    const migratedState = storedStateWithCurrentShape(rawState);
     const defaultCatalog = defaultEntryCatalog(defaultEntries);
     const seenDefaultIds = new Set();
     const entries = rawState.entries.flatMap((entry) => {
@@ -321,14 +307,31 @@
     });
 
     return {
+      ...migratedState,
       schemaVersion: SCHEMA_VERSION,
       entries,
-      blockedPageHtml: rawState.blockedPageHtml,
-      schedule: rawState.schedule,
-      limitReset: DEFAULT_LIMIT_RESET,
-      settingsDelay: DEFAULT_SETTINGS_DELAY,
       domainLimits: domainLimitsForEntries(entries, Array.isArray(rawState.domainLimits) ? rawState.domainLimits : [])
     };
+  }
+
+  function storedStateWithCurrentShape(rawState) {
+    switch (rawState.schemaVersion) {
+      case SCHEMA_VERSION:
+      case YOUTUBE_SUBSCRIPTIONS_SCHEMA_VERSION:
+        return rawState;
+      case SETTINGS_DELAY_MODE_SCHEMA_VERSION:
+        return { ...rawState, settingsDelay: migrateSettingsDelay(rawState.settingsDelay) };
+      case SETTINGS_DELAY_SCHEMA_VERSION:
+        return { ...rawState, settingsDelay: DEFAULT_SETTINGS_DELAY };
+      case LEGACY_SCHEMA_VERSION:
+      case SUBREDDIT_SCHEMA_VERSION:
+      case LIMIT_RESET_SCHEMA_VERSION:
+      case FACEBOOK_HOME_SCHEMA_VERSION:
+      case SOCIAL_DEFAULTS_SCHEMA_VERSION:
+        return { ...rawState, limitReset: DEFAULT_LIMIT_RESET, settingsDelay: DEFAULT_SETTINGS_DELAY };
+      default:
+        throw new Error(`Unknown migratable schema version: ${rawState.schemaVersion}`);
+    }
   }
 
   function migrateSettingsDelay(settingsDelay) {

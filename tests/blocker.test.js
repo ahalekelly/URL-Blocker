@@ -269,19 +269,31 @@ test("migrates schema 8 states to default rolling limit resets", () => {
 });
 
 test("migrates schema 12 settings delay modes to minute values", () => {
-  const oldState = validState([]);
+  const previousDefaults = defaultBlockedPages.filter((entry) => entry.value !== "youtube.com/feed/subscriptions");
+  const oldState = {
+    schemaVersion: 12,
+    entries: previousDefaults.map((entry) => ({ ...entry, enabled: entry.value === "youtube.com" })),
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: core.DEFAULT_SCHEDULE,
+    limitReset: { type: "daily", resetHour: 6 },
+    domainLimits: core.domainLimitsForEntries(previousDefaults, [{ domain: "youtube.com", limitMinutes: 11 }])
+  };
   const immediate = validStoredState({
     ...oldState,
-    schemaVersion: 12,
     settingsDelay: { type: "immediate" }
-  }, []);
+  }, defaultBlockedPages);
   const delayed = validStoredState({
     ...oldState,
-    schemaVersion: 12,
     settingsDelay: { type: "delayed", delayMinutes: 17 }
-  }, []);
+  }, defaultBlockedPages);
 
   assert.deepEqual(immediate.settingsDelay, { delayMinutes: 0 });
+  assert.deepEqual(immediate.limitReset, { type: "daily", resetHour: 6 });
+  assert.equal(immediate.entries.find((entry) => entry.value === "youtube.com/feed/subscriptions").enabled, true);
+  assert.deepEqual(immediate.domainLimits.find((limit) => limit.domain === "youtube.com"), {
+    domain: "youtube.com",
+    limitMinutes: 11
+  });
   assert.deepEqual(delayed.settingsDelay, { delayMinutes: 17 });
 });
 
@@ -300,6 +312,24 @@ test("migrates schema 13 states to add YouTube subscriptions", () => {
 
   assert.equal(state.schemaVersion, core.SCHEMA_VERSION);
   assert.equal(state.entries.find((entry) => entry.value === "youtube.com/feed/subscriptions").enabled, true);
+});
+
+test("repairs stored current states missing added defaults", () => {
+  const previousDefaults = defaultBlockedPages.filter((entry) => entry.value !== "youtube.com/feed/subscriptions");
+  const previousEntries = previousDefaults.map((entry) => ({ ...entry, enabled: entry.value === "youtube.com" }));
+  const state = validStoredState({
+    schemaVersion: core.SCHEMA_VERSION,
+    entries: previousEntries,
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: core.DEFAULT_SCHEDULE,
+    limitReset: { type: "daily", resetHour: 6 },
+    settingsDelay: { delayMinutes: 17 },
+    domainLimits: core.domainLimitsForEntries(previousEntries, [{ domain: "youtube.com", limitMinutes: 11 }])
+  }, defaultBlockedPages);
+
+  assert.equal(state.entries.find((entry) => entry.value === "youtube.com/feed/subscriptions").enabled, true);
+  assert.deepEqual(state.limitReset, { type: "daily", resetHour: 6 });
+  assert.deepEqual(state.settingsDelay, { delayMinutes: 17 });
 });
 
 test("maps URL alias source hosts to permissions", () => {
