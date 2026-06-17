@@ -3,7 +3,7 @@
 
   const STATE_KEY = "blockerState";
   const BLOCKED_PAGE_HTML_KEY = "blockedPageHtml";
-  const SCHEMA_VERSION = 13;
+  const SCHEMA_VERSION = 14;
   const LEGACY_SCHEMA_VERSION = 6;
   const SUBREDDIT_SCHEMA_VERSION = 7;
   const LIMIT_RESET_SCHEMA_VERSION = 8;
@@ -11,7 +11,13 @@
   const SOCIAL_DEFAULTS_SCHEMA_VERSION = 10;
   const SETTINGS_DELAY_SCHEMA_VERSION = 11;
   const SETTINGS_DELAY_MODE_SCHEMA_VERSION = 12;
+  const YOUTUBE_SUBSCRIPTIONS_SCHEMA_VERSION = 13;
   const SUBREDDIT_FEEDS_VALUE = "reddit.com/r/*";
+  const YOUTUBE_SUBSCRIPTIONS_VALUE = "youtube.com/feed/subscriptions";
+  const ADDED_DEFAULT_PARENT_VALUES = new Map([
+    [SUBREDDIT_FEEDS_VALUE, "reddit.com"],
+    [YOUTUBE_SUBSCRIPTIONS_VALUE, "youtube.com"]
+  ]);
   const REMOVED_DEFAULT_IDS = new Set([
     "10000000-0000-4000-8000-000000000012",
     "10000000-0000-4000-8000-000000000016",
@@ -254,7 +260,8 @@
       FACEBOOK_HOME_SCHEMA_VERSION,
       SOCIAL_DEFAULTS_SCHEMA_VERSION,
       SETTINGS_DELAY_SCHEMA_VERSION,
-      SETTINGS_DELAY_MODE_SCHEMA_VERSION
+      SETTINGS_DELAY_MODE_SCHEMA_VERSION,
+      YOUTUBE_SUBSCRIPTIONS_SCHEMA_VERSION
     ].includes(rawState.schemaVersion) || !Array.isArray(rawState.entries)) {
       return rawState;
     }
@@ -340,13 +347,15 @@
   }
 
   function enabledForAddedDefault(entry, entries) {
-    if (entry.value !== SUBREDDIT_FEEDS_VALUE) {
+    const parentValue = ADDED_DEFAULT_PARENT_VALUES.get(entry.value);
+
+    if (!parentValue) {
       return false;
     }
 
-    const redditEntry = entries.find((candidate) => candidate.type === "default" && candidate.value === "reddit.com");
+    const parentEntry = entries.find((candidate) => candidate.type === "default" && candidate.value === parentValue);
 
-    return redditEntry ? redditEntry.enabled : false;
+    return parentEntry ? parentEntry.enabled : false;
   }
 
   function normalizeDefaultEntries(defaultEntries) {
@@ -1313,6 +1322,8 @@
   function stateKeys(schemaVersion) {
     switch (schemaVersion) {
       case SCHEMA_VERSION:
+        return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "limitReset", "settingsDelay", "domainLimits"];
+      case YOUTUBE_SUBSCRIPTIONS_SCHEMA_VERSION:
         return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "limitReset", "settingsDelay", "domainLimits"];
       case SETTINGS_DELAY_MODE_SCHEMA_VERSION:
         return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "limitReset", "settingsDelay", "domainLimits"];

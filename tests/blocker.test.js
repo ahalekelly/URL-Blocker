@@ -53,6 +53,7 @@ test("loads default blocked pages for new installs", () => {
     { type: "default", kind: "url", value: "pinterest.com/ideas", enabled: true },
     { type: "default", kind: "url", value: "linkedin.com", enabled: true },
     { type: "default", kind: "url", value: "youtube.com", enabled: true },
+    { type: "default", kind: "url", value: "youtube.com/feed/subscriptions", enabled: true },
     { type: "default", kind: "url", value: "reddit.com", enabled: true },
     { type: "default", kind: "url", value: "reddit.com/r/*", enabled: true },
     { type: "default", kind: "url", value: "ycombinator.com", enabled: true }
@@ -282,6 +283,23 @@ test("migrates schema 12 settings delay modes to minute values", () => {
 
   assert.deepEqual(immediate.settingsDelay, { delayMinutes: 0 });
   assert.deepEqual(delayed.settingsDelay, { delayMinutes: 17 });
+});
+
+test("migrates schema 13 states to add YouTube subscriptions", () => {
+  const previousDefaults = defaultBlockedPages.filter((entry) => entry.value !== "youtube.com/feed/subscriptions");
+  const previousEntries = previousDefaults.map((entry) => ({ ...entry, enabled: entry.value === "youtube.com" }));
+  const state = validStoredState({
+    schemaVersion: 13,
+    entries: previousEntries,
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: core.DEFAULT_SCHEDULE,
+    limitReset: core.DEFAULT_LIMIT_RESET,
+    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
+    domainLimits: core.domainLimitsForEntries(previousEntries, [])
+  }, defaultBlockedPages);
+
+  assert.equal(state.schemaVersion, core.SCHEMA_VERSION);
+  assert.equal(state.entries.find((entry) => entry.value === "youtube.com/feed/subscriptions").enabled, true);
 });
 
 test("maps URL alias source hosts to permissions", () => {
