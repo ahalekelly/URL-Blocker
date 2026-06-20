@@ -272,6 +272,7 @@
     const group = document.createElement("article");
     const toolbar = document.createElement("div");
     const title = document.createElement("div");
+    const controls = document.createElement("div");
     const limitLabel = document.createElement("label");
     const limitPrefix = document.createElement("span");
     const limitInput = document.createElement("input");
@@ -284,6 +285,7 @@
     toolbar.className = "default-group-toolbar";
     title.className = "default-group-title";
     title.textContent = titleText;
+    controls.className = "default-group-controls";
     limitLabel.className = "default-group-limit";
     limitLabel.hidden = timeLimitsAreHidden();
     limitPrefix.className = "limit-prefix";
@@ -300,7 +302,8 @@
     limitSuffix.className = "limit-suffix";
     limitSuffix.textContent = "min";
     limitLabel.append(limitPrefix, limitInput, limitSuffix);
-    toolbar.append(title, limitLabel);
+    controls.append(renderDomainSettings(entries[0], titleText), limitLabel);
+    toolbar.append(title, controls);
     entryList.className = "default-group-entries";
     entryList.replaceChildren(...entries.map(renderDefaultGroupEntry));
     group.append(toolbar, entryList);
@@ -330,12 +333,21 @@
   function draftEntrySnapshot(entry) {
     switch (entry.type) {
       case "custom":
-        return { type: "custom", id: entry.id, kind: entry.kind, value: entry.value, limitMinutes: entry.limitMinutes };
+        return domainDraftSnapshot({ type: "custom", id: entry.id, kind: entry.kind, value: entry.value }, entry);
       case "default":
-        return { type: "default", id: entry.id, kind: entry.kind, value: entry.value, enabled: entry.enabled, limitMinutes: entry.limitMinutes };
+        return domainDraftSnapshot({ type: "default", id: entry.id, kind: entry.kind, value: entry.value, enabled: entry.enabled }, entry);
       default:
         throw new Error(`Unknown entry type: ${entry.type}`);
     }
+  }
+
+  function domainDraftSnapshot(snapshot, entry) {
+    return {
+      ...snapshot,
+      limitMinutes: entry.limitMinutes,
+      blockDirectVisits: entry.blockDirectVisits,
+      blockInternalLinks: entry.blockInternalLinks
+    };
   }
 
   function renderDefaultGroupEntry(entry) {
@@ -379,6 +391,8 @@
     const input = fragment.querySelector(".value-input");
     const limitLabel = fragment.querySelector(".row-limit");
     const limitInput = fragment.querySelector(".limit-input");
+    const blockDirectVisitsInput = fragment.querySelector(".block-direct-visits-input");
+    const blockInternalLinksInput = fragment.querySelector(".block-internal-links-input");
     const deleteButton = fragment.querySelector(".delete-button");
     const rowError = fragment.querySelector(".row-error");
     const error = state.rowErrors.get(entry.id) || "";
@@ -390,6 +404,10 @@
     input.addEventListener("blur", () => normalizeUrlInput(entry.id));
     limitInput.value = String(entry.limitMinutes);
     limitInput.addEventListener("input", () => updateLimit(entry.id, limitInput.value));
+    blockDirectVisitsInput.checked = entry.blockDirectVisits;
+    blockDirectVisitsInput.addEventListener("change", () => updateBlockDirectVisits(entry.id, blockDirectVisitsInput.checked));
+    blockInternalLinksInput.checked = entry.blockInternalLinks;
+    blockInternalLinksInput.addEventListener("change", () => updateBlockInternalLinks(entry.id, blockInternalLinksInput.checked));
     limitLabel.hidden = timeLimitsAreHidden();
     deleteButton.disabled = state.defaultEntries.length === 0 && customEntryCount() === 1;
     deleteButton.addEventListener("click", () => deleteRow(entry.id));
@@ -398,6 +416,47 @@
     row.dataset.entryId = entry.id;
 
     return fragment;
+  }
+
+  function renderDomainSettings(entry, titleText) {
+    const settings = document.createElement("div");
+
+    settings.className = "domain-settings";
+    settings.append(
+      renderDomainSettingInput(
+        "block-direct-visits-input",
+        entry.blockDirectVisits,
+        `Block all pages except via links for ${titleText}`,
+        "Block all pages except via links",
+        (checked) => updateBlockDirectVisits(entry.id, checked)
+      ),
+      renderDomainSettingInput(
+        "block-internal-links-input",
+        entry.blockInternalLinks,
+        `Block links within ${titleText}`,
+        "Block links within this site",
+        (checked) => updateBlockInternalLinks(entry.id, checked)
+      )
+    );
+
+    return settings;
+  }
+
+  function renderDomainSettingInput(className, checked, ariaLabel, labelText, update) {
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    const text = document.createElement("span");
+
+    label.className = "choice-label domain-setting-label";
+    input.className = className;
+    input.type = "checkbox";
+    input.checked = checked;
+    input.setAttribute("aria-label", ariaLabel);
+    input.addEventListener("change", () => update(input.checked));
+    text.textContent = labelText;
+    label.append(input, text);
+
+    return label;
   }
 
   function renderKindButtons(entry, segments) {
@@ -624,6 +683,8 @@
   function addRow() {
     state.draftEntries.push(core.newEntry("url"));
     state.draftEntries[state.draftEntries.length - 1].limitMinutes = core.DEFAULT_LIMIT_MINUTES;
+    state.draftEntries[state.draftEntries.length - 1].blockDirectVisits = core.DEFAULT_BLOCK_DIRECT_VISITS;
+    state.draftEntries[state.draftEntries.length - 1].blockInternalLinks = core.DEFAULT_BLOCK_INTERNAL_LINKS;
     clearMessages();
     render();
   }
@@ -636,9 +697,17 @@
     }
 
     state.draftEntries = state.draftEntries.map((entry) => (
-      entry.id === id ? { type: "custom", id: entry.id, kind, value: entry.value, limitMinutes: entry.limitMinutes } : entry
+      entry.id === id ? {
+        type: "custom",
+        id: entry.id,
+        kind,
+        value: entry.value,
+        limitMinutes: entry.limitMinutes,
+        blockDirectVisits: entry.blockDirectVisits,
+        blockInternalLinks: entry.blockInternalLinks
+      } : entry
     ));
-    syncLimitForEntry(findDraftEntry(id));
+    syncDomainSettingsForEntry(findDraftEntry(id));
     state.rowErrors.delete(id);
     clearMessages();
     render();
@@ -664,13 +733,13 @@
     }
 
     entry.value = value;
-    syncLimitForEntry(entry);
+    syncDomainSettingsForEntry(entry);
     clearRowError(id);
     clearMessages();
     renderSaveButton();
   }
 
-  function syncLimitForEntry(entry) {
+  function syncDomainSettingsForEntry(entry) {
     let domain = "";
 
     try {
@@ -693,6 +762,8 @@
 
     if (matchingEntry) {
       entry.limitMinutes = matchingEntry.limitMinutes;
+      entry.blockDirectVisits = matchingEntry.blockDirectVisits;
+      entry.blockInternalLinks = matchingEntry.blockInternalLinks;
     }
   }
 
@@ -725,6 +796,44 @@
     clearRowError(id);
     clearMessages();
     renderSaveButton();
+  }
+
+  function updateBlockDirectVisits(id, checked) {
+    updateDomainSetting(id, "blockDirectVisits", checked);
+  }
+
+  function updateBlockInternalLinks(id, checked) {
+    updateDomainSetting(id, "blockInternalLinks", checked);
+  }
+
+  function updateDomainSetting(id, key, checked) {
+    const entry = findDraftEntry(id);
+    let domain = "";
+
+    entry[key] = checked;
+
+    try {
+      domain = core.domainForEntry(entry);
+    } catch {
+      clearRowError(id);
+      clearMessages();
+      renderSaveButton();
+      return;
+    }
+
+    state.draftEntries.forEach((candidate) => {
+      try {
+        if (core.domainForEntry(candidate) === domain) {
+          candidate[key] = checked;
+        }
+      } catch {
+        return;
+      }
+    });
+
+    clearRowError(id);
+    clearMessages();
+    render();
   }
 
   function updateBlockedPageHtml() {
@@ -1193,7 +1302,12 @@
 
     state.draftEntries.forEach((entry) => {
       try {
-        hints.push({ domain: core.domainForEntry(entry), limitMinutes: entry.limitMinutes });
+        hints.push({
+          domain: core.domainForEntry(entry),
+          limitMinutes: entry.limitMinutes,
+          blockDirectVisits: entry.blockDirectVisits,
+          blockInternalLinks: entry.blockInternalLinks
+        });
       } catch {
         return;
       }
@@ -1411,20 +1525,29 @@
   }
 
   function editableEntries(entries, domainLimits) {
-    const limits = new Map(domainLimits.map((limit) => [limit.domain, limit.limitMinutes]));
+    const limits = new Map(domainLimits.map((limit) => [limit.domain, limit]));
 
     return ensureDraftEntry(entries.map((entry) => {
-      const limitMinutes = limits.get(core.associatedDomainForEntry(entry));
+      const limit = limits.get(core.associatedDomainForEntry(entry));
 
       switch (entry.type) {
         case "custom":
-          return { type: "custom", id: entry.id, kind: entry.kind, value: entry.value, limitMinutes };
+          return editableDomainEntry({ type: "custom", id: entry.id, kind: entry.kind, value: entry.value }, limit);
         case "default":
-          return { type: "default", id: entry.id, kind: entry.kind, value: entry.value, enabled: entry.enabled, limitMinutes };
+          return editableDomainEntry({ type: "default", id: entry.id, kind: entry.kind, value: entry.value, enabled: entry.enabled }, limit);
         default:
           throw new Error(`Unknown entry type: ${entry.type}`);
       }
     }));
+  }
+
+  function editableDomainEntry(entry, limit) {
+    return {
+      ...entry,
+      limitMinutes: limit.limitMinutes,
+      blockDirectVisits: limit.blockDirectVisits,
+      blockInternalLinks: limit.blockInternalLinks
+    };
   }
 
   function defaultEntriesFromState(entries) {

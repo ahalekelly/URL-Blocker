@@ -72,17 +72,17 @@ test("loads default blocked pages for new installs", () => {
   assert.deepEqual(state.limitReset, { type: "rollingWindow", windowHours: 24 });
   assert.deepEqual(state.settingsDelay, { delayMinutes: 60 });
   assert.deepEqual(state.domainLimits, [
-    { domain: "bsky.app", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
-    { domain: "facebook.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
-    { domain: "instagram.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
-    { domain: "linkedin.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
-    { domain: "pinterest.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
-    { domain: "reddit.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
-    { domain: "threads.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
-    { domain: "tiktok.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
-    { domain: "x.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
-    { domain: "ycombinator.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
-    { domain: "youtube.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES }
+    domainLimit("bsky.app"),
+    domainLimit("facebook.com"),
+    domainLimit("instagram.com"),
+    domainLimit("linkedin.com"),
+    domainLimit("pinterest.com"),
+    domainLimit("reddit.com"),
+    domainLimit("threads.com"),
+    domainLimit("tiktok.com"),
+    domainLimit("x.com"),
+    domainLimit("ycombinator.com"),
+    domainLimit("youtube.com")
   ]);
 });
 
@@ -102,14 +102,14 @@ test("keeps default entries locked but configurable", () => {
     schedule: core.DEFAULT_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    domainLimits: [{ domain: "x.com", limitMinutes: 12 }]
+    domainLimits: [domainLimit("x.com", 12)]
   }, defaultBlockedPages.slice(0, 1));
 
   assert.equal(disabledState.type, "valid");
   assert.deepEqual(core.permissionOriginsForState(disabledState.state), []);
   assert.deepEqual(core.findMatchingEntry(disabledState.state, "https://x.com"), { type: "none" });
   assert.deepEqual(core.screenTimeDomainForUrl(disabledState.state, "https://x.com"), { type: "none" });
-  assert.deepEqual(disabledState.state.domainLimits, [{ domain: "x.com", limitMinutes: 12 }]);
+  assert.deepEqual(disabledState.state.domainLimits, [domainLimit("x.com", 12)]);
 
   const editedDefault = core.validateState({
     schemaVersion: core.SCHEMA_VERSION,
@@ -118,7 +118,7 @@ test("keeps default entries locked but configurable", () => {
     schedule: core.DEFAULT_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
+    domainLimits: [domainLimit("example.com", 30)]
   }, defaultBlockedPages.slice(0, 1));
 
   assert.equal(editedDefault.type, "invalid");
@@ -147,7 +147,7 @@ test("normalizes old linkedin feed default entries", () => {
     schedule: core.DEFAULT_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    domainLimits: [{ domain: "linkedin.com", limitMinutes: 30 }]
+    domainLimits: [domainLimit("linkedin.com", 30)]
   }, [linkedinDefault]);
 
   assert.equal(state.type, "valid");
@@ -176,9 +176,9 @@ test("migrates legacy default entries and deleted defaults", () => {
     { type: "default", id: defaults[1].id, kind: "url", value: defaults[1].value, enabled: false }
   ]);
   assert.deepEqual(state.domainLimits, [
-    { domain: "example.com", limitMinutes: 20 },
-    { domain: "instagram.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES },
-    { domain: "x.com", limitMinutes: 9 }
+    domainLimit("example.com", 20),
+    domainLimit("instagram.com"),
+    domainLimit("x.com", 9)
   ]);
   assert.deepEqual(state.limitReset, core.DEFAULT_LIMIT_RESET);
 });
@@ -200,8 +200,7 @@ test("migrates schema 7 states to split subreddit feeds from reddit", () => {
   assert.equal(redditEntry.enabled, false);
   assert.equal(subredditEntry.enabled, false);
   assert.deepEqual(state.domainLimits.find((limit) => limit.domain === "reddit.com"), {
-    domain: "reddit.com",
-    limitMinutes: 12
+    ...domainLimit("reddit.com", 12)
   });
   assert.deepEqual(state.limitReset, core.DEFAULT_LIMIT_RESET);
 });
@@ -308,8 +307,7 @@ test("migrates schema 12 settings delay modes to minute values", () => {
   assert.equal(immediate.entries.find((entry) => entry.value === "youtube.com/feed/subscriptions").enabled, true);
   assert.equal(immediate.entries.find((entry) => entry.value === "youtube.com/shorts").enabled, true);
   assert.deepEqual(immediate.domainLimits.find((limit) => limit.domain === "youtube.com"), {
-    domain: "youtube.com",
-    limitMinutes: 11
+    ...domainLimit("youtube.com", 11)
   });
   assert.deepEqual(delayed.settingsDelay, { delayMinutes: 17 });
 });
@@ -428,7 +426,7 @@ test("validates state strictly", () => {
     schedule: { type: "always" },
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
+    domainLimits: [domainLimit("example.com", 30)]
   }, []);
 
   assert.equal(valid.type, "valid");
@@ -441,7 +439,7 @@ test("validates state strictly", () => {
     schedule: { type: "always" },
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
+    domainLimits: [domainLimit("example.com", 30)]
   }, []);
 
   assert.equal(unknownKey.type, "invalid");
@@ -470,7 +468,7 @@ test("validates state strictly", () => {
     schedule: { type: "always" },
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
+    domainLimits: [domainLimit("example.com", 30)]
   }, []);
 
   assert.equal(duplicate.type, "invalid");
@@ -658,6 +656,31 @@ test("explains root URL expansion after reaching a domain limit", () => {
   });
 });
 
+test("uses domain settings for root URL expansion", () => {
+  const directVisitsOff = validState(
+    [{ id: ids[0], kind: "url", value: "example.com" }],
+    { type: "always" },
+    [domainLimit("example.com", 30, { blockDirectVisits: false })]
+  );
+  const internalLinksOff = validState(
+    [{ id: ids[0], kind: "url", value: "example.com" }],
+    { type: "always" },
+    [domainLimit("example.com", 30, { blockInternalLinks: false })]
+  );
+
+  assert.equal(core.findBlockedMatchingEntry(directVisitsOff, "https://example.com/path", new Set(), safariEmptySource).type, "none");
+  assert.equal(core.findBlockedMatchingEntry(directVisitsOff, "https://example.com/path", new Set(), chromeTypedSource).type, "none");
+  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(directVisitsOff, "https://example.com/path", new Set(), sameDomainSource)), {
+    type: "match",
+    reason: "scheduleRootSameDomainNavigation"
+  });
+  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(internalLinksOff, "https://example.com/path", new Set(), safariEmptySource)), {
+    type: "match",
+    reason: "scheduleRootDirectNavigation"
+  });
+  assert.equal(core.findBlockedMatchingEntry(internalLinksOff, "https://example.com/path", new Set(), sameDomainSource).type, "none");
+});
+
 test("explains schedule before limit when both apply", () => {
   const state = validState(
     [{ id: ids[0], kind: "url", value: "example.com" }],
@@ -753,8 +776,8 @@ test("validates domain limits against associated domains", () => {
   ]);
 
   assert.deepEqual(state.domainLimits, [
-    { domain: "example.com", limitMinutes: 45 },
-    { domain: "news.example.com", limitMinutes: 10 }
+    domainLimit("example.com", 45),
+    domainLimit("news.example.com", 10)
   ]);
 
   const missing = core.validateState({
@@ -777,7 +800,7 @@ test("validates domain limits against associated domains", () => {
     schedule: { type: "always" },
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    domainLimits: [{ domain: "example.com", limitMinutes: 30 }]
+    domainLimits: [domainLimit("example.com", 30)]
   }, []);
 
   assert.equal(extra.type, "invalid");
@@ -794,7 +817,7 @@ test("infers literal regex hosts for limits", () => {
     { id: ids[0], kind: "regex", value: "^https://x\\.com/(home|explore)/?$" }
   ]);
 
-  assert.deepEqual(valid.domainLimits, [{ domain: "x.com", limitMinutes: core.DEFAULT_LIMIT_MINUTES }]);
+  assert.deepEqual(valid.domainLimits, [domainLimit("x.com")]);
 });
 
 test("rejects duplicate entries after normalization", () => {
@@ -808,7 +831,7 @@ test("rejects duplicate entries after normalization", () => {
     schedule: { type: "always" },
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    domainLimits: [{ domain: "x.com", limitMinutes: 30 }]
+    domainLimits: [domainLimit("x.com", 30)]
   }, []);
 
   assert.equal(duplicate.type, "invalid");
@@ -944,7 +967,7 @@ function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits, lim
     schedule,
     limitReset,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    domainLimits: domainLimits === undefined ? core.domainLimitsForEntries(typedEntries, []) : domainLimits
+    domainLimits: core.domainLimitsForEntries(typedEntries, domainLimits === undefined ? [] : domainLimits)
   }, []);
 
   assert.equal(result.type, "valid");
@@ -961,6 +984,16 @@ function matchReason(match) {
     default:
       throw new Error(`Unknown match type: ${match.type}`);
   }
+}
+
+function domainLimit(domain, limitMinutes = core.DEFAULT_LIMIT_MINUTES, overrides = {}) {
+  return {
+    domain,
+    limitMinutes,
+    blockDirectVisits: true,
+    blockInternalLinks: true,
+    ...overrides
+  };
 }
 
 function validStoredState(rawState, defaultEntries) {

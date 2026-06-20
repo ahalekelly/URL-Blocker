@@ -3,7 +3,7 @@
 
   const STATE_KEY = "blockerState";
   const BLOCKED_PAGE_HTML_KEY = "blockedPageHtml";
-  const SCHEMA_VERSION = 15;
+  const SCHEMA_VERSION = 16;
   const LEGACY_SCHEMA_VERSION = 6;
   const SUBREDDIT_SCHEMA_VERSION = 7;
   const LIMIT_RESET_SCHEMA_VERSION = 8;
@@ -13,6 +13,7 @@
   const SETTINGS_DELAY_MODE_SCHEMA_VERSION = 12;
   const YOUTUBE_SUBSCRIPTIONS_SCHEMA_VERSION = 13;
   const URL_SUBPATH_DEFAULTS_SCHEMA_VERSION = 14;
+  const DOMAIN_NAVIGATION_SETTINGS_SCHEMA_VERSION = 15;
   const SUBREDDIT_FEEDS_VALUE = "reddit.com/r/*";
   const YOUTUBE_SUBSCRIPTIONS_VALUE = "youtube.com/feed/subscriptions";
   const YOUTUBE_SHORTS_VALUE = "youtube.com/shorts";
@@ -29,6 +30,8 @@
   const MAX_ENTRIES = 1000;
   const MAX_BLOCKED_PAGE_HTML_LENGTH = 4000;
   const DEFAULT_LIMIT_MINUTES = 30;
+  const DEFAULT_BLOCK_DIRECT_VISITS = true;
+  const DEFAULT_BLOCK_INTERNAL_LINKS = true;
   const MAX_LIMIT_MINUTES = 960;
   const MAX_ROLLING_WINDOW_HOURS = 168;
   const DEFAULT_SETTINGS_DELAY_MINUTES = 60;
@@ -265,6 +268,7 @@
       SETTINGS_DELAY_SCHEMA_VERSION,
       SETTINGS_DELAY_MODE_SCHEMA_VERSION,
       SCHEMA_VERSION,
+      DOMAIN_NAVIGATION_SETTINGS_SCHEMA_VERSION,
       URL_SUBPATH_DEFAULTS_SCHEMA_VERSION,
       YOUTUBE_SUBSCRIPTIONS_SCHEMA_VERSION
     ].includes(rawState.schemaVersion) || !Array.isArray(rawState.entries)) {
@@ -321,6 +325,7 @@
   function storedStateWithCurrentShape(rawState) {
     switch (rawState.schemaVersion) {
       case SCHEMA_VERSION:
+      case DOMAIN_NAVIGATION_SETTINGS_SCHEMA_VERSION:
       case URL_SUBPATH_DEFAULTS_SCHEMA_VERSION:
       case YOUTUBE_SUBSCRIPTIONS_SCHEMA_VERSION:
         return rawState;
@@ -757,7 +762,7 @@
         return;
       }
 
-      pushUnknownKeyErrors(errors, limit, ["domain", "limitMinutes"], "Domain limit");
+      pushUnknownKeyErrors(errors, limit, ["domain", "limitMinutes", "blockDirectVisits", "blockInternalLinks"], "Domain limit");
 
       if (typeof limit.domain !== "string") {
         errors.push({ index: null, message: "Domain limit domain must be a string." });
@@ -788,8 +793,23 @@
         return;
       }
 
+      if (typeof limit.blockDirectVisits !== "boolean") {
+        errors.push({ index: null, message: "Domain limit block direct visits setting must be a boolean." });
+        return;
+      }
+
+      if (typeof limit.blockInternalLinks !== "boolean") {
+        errors.push({ index: null, message: "Domain limit block internal links setting must be a boolean." });
+        return;
+      }
+
       seen.add(domain);
-      domainLimits.push({ domain, limitMinutes: limit.limitMinutes });
+      domainLimits.push({
+        domain,
+        limitMinutes: limit.limitMinutes,
+        blockDirectVisits: limit.blockDirectVisits,
+        blockInternalLinks: limit.blockInternalLinks
+      });
     });
 
     expectedDomains.forEach((domain) => {
@@ -815,11 +835,17 @@
   }
 
   function domainLimitsForEntries(entries, existingDomainLimits) {
-    const existing = new Map(existingDomainLimits.map((limit) => [limit.domain, limit.limitMinutes]));
+    const existing = new Map(existingDomainLimits.map((limit) => [limit.domain, limit]));
 
     return rawEntryDomains(entries).map((domain) => ({
       domain,
-      limitMinutes: existing.has(domain) ? existing.get(domain) : DEFAULT_LIMIT_MINUTES
+      limitMinutes: existing.has(domain) ? existing.get(domain).limitMinutes : DEFAULT_LIMIT_MINUTES,
+      blockDirectVisits: existing.has(domain) && typeof existing.get(domain).blockDirectVisits === "boolean"
+        ? existing.get(domain).blockDirectVisits
+        : DEFAULT_BLOCK_DIRECT_VISITS,
+      blockInternalLinks: existing.has(domain) && typeof existing.get(domain).blockInternalLinks === "boolean"
+        ? existing.get(domain).blockInternalLinks
+        : DEFAULT_BLOCK_INTERNAL_LINKS
     }));
   }
 
@@ -969,7 +995,7 @@
         continue;
       }
 
-      const reason = rootUrlNavigationReason(navigationSource, associatedDomainForEntry(entry));
+      const reason = rootUrlNavigationReason(navigationSource, domainLimitForEntry(state, entry));
 
       switch (reason.type) {
         case "none":
@@ -994,7 +1020,18 @@
     return storedUrl.path === "" && domainMatchesHost(storedUrl.host, host);
   }
 
-  function rootUrlNavigationReason(source, entryDomain) {
+  function domainLimitForEntry(state, entry) {
+    const domain = associatedDomainForEntry(entry);
+    const limit = state.domainLimits.find((candidate) => candidate.domain === domain);
+
+    if (!limit) {
+      throw new Error(`Missing domain limit: ${domain}.`);
+    }
+
+    return limit;
+  }
+
+  function rootUrlNavigationReason(source, limit) {
     switch (source.type) {
       case "unknown":
         return { type: "none" };
@@ -1003,23 +1040,23 @@
           return { type: "none" };
         }
 
-        return rootReferrerNavigationReason(source.referrer, entryDomain);
+        return rootReferrerNavigationReason(source.referrer, limit);
       case "safariDocument":
         if (source.navigationType === "reload") {
           return { type: "none" };
         }
 
-        if (source.referrer === "") {
+        if (source.referrer === "" && limit.blockDirectVisits) {
           return { type: "match", reasonType: "rootDirectNavigation" };
         }
 
-        return rootReferrerNavigationReason(source.referrer, entryDomain);
+        return rootReferrerNavigationReason(source.referrer, limit);
       case "chromiumCommitted":
         if (source.transitionType === "reload") {
           return { type: "none" };
         }
 
-        if (source.transitionType === "typed" || source.transitionType === "auto_bookmark") {
+        if (limit.blockDirectVisits && (source.transitionType === "typed" || source.transitionType === "auto_bookmark")) {
           return { type: "match", reasonType: "rootDirectNavigation" };
         }
 
@@ -1029,8 +1066,8 @@
     }
   }
 
-  function rootReferrerNavigationReason(rawReferrer, entryDomain) {
-    if (sourceReferrerMatchesDomain(rawReferrer, entryDomain)) {
+  function rootReferrerNavigationReason(rawReferrer, limit) {
+    if (limit.blockInternalLinks && sourceReferrerMatchesDomain(rawReferrer, limit.domain)) {
       return { type: "match", reasonType: "rootSameDomainNavigation" };
     }
 
@@ -1457,6 +1494,7 @@
   function stateKeys(schemaVersion) {
     switch (schemaVersion) {
       case SCHEMA_VERSION:
+      case DOMAIN_NAVIGATION_SETTINGS_SCHEMA_VERSION:
       case URL_SUBPATH_DEFAULTS_SCHEMA_VERSION:
         return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "limitReset", "settingsDelay", "domainLimits"];
       case YOUTUBE_SUBSCRIPTIONS_SCHEMA_VERSION:
@@ -1474,6 +1512,8 @@
     DEFAULT_SETTINGS_DELAY,
     DEFAULT_SETTINGS_DELAY_MINUTES,
     DEFAULT_LIMIT_MINUTES,
+    DEFAULT_BLOCK_DIRECT_VISITS,
+    DEFAULT_BLOCK_INTERNAL_LINKS,
     DEFAULT_BLOCKED_PAGE_HTML,
     DEFAULT_LIMIT_RESET,
     DEFAULT_SCHEDULE,

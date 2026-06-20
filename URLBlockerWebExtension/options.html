@@ -157,6 +157,16 @@
         Limit minutes
         <input class="limit-input" type="number" min="1" max="960" step="1" inputmode="numeric" aria-label="Limit minutes">
       </label>
+      <div class="domain-settings">
+        <label class="choice-label domain-setting-label">
+          <input class="block-direct-visits-input" type="checkbox" aria-label="Block all pages except via links">
+          <span>Block all pages except via links</span>
+        </label>
+        <label class="choice-label domain-setting-label">
+          <input class="block-internal-links-input" type="checkbox" aria-label="Block links within this site">
+          <span>Block links within this site</span>
+        </label>
+      </div>
       <p class="row-error" hidden></p>
     </article>
   </template>

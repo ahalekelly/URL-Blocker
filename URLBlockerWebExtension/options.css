@@ -205,6 +205,16 @@ h2 {
   line-height: 1.2;
 }
 
+.default-group-controls,
+.domain-settings {
+  display: grid;
+  gap: 8px;
+}
+
+.default-group-controls {
+  justify-items: end;
+}
+
 .default-group-limit {
   display: inline-flex;
   align-items: center;
@@ -424,6 +434,13 @@ input[type="checkbox"].enabled-input:checked::before {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.domain-setting-label {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
 }
 
 .screen-time-rows {

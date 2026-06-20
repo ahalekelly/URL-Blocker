@@ -142,6 +142,38 @@ test("options keeps stats and limit reset visible when block schedule is always"
   assert.equal(page.byId("syncStatusText").textContent, "Sign in to sync settings and screen time limits.");
 });
 
+test("options saves domain navigation settings across same-domain rows", async () => {
+  const app = createExtensionApp();
+
+  app.backgroundApi.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "example.com" },
+    { id: "22222222-2222-4222-8222-222222222222", kind: "url", value: "example.com/focus" }
+  ]);
+  app.backgroundApi.grantedOrigins.push("*://*.example.com/*");
+
+  const page = await openOptionsPage(app);
+  let rows = page.customRows();
+
+  assert.equal(rows[0].querySelector(".block-direct-visits-input").checked, true);
+  assert.equal(rows[1].querySelector(".block-direct-visits-input").checked, true);
+
+  rows[0].querySelector(".block-direct-visits-input").checked = false;
+  await rows[0].querySelector(".block-direct-visits-input").dispatch("change");
+  rows = page.customRows();
+
+  assert.equal(rows[0].querySelector(".block-direct-visits-input").checked, false);
+  assert.equal(rows[1].querySelector(".block-direct-visits-input").checked, false);
+
+  rows[1].querySelector(".block-internal-links-input").checked = false;
+  await rows[1].querySelector(".block-internal-links-input").dispatch("change");
+  await page.byId("saveButton").dispatch("click");
+
+  const domainLimit = app.backgroundApi.storageData[core.STATE_KEY].domainLimits.find((limit) => limit.domain === "example.com");
+
+  assert.equal(domainLimit.blockDirectVisits, false);
+  assert.equal(domainLimit.blockInternalLinks, false);
+});
+
 test("options hides provider sign-in buttons when sync is signed in", async () => {
   const app = createExtensionApp({
     delaySyncNow: true,
@@ -354,7 +386,7 @@ test("end-to-end options save blocks a page and renders the blocked view", async
   const blocked = await openBlockedPage(app, app.backgroundApi.updatedTabs.at(-1).url);
 
   assert.equal(blocked.byId("blockedMessage").innerHTML, "<h1>Stay focused</h1>");
-  assert.equal(blocked.byId("blockedReason").textContent, "This URL matches one of your blocklist entries, and your blocking schedule is active.");
+  assert.equal(blocked.byId("blockedReason").textContent, "This page is blocked during your schedule.");
   assert.equal(blocked.byId("blockedTarget").textContent, "https://example.com/focus");
   assert.equal(blocked.byId("blockedCard").dataset.loading, undefined);
 });
@@ -363,12 +395,12 @@ test("blocked page renders each reason body without a built-in title", async () 
   const app = createExtensionApp();
   app.backgroundApi.storageData[core.STATE_KEY] = validState([]);
   const reasons = [
-    ["scheduleDirectMatch", "This URL matches one of your blocklist entries, and your blocking schedule is active."],
-    ["limitDirectMatch", "This URL matches one of your blocklist entries, and this domain has reached its time limit."],
-    ["scheduleRootDirectNavigation", "You blocked this domain root. This page was opened directly, from a bookmark, or without a referrer, so URL Blocker applied that root block here."],
-    ["limitRootDirectNavigation", "You blocked this domain root, and this domain has reached its time limit. This page was opened directly, from a bookmark, or without a referrer."],
-    ["scheduleRootSameDomainNavigation", "You blocked this domain root. This page was reached from another page on the same domain, so URL Blocker applied that root block here."],
-    ["limitRootSameDomainNavigation", "You blocked this domain root, and this domain has reached its time limit. This page was reached from another page on the same domain."]
+    ["scheduleDirectMatch", "This page is blocked during your schedule."],
+    ["limitDirectMatch", "You've reached your time limit for this site."],
+    ["scheduleRootDirectNavigation", "Direct visits to this blocked site are blocked during your schedule."],
+    ["limitRootDirectNavigation", "Direct visits to this site are blocked because you've reached your time limit."],
+    ["scheduleRootSameDomainNavigation", "Links within this blocked site are blocked during your schedule."],
+    ["limitRootSameDomainNavigation", "Links within this site are blocked because you've reached your time limit."]
   ];
 
   for (const [reason, body] of reasons) {
@@ -1004,12 +1036,16 @@ function rowTemplateContent() {
   const valueInput = new TestElement("input", "", "value-input");
   const limitLabel = new TestElement("label", "", "row-limit");
   const limitInput = new TestElement("input", "", "limit-input");
+  const domainSettings = new TestElement("div", "", "domain-settings");
+  const blockDirectVisitsInput = new TestElement("input", "", "block-direct-visits-input");
+  const blockInternalLinksInput = new TestElement("input", "", "block-internal-links-input");
   const rowError = new TestElement("p", "", "row-error");
 
   toolbar.append(segments, deleteButton);
   valueLabel.append(valueInput);
   limitLabel.append(limitInput);
-  row.append(toolbar, valueLabel, limitLabel, rowError);
+  domainSettings.append(blockDirectVisitsInput, blockInternalLinksInput);
+  row.append(toolbar, valueLabel, limitLabel, domainSettings, rowError);
   fragment.append(row);
 
   return fragment;

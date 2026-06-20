@@ -67,17 +67,17 @@
   function blockedReasonText(reason) {
     switch (reason) {
       case "scheduleDirectMatch":
-        return "This URL matches one of your blocklist entries, and your blocking schedule is active.";
+        return "This page is blocked during your schedule.";
       case "limitDirectMatch":
-        return "This URL matches one of your blocklist entries, and this domain has reached its time limit.";
+        return "You've reached your time limit for this site.";
       case "scheduleRootDirectNavigation":
-        return "You blocked this domain root. This page was opened directly, from a bookmark, or without a referrer, so URL Blocker applied that root block here.";
+        return "Direct visits to this blocked site are blocked during your schedule.";
       case "limitRootDirectNavigation":
-        return "You blocked this domain root, and this domain has reached its time limit. This page was opened directly, from a bookmark, or without a referrer.";
+        return "Direct visits to this site are blocked because you've reached your time limit.";
       case "scheduleRootSameDomainNavigation":
-        return "You blocked this domain root. This page was reached from another page on the same domain, so URL Blocker applied that root block here.";
+        return "Links within this blocked site are blocked during your schedule.";
       case "limitRootSameDomainNavigation":
-        return "You blocked this domain root, and this domain has reached its time limit. This page was reached from another page on the same domain.";
+        return "Links within this site are blocked because you've reached your time limit.";
       default:
         throw new Error(`Unknown blocked page reason: ${reason}`);
     }
