@@ -7,12 +7,12 @@
 - If I give you steering instructions mid task, you should still complete the original task unless I said otherwise
 - Save any important or useful information to this file, make sure to update it when information changes, you learn new things, or you are given new general instructions.
 
-## Committing
+## Workflow
 
 - After the initial draft of changes, run `make test` and then fix any issues. Then install all platforms with `make install`. Make sure all builds succeed. If the iOS build succeeds but the device install fails it's probably just that the iPhone isn't connected so don't bother retrying. Notify the user whether all installs succeeded or the iOS install failed.
 - If you made functional or UI changes, use Computer Use in Brave or Safari to verify your changes work as intended.
-- Run `git commit` outside the Codex sandbox. It needs to write Git metadata such as `.git/index.lock`, which can fail inside the sandbox.
 - After finishing and testing the change, commit the changes for that completed work.
+- If you're Codex, run `git commit` outside the Codex sandbox, it will fail inside the sandbox.
 
 ## Coding Preferences
 
