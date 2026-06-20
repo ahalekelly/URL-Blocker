@@ -317,15 +317,42 @@
   }
 
   function errorMessage(error) {
-    if (error instanceof Error && typeof error.errorCode === "string") {
-      return `${error.message}\n\nCode: ${error.errorCode}`;
+    const code = errorCode(error);
+    const message = error instanceof Error ? error.message : errorText(error);
+
+    if (code === "") {
+      return message;
     }
 
-    if (error instanceof Error) {
-      return error.message;
+    return `${message}\n\nCode: ${code}`;
+  }
+
+  function errorText(error) {
+    if (isPlainObject(error)) {
+      return JSON.stringify(error);
     }
 
     return String(error);
+  }
+
+  function errorCode(error) {
+    if (error instanceof Error && typeof error.errorCode === "string") {
+      return error.errorCode;
+    }
+
+    if (error instanceof Error && error.code !== undefined) {
+      return String(error.code);
+    }
+
+    if (isPlainObject(error) && typeof error.errorCode === "string") {
+      return error.errorCode;
+    }
+
+    if (isPlainObject(error) && error.code !== undefined) {
+      return String(error.code);
+    }
+
+    return "";
   }
 
   function errorFromReason(reason) {
@@ -333,7 +360,11 @@
       return reason;
     }
 
-    return new Error(String(reason));
+    return new Error(errorText(reason));
+  }
+
+  function isPlainObject(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 
   root.ScreenTimeStatsPage = {

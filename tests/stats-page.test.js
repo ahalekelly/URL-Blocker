@@ -108,6 +108,17 @@ test("stats page shows background errors", async () => {
   assert.equal(document.elements.statsShell.hidden, false);
 });
 
+test("stats page shows plain object errors with details", async () => {
+  const error = { message: "Stats request failed.", code: "StatsRequestTestError" };
+  const { document } = await openStatsPage({
+    getScreenTimeStats: Promise.reject(error),
+    getLocalScreenTimeStats: screenTimeStatsResponse()
+  });
+
+  assert.equal(document.elements.errorSummary.hidden, false);
+  assert.equal(document.elements.errorSummary.textContent, `${JSON.stringify(error)}\n\nCode: StatsRequestTestError`);
+});
+
 async function openStatsPage(response) {
   const document = statsDocument();
   const messages = [];

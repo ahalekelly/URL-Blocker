@@ -1672,6 +1672,10 @@
       return error.message;
     }
 
+    if (isPlainObject(error)) {
+      return JSON.stringify(error);
+    }
+
     return String(error);
   }
 

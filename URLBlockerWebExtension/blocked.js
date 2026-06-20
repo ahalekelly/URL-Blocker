@@ -66,6 +66,16 @@
       return { message: error.message, code: error.errorCode || error.code || error.name };
     }
 
+    if (isPlainObject(error)) {
+      const code = typeof error.errorCode === "string" ? error.errorCode : error.code;
+
+      return { message: JSON.stringify(error), code: code === undefined ? "UnknownError" : String(code) };
+    }
+
     return { message: String(error), code: "UnknownError" };
+  }
+
+  function isPlainObject(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 })(globalThis);

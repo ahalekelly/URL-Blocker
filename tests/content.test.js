@@ -78,7 +78,19 @@ test("content script ignores stale screen time after sleep", async () => {
   ]);
 });
 
-function runContentScript(url) {
+test("content script logs plain object message errors with details", async () => {
+  const error = { message: "Tab update failed.", code: "TabUpdateTestError" };
+  const page = runContentScript("https://x.com/home", { sendError: error });
+
+  await page.flush();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(page.consoleErrors)), [[
+    "URL Blocker could not check the current URL.",
+    { message: JSON.stringify(error), code: "TabUpdateTestError" }
+  ]]);
+});
+
+function runContentScript(url, options = {}) {
   const context = {
     browser: {
       runtime: {
@@ -86,15 +98,24 @@ function runContentScript(url) {
         async sendMessage(message) {
           context.messages.push(message);
 
+          if (options.sendError) {
+            throw options.sendError;
+          }
+
           return { type: "allowed" };
         }
       }
     },
-    console,
+    console: {
+      error(...args) {
+        context.consoleErrors.push(args);
+      }
+    },
     document: { hidden: false },
     intervals: [],
     listeners: new Map(),
     location: { href: url },
+    consoleErrors: [],
     messages: [],
     now: 0,
     Date: {
@@ -120,6 +141,7 @@ function runContentScript(url) {
 
   return {
     location: context.location,
+    consoleErrors: context.consoleErrors,
     messages: JSON.parse(JSON.stringify(context.messages)),
     dispatch(type, elapsedMs = 0) {
       context.now += elapsedMs;
@@ -129,6 +151,9 @@ function runContentScript(url) {
     setHidden(hidden, elapsedMs = 0) {
       context.document.hidden = hidden;
       this.dispatch("visibilitychange", elapsedMs);
+    },
+    async flush() {
+      await Promise.resolve();
     },
     tick(elapsedMs = context.intervals[0].delay) {
       context.now += elapsedMs;

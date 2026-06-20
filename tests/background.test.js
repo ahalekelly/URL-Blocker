@@ -100,6 +100,22 @@ test("getState loads default blocked pages when storage is empty", async () => {
   assert.deepEqual(response.state.domainLimits, core.emptyState(defaultBlockedPages).domainLimits);
 });
 
+test("getState reports plain object errors with details", async () => {
+  const api = fakeApi();
+
+  api.storage.local.get = async () => {
+    throw { message: "Storage request failed.", code: "StorageTestError" };
+  };
+
+  const response = await createBackgroundController(api).getState();
+
+  assert.deepEqual(response, {
+    type: "stateError",
+    error: JSON.stringify({ message: "Storage request failed.", code: "StorageTestError" }),
+    errorCode: "StorageTestError"
+  });
+});
+
 test("getLocalState resets unsupported stored blocklist versions", async () => {
   const api = fakeApi();
   const defaultState = core.emptyState(defaultBlockedPages);

@@ -1331,7 +1331,7 @@
       return reason;
     }
 
-    return codedError("UnhandledPromiseRejection", String(reason));
+    return codedError("UnhandledPromiseRejection", errorText(reason));
   }
 
   function codedError(errorCode, message) {
@@ -1342,9 +1342,17 @@
 
   function errorMessage(error) {
     const code = errorCode(error);
-    const message = error instanceof Error ? error.message : String(error);
+    const message = error instanceof Error ? error.message : errorText(error);
 
     return `${message}\n\nCode: ${code}`;
+  }
+
+  function errorText(error) {
+    if (isPlainObject(error)) {
+      return JSON.stringify(error);
+    }
+
+    return String(error);
   }
 
   function errorCode(error) {
@@ -1358,6 +1366,14 @@
 
     if (error instanceof Error && error.name !== "") {
       return error.name;
+    }
+
+    if (isPlainObject(error) && typeof error.errorCode === "string") {
+      return error.errorCode;
+    }
+
+    if (isPlainObject(error) && error.code !== undefined) {
+      return String(error.code);
     }
 
     return "UnknownError";
