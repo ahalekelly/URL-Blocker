@@ -20,6 +20,7 @@
   const SETTINGS_ACTIVATION_KEY = "settingsActivation";
   const SETTINGS_ACTIVATION_SCHEMA_VERSION = 1;
   const SUPABASE_SESSION_KEY = "supabaseSession";
+  const UNKNOWN_NAVIGATION_SOURCE = { type: "unknown" };
 
   function createBackgroundController(api) {
     const stateStorage = createStateStorage(api);
@@ -65,8 +66,8 @@
           requireKeys(message, ["type"], "openOptions message");
           return openOptions();
         case "urlChanged":
-          requireKeys(message, ["type", "url"], "urlChanged message");
-          return urlChanged(message.url, sender);
+          requireKeys(message, ["type", "url", "source"], "urlChanged message");
+          return urlChanged(message.url, message.source, sender);
         case "screenTimeElapsed":
           requireKeys(message, ["type", "url", "elapsedMs"], "screenTimeElapsed message");
           return logScreenTime(message.url, message.elapsedMs, sender);
@@ -201,12 +202,12 @@
       return { type: "synced" };
     }
 
-    async function urlChanged(rawUrl, sender) {
+    async function urlChanged(rawUrl, rawSource, sender) {
       if (!sender.tab || typeof sender.tab.id !== "number") {
         throw codedError("MissingSenderTab", "urlChanged message must come from a tab.");
       }
 
-      return redirectBlockedUrl(sender.tab.id, rawUrl);
+      return redirectBlockedUrl(sender.tab.id, rawUrl, documentNavigationSource(api, rawSource));
     }
 
     async function logScreenTime(rawUrl, elapsedMs, sender = {}) {
@@ -275,7 +276,7 @@
       };
     }
 
-    async function redirectBlockedUrl(tabId, rawUrl) {
+    async function redirectBlockedUrl(tabId, rawUrl, navigationSource) {
       if (typeof tabId !== "number") {
         throw codedError("BlockedTabInvalid", "Blocked tab ID must be a number.");
       }
@@ -287,9 +288,40 @@
       const state = await loadState();
       const nowMs = currentTimeMs();
       const usage = await loadScreenTimeUsage();
-      const match = core.findBlockedMatchingEntry(state, rawUrl, overLimitDomains(state, usage, nowMs));
+      const match = core.findBlockedMatchingEntry(state, rawUrl, overLimitDomains(state, usage, nowMs), navigationSource);
 
       return redirectFromMatch(tabId, rawUrl, match);
+    }
+
+    async function redirectCommittedNavigation(details) {
+      if (!isPlainObject(details)) {
+        throw codedError("CommittedNavigationInvalid", "Committed navigation details must be an object.");
+      }
+
+      if (typeof details.frameId !== "number") {
+        throw codedError("CommittedNavigationInvalid", "Committed navigation frame ID must be a number.");
+      }
+
+      if (details.frameId !== 0) {
+        return { type: "ignored" };
+      }
+
+      if (typeof details.tabId !== "number") {
+        throw codedError("CommittedNavigationInvalid", "Committed navigation tab ID must be a number.");
+      }
+
+      if (typeof details.url !== "string" || details.url.trim() === "") {
+        throw codedError("CommittedNavigationInvalid", "Committed navigation URL must be a string.");
+      }
+
+      if (typeof details.transitionType !== "string") {
+        throw codedError("CommittedNavigationInvalid", "Committed navigation transition type must be a string.");
+      }
+
+      return redirectBlockedUrl(details.tabId, details.url, {
+        type: "chromiumCommitted",
+        transitionType: details.transitionType
+      });
     }
 
     async function redirectOpenBlockedTabs(state) {
@@ -303,7 +335,7 @@
           return undefined;
         }
 
-        const match = core.findBlockedMatchingEntry(state, tab.url, limitedDomains);
+        const match = core.findBlockedMatchingEntry(state, tab.url, limitedDomains, UNKNOWN_NAVIGATION_SOURCE);
 
         return redirectFromMatch(tab.id, tab.url, match);
       }));
@@ -556,7 +588,7 @@
       await syncScreenTimeIfReady(state, { force: isOverLimit });
 
       if (isOverLimit && sender.tab && typeof sender.tab.id === "number") {
-        const match = core.findBlockedMatchingEntry(state, rawUrl, new Set([domain]));
+        const match = core.findBlockedMatchingEntry(state, rawUrl, new Set([domain]), UNKNOWN_NAVIGATION_SOURCE);
 
         await redirectFromMatch(sender.tab.id, rawUrl, match);
       }
@@ -1137,6 +1169,7 @@
       logScreenTime,
       openOptions,
       redirectBlockedUrl,
+      redirectCommittedNavigation,
       finishSavedState,
       saveState,
       signInWithProvider,
@@ -1592,6 +1625,34 @@
     return canSendNativeMessage(api) && api.runtime.getURL("options.html").startsWith("safari-web-extension://");
   }
 
+  function documentNavigationSource(api, source) {
+    if (!isPlainObject(source) || source.type !== "document") {
+      throw codedError("NavigationSourceInvalid", "Navigation source must be a document source.");
+    }
+
+    requireKeys(source, ["type", "referrer", "navigationType"], "Navigation source");
+
+    if (typeof source.referrer !== "string") {
+      throw codedError("NavigationSourceInvalid", "Navigation source referrer must be a string.");
+    }
+
+    if (typeof source.navigationType !== "string") {
+      throw codedError("NavigationSourceInvalid", "Navigation source navigation type must be a string.");
+    }
+
+    return {
+      type: isSafariRuntime(api) ? "safariDocument" : "document",
+      referrer: source.referrer,
+      navigationType: source.navigationType
+    };
+  }
+
+  function isSafariRuntime(api) {
+    return !!api.runtime
+      && typeof api.runtime.getURL === "function"
+      && api.runtime.getURL("options.html").startsWith("safari-web-extension://");
+  }
+
   function canSendNativeMessage(api) {
     return !!api.runtime && typeof api.runtime.sendNativeMessage === "function";
   }
@@ -1630,8 +1691,15 @@
           return;
         }
 
-        controller.redirectBlockedUrl(tabId, changeInfo.url)
+        controller.redirectBlockedUrl(tabId, changeInfo.url, UNKNOWN_NAVIGATION_SOURCE)
           .catch((error) => console.error("URL Blocker could not redirect updated tab.", errorResponse("error", error)));
+      });
+    }
+
+    if (api.webNavigation && api.webNavigation.onCommitted) {
+      api.webNavigation.onCommitted.addListener((details) => {
+        controller.redirectCommittedNavigation(details)
+          .catch((error) => console.error("URL Blocker could not redirect committed navigation.", errorResponse("error", error)));
       });
     }
 

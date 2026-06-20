@@ -148,12 +148,34 @@
 
     lastSentUrl = currentUrl;
     sendMessage(
-      { type: "urlChanged", url: currentUrl },
+      { type: "urlChanged", url: currentUrl, source: documentNavigationSource() },
       (error) => {
         lastSentUrl = "";
         console.error("URL Blocker could not check the current URL.", errorDetails(error));
       },
     );
+  }
+
+  function documentNavigationSource() {
+    return {
+      type: "document",
+      referrer: typeof document.referrer === "string" ? document.referrer : "",
+      navigationType: currentNavigationType()
+    };
+  }
+
+  function currentNavigationType() {
+    if (!root.performance || typeof root.performance.getEntriesByType !== "function") {
+      return "navigate";
+    }
+
+    const entries = root.performance.getEntriesByType("navigation");
+
+    if (entries.length === 0 || typeof entries[0].type !== "string") {
+      return "navigate";
+    }
+
+    return entries[0].type;
   }
 
   function sendMessage(payload, onError) {

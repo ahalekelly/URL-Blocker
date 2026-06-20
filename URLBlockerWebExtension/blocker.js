@@ -901,9 +901,20 @@
     return { type: "none" };
   }
 
-  function findBlockedMatchingEntry(state, rawUrl, overLimitDomains, date = new Date()) {
+  function findBlockedMatchingEntry(state, rawUrl, overLimitDomains, navigationSource, date = new Date()) {
     const match = findMatchingEntry(state, rawUrl);
 
+    switch (match.type) {
+      case "none":
+        return activeBlockedMatch(state, findRootUrlMatchingEntry(state, rawUrl, navigationSource), overLimitDomains, date);
+      case "match":
+        return activeBlockedMatch(state, match, overLimitDomains, date);
+      default:
+        throw new Error(`Unknown match type: ${match.type}`);
+    }
+  }
+
+  function activeBlockedMatch(state, match, overLimitDomains, date) {
     switch (match.type) {
       case "none":
         return { type: "none" };
@@ -920,6 +931,73 @@
       default:
         throw new Error(`Unknown match type: ${match.type}`);
     }
+  }
+
+  function findRootUrlMatchingEntry(state, rawUrl, navigationSource) {
+    const result = normalizePageUrl(rawUrl);
+
+    if (result.type === "invalid") {
+      return { type: "none" };
+    }
+
+    for (const entry of state.entries) {
+      if (!entryIsEnabled(entry) || !rootUrlEntryMatchesHost(entry, result.url.limitHost)) {
+        continue;
+      }
+
+      if (rootUrlNavigationMatches(navigationSource, associatedDomainForEntry(entry))) {
+        return { type: "match", entry };
+      }
+    }
+
+    return { type: "none" };
+  }
+
+  function rootUrlEntryMatchesHost(entry, host) {
+    if (entry.kind !== "url") {
+      return false;
+    }
+
+    const storedUrl = splitStoredUrl(entry.value);
+
+    return storedUrl.path === "" && domainMatchesHost(storedUrl.host, host);
+  }
+
+  function rootUrlNavigationMatches(source, entryDomain) {
+    switch (source.type) {
+      case "unknown":
+        return false;
+      case "document":
+        if (source.navigationType === "reload") {
+          return false;
+        }
+
+        return sourceReferrerMatchesDomain(source.referrer, entryDomain);
+      case "safariDocument":
+        if (source.navigationType === "reload") {
+          return false;
+        }
+
+        return source.referrer === "" || sourceReferrerMatchesDomain(source.referrer, entryDomain);
+      case "chromiumCommitted":
+        if (source.transitionType === "reload") {
+          return false;
+        }
+
+        return source.transitionType === "typed" || source.transitionType === "auto_bookmark";
+      default:
+        throw new Error(`Unknown navigation source type: ${source.type}`);
+    }
+  }
+
+  function sourceReferrerMatchesDomain(rawReferrer, entryDomain) {
+    const result = normalizePageUrl(rawReferrer);
+
+    if (result.type === "invalid") {
+      return false;
+    }
+
+    return domainMatchesHost(entryDomain, result.url.limitHost);
   }
 
   function screenTimeDomainForUrl(state, rawUrl) {

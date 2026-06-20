@@ -5,6 +5,15 @@ const core = require("../URLBlockerWebExtension/blocker.js");
 const defaultBlockedPages = require("../URLBlockerWebExtension/default-blocked-pages.json");
 const manifest = require("../URLBlockerWebExtension/manifest.json");
 
+const unknownSource = { type: "unknown" };
+const safariEmptySource = { type: "safariDocument", referrer: "", navigationType: "navigate" };
+const safariReloadSource = { type: "safariDocument", referrer: "", navigationType: "reload" };
+const sameDomainSource = { type: "document", referrer: "https://example.com/start", navigationType: "navigate" };
+const unrelatedSource = { type: "document", referrer: "https://other.example/start", navigationType: "navigate" };
+const chromeTypedSource = { type: "chromiumCommitted", transitionType: "typed" };
+const chromeBookmarkSource = { type: "chromiumCommitted", transitionType: "auto_bookmark" };
+const chromeReloadSource = { type: "chromiumCommitted", transitionType: "reload" };
+
 const ids = [
   "11111111-1111-4111-8111-111111111111",
   "22222222-2222-4222-8222-222222222222",
@@ -586,8 +595,8 @@ test("matches only when the schedule is active", () => {
     { type: "dailyWindow", startMinute: 540, endMinute: 1020 }
   );
 
-  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com", new Set(), new Date(2026, 0, 1, 9, 30)).type, "match");
-  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com", new Set(), new Date(2026, 0, 1, 17, 0)).type, "none");
+  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com", new Set(), unknownSource, new Date(2026, 0, 1, 9, 30)).type, "match");
+  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com", new Set(), unknownSource, new Date(2026, 0, 1, 17, 0)).type, "none");
 });
 
 test("matches when the schedule is active or the domain is over limit", () => {
@@ -596,10 +605,55 @@ test("matches when the schedule is active or the domain is over limit", () => {
     { type: "dailyWindow", startMinute: 540, endMinute: 1020 }
   );
 
-  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/focus", new Set(), new Date(2026, 0, 1, 9, 30)).type, "match");
-  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/focus", new Set(), new Date(2026, 0, 1, 17, 0)).type, "none");
-  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/focus", new Set(["example.com"]), new Date(2026, 0, 1, 17, 0)).type, "match");
-  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/other", new Set(["example.com"]), new Date(2026, 0, 1, 17, 0)).type, "none");
+  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/focus", new Set(), unknownSource, new Date(2026, 0, 1, 9, 30)).type, "match");
+  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/focus", new Set(), unknownSource, new Date(2026, 0, 1, 17, 0)).type, "none");
+  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/focus", new Set(["example.com"]), unknownSource, new Date(2026, 0, 1, 17, 0)).type, "match");
+  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/other", new Set(["example.com"]), unknownSource, new Date(2026, 0, 1, 17, 0)).type, "none");
+});
+
+test("expands root URL blocks for qualified navigation sources", () => {
+  const state = validState(
+    [{ id: ids[0], kind: "url", value: "example.com" }],
+    { type: "always" }
+  );
+
+  [safariEmptySource, sameDomainSource, chromeTypedSource, chromeBookmarkSource].forEach((source) => {
+    assert.equal(core.findBlockedMatchingEntry(state, "https://www.example.com/path", new Set(), source).type, "match", source.type);
+  });
+});
+
+test("does not expand root URL blocks for reloads or unrelated sources", () => {
+  const state = validState(
+    [{ id: ids[0], kind: "url", value: "example.com" }],
+    { type: "always" }
+  );
+
+  [unknownSource, safariReloadSource, unrelatedSource, chromeReloadSource].forEach((source) => {
+    assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/path", new Set(), source).type, "none", source.type);
+  });
+});
+
+test("keeps non-root URL and full domain matching unchanged", () => {
+  const pathState = validState(
+    [{ id: ids[0], kind: "url", value: "example.com/focus" }],
+    { type: "always" }
+  );
+  const domainState = validState(
+    [{ id: ids[1], kind: "domain", value: "example.com" }],
+    { type: "always" }
+  );
+
+  assert.equal(core.findBlockedMatchingEntry(pathState, "https://example.com/other", new Set(), safariEmptySource).type, "none");
+  assert.equal(core.findBlockedMatchingEntry(domainState, "https://example.com/other", new Set(), unknownSource).type, "match");
+});
+
+test("expands root URL blocks through URL host aliases", () => {
+  const state = validState(
+    [{ id: ids[0], kind: "url", value: "x.com" }],
+    { type: "always" }
+  );
+
+  assert.equal(core.findBlockedMatchingEntry(state, "https://twitter.com/messages", new Set(), chromeTypedSource).type, "match");
 });
 
 test("finds screen time domains by host only", () => {

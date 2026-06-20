@@ -5,12 +5,17 @@ const vm = require("node:vm");
 const assert = require("node:assert/strict");
 
 const contentScript = fs.readFileSync(path.join(__dirname, "../URLBlockerWebExtension/content.js"), "utf8");
+const defaultSource = { type: "document", referrer: "", navigationType: "navigate" };
+
+function urlChanged(url, source = defaultSource) {
+  return { type: "urlChanged", url, source };
+}
 
 test("content script reports the startup URL to the worker", async () => {
   const page = runContentScript("https://x.com/home");
 
   assert.deepEqual(page.messages, [
-    { type: "urlChanged", url: "https://x.com/home" }
+    urlChanged("https://x.com/home")
   ]);
 });
 
@@ -22,8 +27,8 @@ test("content script reports changed URLs once", async () => {
   page.dispatch("focus");
 
   assert.deepEqual(page.messages, [
-    { type: "urlChanged", url: "https://x.com" },
-    { type: "urlChanged", url: "https://x.com/home" }
+    urlChanged("https://x.com"),
+    urlChanged("https://x.com/home")
   ]);
 });
 
@@ -34,9 +39,9 @@ test("content script logs elapsed time before changed URLs", async () => {
   page.dispatch("popstate", 700);
 
   assert.deepEqual(page.messages, [
-    { type: "urlChanged", url: "https://x.com" },
+    urlChanged("https://x.com"),
     { type: "screenTimeElapsed", url: "https://x.com", elapsedMs: 700 },
-    { type: "urlChanged", url: "https://x.com/home" }
+    urlChanged("https://x.com/home")
   ]);
 });
 
@@ -46,9 +51,9 @@ test("content script periodically rechecks unchanged URLs", async () => {
   page.tick();
 
   assert.deepEqual(page.messages, [
-    { type: "urlChanged", url: "https://x.com/home" },
+    urlChanged("https://x.com/home"),
     { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 5000 },
-    { type: "urlChanged", url: "https://x.com/home" }
+    urlChanged("https://x.com/home")
   ]);
 });
 
@@ -59,7 +64,7 @@ test("content script logs elapsed time when the page hides", async () => {
   page.tick();
 
   assert.deepEqual(page.messages, [
-    { type: "urlChanged", url: "https://x.com/home" },
+    urlChanged("https://x.com/home"),
     { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 900 }
   ]);
 });
@@ -71,11 +76,18 @@ test("content script ignores stale screen time after sleep", async () => {
   page.tick();
 
   assert.deepEqual(page.messages, [
-    { type: "urlChanged", url: "https://x.com/home" },
-    { type: "urlChanged", url: "https://x.com/home" },
+    urlChanged("https://x.com/home"),
+    urlChanged("https://x.com/home"),
     { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 5000 },
-    { type: "urlChanged", url: "https://x.com/home" }
+    urlChanged("https://x.com/home")
   ]);
+});
+
+test("content script reports referrer and navigation type", async () => {
+  const source = { type: "document", referrer: "https://x.com/from", navigationType: "reload" };
+  const page = runContentScript("https://x.com/home", { referrer: source.referrer, navigationType: source.navigationType });
+
+  assert.deepEqual(page.messages, [urlChanged("https://x.com/home", source)]);
 });
 
 test("content script logs plain object message errors with details", async () => {
@@ -111,13 +123,22 @@ function runContentScript(url, options = {}) {
         context.consoleErrors.push(args);
       }
     },
-    document: { hidden: false },
+    document: { hidden: false, referrer: options.referrer || "" },
     intervals: [],
     listeners: new Map(),
     location: { href: url },
     consoleErrors: [],
     messages: [],
     now: 0,
+    performance: {
+      getEntriesByType(type) {
+        if (type !== "navigation") {
+          return [];
+        }
+
+        return [{ type: options.navigationType || "navigate" }];
+      }
+    },
     Date: {
       now() {
         return context.now;
