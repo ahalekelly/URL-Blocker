@@ -3,7 +3,7 @@
 
   const STATE_KEY = "blockerState";
   const BLOCKED_PAGE_HTML_KEY = "blockedPageHtml";
-  const SCHEMA_VERSION = 14;
+  const SCHEMA_VERSION = 15;
   const LEGACY_SCHEMA_VERSION = 6;
   const SUBREDDIT_SCHEMA_VERSION = 7;
   const LIMIT_RESET_SCHEMA_VERSION = 8;
@@ -12,7 +12,8 @@
   const SETTINGS_DELAY_SCHEMA_VERSION = 11;
   const SETTINGS_DELAY_MODE_SCHEMA_VERSION = 12;
   const YOUTUBE_SUBSCRIPTIONS_SCHEMA_VERSION = 13;
-  const SUBREDDIT_FEEDS_VALUE = "reddit.com/r/*";
+  const URL_SUBPATH_DEFAULTS_SCHEMA_VERSION = 14;
+  const SUBREDDIT_FEEDS_VALUE = "reddit.com/r";
   const YOUTUBE_SUBSCRIPTIONS_VALUE = "youtube.com/feed/subscriptions";
   const ADDED_DEFAULT_PARENT_VALUES = new Map([
     [SUBREDDIT_FEEDS_VALUE, "reddit.com"],
@@ -262,6 +263,7 @@
       SETTINGS_DELAY_SCHEMA_VERSION,
       SETTINGS_DELAY_MODE_SCHEMA_VERSION,
       SCHEMA_VERSION,
+      URL_SUBPATH_DEFAULTS_SCHEMA_VERSION,
       YOUTUBE_SUBSCRIPTIONS_SCHEMA_VERSION
     ].includes(rawState.schemaVersion) || !Array.isArray(rawState.entries)) {
       return rawState;
@@ -317,6 +319,7 @@
   function storedStateWithCurrentShape(rawState) {
     switch (rawState.schemaVersion) {
       case SCHEMA_VERSION:
+      case URL_SUBPATH_DEFAULTS_SCHEMA_VERSION:
       case YOUTUBE_SUBSCRIPTIONS_SCHEMA_VERSION:
         return rawState;
       case SETTINGS_DELAY_MODE_SCHEMA_VERSION:
@@ -385,8 +388,8 @@
         errors.push({ index, message: "Default entry ID must be a valid UUID." });
       }
 
-      if (entry.kind !== "url") {
-        errors.push({ index, message: "Default entries must be URL entries." });
+      if (entry.kind !== "url" && entry.kind !== "urlWithSubpaths") {
+        errors.push({ index, message: "Default entries must be URL matchers." });
       }
 
       if (typeof entry.value !== "string" || entry.value.trim() === "") {
@@ -409,7 +412,9 @@
 
       seen.add(id);
 
-      return { type: "default", id, kind: "url", value: normalizeUrlEntryValue(entry.value), enabled: true };
+      const result = normalizeEntryValue(entry.kind, entry.value);
+
+      return { type: "default", id, kind: entry.kind, value: result.value, enabled: true };
     });
   }
 
@@ -480,8 +485,8 @@
       errors.push({ index, message: "Entry ID must be a valid UUID." });
     }
 
-    if (entry.kind !== "url") {
-      errors.push({ index, message: "Default entries must be URL entries." });
+    if (entry.kind !== "url" && entry.kind !== "urlWithSubpaths") {
+      errors.push({ index, message: "Default entries must be URL matchers." });
     }
 
     if (typeof entry.value !== "string" || entry.value.trim() === "") {
@@ -1325,6 +1330,7 @@
   function stateKeys(schemaVersion) {
     switch (schemaVersion) {
       case SCHEMA_VERSION:
+      case URL_SUBPATH_DEFAULTS_SCHEMA_VERSION:
         return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "limitReset", "settingsDelay", "domainLimits"];
       case YOUTUBE_SUBSCRIPTIONS_SCHEMA_VERSION:
         return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "limitReset", "settingsDelay", "domainLimits"];

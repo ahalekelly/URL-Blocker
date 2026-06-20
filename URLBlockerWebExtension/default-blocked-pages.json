@@ -65,7 +65,7 @@
   {
     "type": "default",
     "id": "10000000-0000-4000-8000-000000000018",
-    "kind": "url",
+    "kind": "urlWithSubpaths",
     "value": "facebook.com/reel",
     "enabled": true
   },
@@ -156,8 +156,8 @@
   {
     "type": "default",
     "id": "10000000-0000-4000-8000-000000000029",
-    "kind": "url",
-    "value": "reddit.com/r/*",
+    "kind": "urlWithSubpaths",
+    "value": "reddit.com/r",
     "enabled": true
   },
   {

@@ -42,7 +42,7 @@ test("loads default blocked pages for new installs", () => {
     { type: "default", kind: "url", value: "tiktok.com/discover", enabled: true },
     { type: "default", kind: "url", value: "facebook.com", enabled: true },
     { type: "default", kind: "url", value: "facebook.com/watch", enabled: true },
-    { type: "default", kind: "url", value: "facebook.com/reel", enabled: true },
+    { type: "default", kind: "urlWithSubpaths", value: "facebook.com/reel", enabled: true },
     { type: "default", kind: "url", value: "facebook.com/groups/feed", enabled: true },
     { type: "default", kind: "url", value: "threads.com", enabled: true },
     { type: "default", kind: "url", value: "threads.com/following", enabled: true },
@@ -55,7 +55,7 @@ test("loads default blocked pages for new installs", () => {
     { type: "default", kind: "url", value: "youtube.com", enabled: true },
     { type: "default", kind: "url", value: "youtube.com/feed/subscriptions", enabled: true },
     { type: "default", kind: "url", value: "reddit.com", enabled: true },
-    { type: "default", kind: "url", value: "reddit.com/r/*", enabled: true },
+    { type: "default", kind: "urlWithSubpaths", value: "reddit.com/r", enabled: true },
     { type: "default", kind: "url", value: "ycombinator.com", enabled: true }
   ]);
   assert.deepEqual(state.schedule, { type: "dailyWindow", startMinute: 1380, endMinute: 1140 });
@@ -175,7 +175,7 @@ test("migrates legacy default entries and deleted defaults", () => {
 
 test("migrates schema 7 states to split subreddit feeds from reddit", () => {
   const oldDefaultEntries = defaultBlockedPages
-    .filter((entry) => entry.value !== "reddit.com/r/*")
+    .filter((entry) => entry.value !== "reddit.com/r")
     .map((entry) => ({ ...entry, enabled: entry.value !== "reddit.com" }));
   const state = validStoredState({
     schemaVersion: 7,
@@ -185,7 +185,7 @@ test("migrates schema 7 states to split subreddit feeds from reddit", () => {
     domainLimits: core.domainLimitsForEntries(oldDefaultEntries, [{ domain: "reddit.com", limitMinutes: 12 }])
   }, defaultBlockedPages);
   const redditEntry = state.entries.find((entry) => entry.value === "reddit.com");
-  const subredditEntry = state.entries.find((entry) => entry.value === "reddit.com/r/*");
+  const subredditEntry = state.entries.find((entry) => entry.value === "reddit.com/r");
 
   assert.equal(redditEntry.enabled, false);
   assert.equal(subredditEntry.enabled, false);
@@ -231,7 +231,10 @@ test("migrates schema 10 states to current social defaults", () => {
     }
 
     if (entry.value === "facebook.com/reel") {
-      return [entry, { type: "default", id: reelsId, kind: "url", value: "facebook.com/reels", enabled: true }];
+      return [
+        { ...entry, kind: "url", value: "facebook.com/reel" },
+        { type: "default", id: reelsId, kind: "url", value: "facebook.com/reels", enabled: true },
+      ];
     }
 
     return [entry];
@@ -314,6 +317,35 @@ test("migrates schema 13 states to add YouTube subscriptions", () => {
   assert.equal(state.entries.find((entry) => entry.value === "youtube.com/feed/subscriptions").enabled, true);
 });
 
+test("migrates schema 14 states to URL-and-subpaths defaults", () => {
+  const previousEntries = defaultBlockedPages.map((entry) => {
+    if (entry.value === "facebook.com/reel") {
+      return { ...entry, kind: "url", value: "facebook.com/reel/*", enabled: true };
+    }
+
+    if (entry.value === "reddit.com/r") {
+      return { ...entry, kind: "url", value: "reddit.com/r/*", enabled: true };
+    }
+
+    return { ...entry, enabled: true };
+  });
+  const state = validStoredState({
+    schemaVersion: 14,
+    entries: previousEntries,
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: core.DEFAULT_SCHEDULE,
+    limitReset: core.DEFAULT_LIMIT_RESET,
+    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
+    domainLimits: core.domainLimitsForEntries(previousEntries, [])
+  }, defaultBlockedPages);
+  const reelEntry = state.entries.find((entry) => entry.id === "10000000-0000-4000-8000-000000000018");
+  const subredditEntry = state.entries.find((entry) => entry.id === "10000000-0000-4000-8000-000000000029");
+
+  assert.equal(state.schemaVersion, core.SCHEMA_VERSION);
+  assert.deepEqual({ kind: reelEntry.kind, value: reelEntry.value }, { kind: "urlWithSubpaths", value: "facebook.com/reel" });
+  assert.deepEqual({ kind: subredditEntry.kind, value: subredditEntry.value }, { kind: "urlWithSubpaths", value: "reddit.com/r" });
+});
+
 test("repairs stored current states missing added defaults", () => {
   const previousDefaults = defaultBlockedPages.filter((entry) => entry.value !== "youtube.com/feed/subscriptions");
   const previousEntries = previousDefaults.map((entry) => ({ ...entry, enabled: entry.value === "youtube.com" }));
@@ -354,7 +386,7 @@ test("normalizes URL entries for path-based matching", () => {
   assert.equal(core.normalizeUrlEntryValue("https://tiktok.com/foryou"), "tiktok.com");
   assert.equal(core.normalizeUrlEntryValue("https://ycombinator.com/news"), "ycombinator.com");
   assert.equal(core.normalizeUrlEntryValue("https://linkedin.com/feed?trk=nav"), "linkedin.com");
-  assert.equal(core.normalizeUrlEntryValue("https://old.reddit.com/r/safari/top?t=month"), "reddit.com/r/*");
+  assert.equal(core.normalizeUrlEntryValue("https://old.reddit.com/r/safari/top?t=month"), "reddit.com/r");
   assert.throws(() => core.normalizeUrlEntryValue("ftp://example.com"), /http or https/);
   assert.throws(() => core.normalizeUrlEntryValue("https://user@example.com"), /usernames/);
   assert.throws(() => core.normalizeUrlEntryValue("https://example.com:8443/path"), /non-default ports/);
@@ -718,7 +750,7 @@ test("matches root reddit and subreddit feed entries separately", () => {
     { id: ids[0], kind: "url", value: "reddit.com" }
   ]);
   const subredditState = validState([
-    { id: ids[1], kind: "url", value: "reddit.com/r/*" }
+    { id: ids[1], kind: "urlWithSubpaths", value: "reddit.com/r" }
   ]);
 
   assert.equal(core.findMatchingEntry(rootState, "https://reddit.com").type, "match");
@@ -727,7 +759,7 @@ test("matches root reddit and subreddit feed entries separately", () => {
   assert.equal(core.findMatchingEntry(subredditState, "https://reddit.com").type, "none");
   assert.equal(core.findMatchingEntry(subredditState, "https://reddit.com/r/safari").type, "match");
   assert.equal(core.findMatchingEntry(subredditState, "https://old.reddit.com/r/safari/new?sort=hour").type, "match");
-  assert.equal(core.findMatchingEntry(subredditState, "https://reddit.com/r/safari/comments/123/post").type, "none");
+  assert.equal(core.findMatchingEntry(subredditState, "https://reddit.com/r/safari/comments/123/post").type, "match");
 });
 
 test("matches hardcoded URL aliases as their root URLs", () => {
