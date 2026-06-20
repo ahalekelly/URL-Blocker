@@ -13,7 +13,7 @@
   const SETTINGS_DELAY_MODE_SCHEMA_VERSION = 12;
   const YOUTUBE_SUBSCRIPTIONS_SCHEMA_VERSION = 13;
   const URL_SUBPATH_DEFAULTS_SCHEMA_VERSION = 14;
-  const SUBREDDIT_FEEDS_VALUE = "reddit.com/r";
+  const SUBREDDIT_FEEDS_VALUE = "reddit.com/r/*";
   const YOUTUBE_SUBSCRIPTIONS_VALUE = "youtube.com/feed/subscriptions";
   const YOUTUBE_SHORTS_VALUE = "youtube.com/shorts";
   const ADDED_DEFAULT_PARENT_VALUES = new Map([
