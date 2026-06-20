@@ -50,6 +50,7 @@
 
 h1,
 #blockedMessage,
+#blockedReason,
 #blockedMessage > *,
 p {
   margin: 0;
@@ -61,6 +62,7 @@ h1 {
 }
 
 #blockedMessage,
+#blockedReason,
 p {
   margin-top: 10px;
   color: var(--muted);

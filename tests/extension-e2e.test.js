@@ -16,6 +16,10 @@ const blockedScript = fs.readFileSync(path.join(resourcesPath, "blocked.js"), "u
 const statsScript = fs.readFileSync(path.join(resourcesPath, "stats.js"), "utf8");
 const id = "11111111-1111-4111-8111-111111111111";
 
+function blockedUrl(url, reason) {
+  return `safari-web-extension://extension/blocked.html?reason=${reason}#${encodeURIComponent(url)}`;
+}
+
 test("options requests only missing website access for saved states", async () => {
   const app = createExtensionApp();
 
@@ -337,21 +341,50 @@ test("end-to-end options save blocks a page and renders the blocked view", async
   assert.ok(app.backgroundApi.registeredScripts.at(-1).matches.includes("*://*.example.com/*"));
   assert.deepEqual(app.backgroundApi.updatedTabs, [{
     tabId: 2,
-    url: "safari-web-extension://extension/blocked.html#https%3A%2F%2Fexample.com%2Ffocus"
+    url: blockedUrl("https://example.com/focus", "scheduleDirectMatch")
   }]);
 
   await runContentScript(app, "https://example.com/focus", 3);
 
   assert.deepEqual(app.backgroundApi.updatedTabs.at(-1), {
     tabId: 3,
-    url: "safari-web-extension://extension/blocked.html#https%3A%2F%2Fexample.com%2Ffocus"
+    url: blockedUrl("https://example.com/focus", "scheduleDirectMatch")
   });
 
   const blocked = await openBlockedPage(app, app.backgroundApi.updatedTabs.at(-1).url);
 
   assert.equal(blocked.byId("blockedMessage").innerHTML, "<h1>Stay focused</h1>");
+  assert.equal(blocked.byId("blockedReason").textContent, "This URL matches one of your blocklist entries, and your blocking schedule is active.");
   assert.equal(blocked.byId("blockedTarget").textContent, "https://example.com/focus");
   assert.equal(blocked.byId("blockedCard").dataset.loading, undefined);
+});
+
+test("blocked page renders each reason body without a built-in title", async () => {
+  const app = createExtensionApp();
+  app.backgroundApi.storageData[core.STATE_KEY] = validState([]);
+  const reasons = [
+    ["scheduleDirectMatch", "This URL matches one of your blocklist entries, and your blocking schedule is active."],
+    ["limitDirectMatch", "This URL matches one of your blocklist entries, and this domain has reached its time limit."],
+    ["scheduleRootDirectNavigation", "You blocked this domain root. This page was opened directly, from a bookmark, or without a referrer, so URL Blocker applied that root block here."],
+    ["limitRootDirectNavigation", "You blocked this domain root, and this domain has reached its time limit. This page was opened directly, from a bookmark, or without a referrer."],
+    ["scheduleRootSameDomainNavigation", "You blocked this domain root. This page was reached from another page on the same domain, so URL Blocker applied that root block here."],
+    ["limitRootSameDomainNavigation", "You blocked this domain root, and this domain has reached its time limit. This page was reached from another page on the same domain."]
+  ];
+
+  for (const [reason, body] of reasons) {
+    const blocked = await openBlockedPage(app, blockedUrl("https://example.com/focus", reason));
+
+    assert.equal(blocked.byId("blockedMessage").innerHTML, "<h1>Stay focused</h1>");
+    assert.equal(blocked.byId("blockedReason").textContent, body);
+    assert.equal(blocked.byId("blockedTarget").textContent, "https://example.com/focus");
+  }
+});
+
+test("blocked page rejects unknown reasons", async () => {
+  await assert.rejects(
+    () => openBlockedPage(createExtensionApp(), blockedUrl("https://example.com/focus", "mystery")),
+    /Unknown blocked page reason/
+  );
 });
 
 test("options hides the save button before saved-state follow-up finishes", async () => {
@@ -445,6 +478,7 @@ async function openStatsPage(app) {
 }
 
 async function openBlockedPage(app, url) {
+  const pageUrl = new URL(url);
   const document = blockedDocument();
   const pendingMessages = [];
   const context = {
@@ -466,7 +500,8 @@ async function openBlockedPage(app, url) {
     },
     console,
     document,
-    location: { hash: new URL(url).hash }
+    location: { hash: pageUrl.hash, search: pageUrl.search },
+    URLSearchParams
   };
 
   vm.runInNewContext(blockedScript, context, { filename: "blocked.js" });
@@ -906,7 +941,7 @@ function optionsDocument() {
 }
 
 function blockedDocument() {
-  const document = testDocument(["blockedCard", "blockedMessage", "blockedTarget", "closeButton"]);
+  const document = testDocument(["blockedCard", "blockedMessage", "blockedReason", "blockedTarget", "closeButton"]);
 
   document.elements.blockedCard.dataset.loading = "";
   return document;

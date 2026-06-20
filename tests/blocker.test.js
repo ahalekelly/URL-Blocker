@@ -595,7 +595,10 @@ test("matches only when the schedule is active", () => {
     { type: "dailyWindow", startMinute: 540, endMinute: 1020 }
   );
 
-  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com", new Set(), unknownSource, new Date(2026, 0, 1, 9, 30)).type, "match");
+  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://example.com", new Set(), unknownSource, new Date(2026, 0, 1, 9, 30))), {
+    type: "match",
+    reason: "scheduleDirectMatch"
+  });
   assert.equal(core.findBlockedMatchingEntry(state, "https://example.com", new Set(), unknownSource, new Date(2026, 0, 1, 17, 0)).type, "none");
 });
 
@@ -605,20 +608,69 @@ test("matches when the schedule is active or the domain is over limit", () => {
     { type: "dailyWindow", startMinute: 540, endMinute: 1020 }
   );
 
-  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/focus", new Set(), unknownSource, new Date(2026, 0, 1, 9, 30)).type, "match");
+  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://example.com/focus", new Set(), unknownSource, new Date(2026, 0, 1, 9, 30))), {
+    type: "match",
+    reason: "scheduleDirectMatch"
+  });
   assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/focus", new Set(), unknownSource, new Date(2026, 0, 1, 17, 0)).type, "none");
-  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/focus", new Set(["example.com"]), unknownSource, new Date(2026, 0, 1, 17, 0)).type, "match");
+  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://example.com/focus", new Set(["example.com"]), unknownSource, new Date(2026, 0, 1, 17, 0))), {
+    type: "match",
+    reason: "limitDirectMatch"
+  });
   assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/other", new Set(["example.com"]), unknownSource, new Date(2026, 0, 1, 17, 0)).type, "none");
 });
 
-test("expands root URL blocks for qualified navigation sources", () => {
+test("explains root URL expansion from direct navigation", () => {
   const state = validState(
     [{ id: ids[0], kind: "url", value: "example.com" }],
     { type: "always" }
   );
 
-  [safariEmptySource, sameDomainSource, chromeTypedSource, chromeBookmarkSource].forEach((source) => {
-    assert.equal(core.findBlockedMatchingEntry(state, "https://www.example.com/path", new Set(), source).type, "match", source.type);
+  [safariEmptySource, chromeTypedSource, chromeBookmarkSource].forEach((source) => {
+    assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://www.example.com/path", new Set(), source)), {
+      type: "match",
+      reason: "scheduleRootDirectNavigation"
+    }, source.type);
+  });
+});
+
+test("explains root URL expansion from same-domain navigation", () => {
+  const state = validState(
+    [{ id: ids[0], kind: "url", value: "example.com" }],
+    { type: "always" }
+  );
+
+  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://www.example.com/path", new Set(), sameDomainSource)), {
+    type: "match",
+    reason: "scheduleRootSameDomainNavigation"
+  });
+});
+
+test("explains root URL expansion after reaching a domain limit", () => {
+  const state = validState(
+    [{ id: ids[0], kind: "url", value: "example.com" }],
+    { type: "dailyWindow", startMinute: 0, endMinute: 1 }
+  );
+
+  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://www.example.com/path", new Set(["example.com"]), safariEmptySource)), {
+    type: "match",
+    reason: "limitRootDirectNavigation"
+  });
+  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://www.example.com/path", new Set(["example.com"]), sameDomainSource)), {
+    type: "match",
+    reason: "limitRootSameDomainNavigation"
+  });
+});
+
+test("explains schedule before limit when both apply", () => {
+  const state = validState(
+    [{ id: ids[0], kind: "url", value: "example.com" }],
+    { type: "always" }
+  );
+
+  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://example.com", new Set(["example.com"]), unknownSource)), {
+    type: "match",
+    reason: "scheduleDirectMatch"
   });
 });
 
@@ -902,6 +954,17 @@ function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits, lim
   assert.equal(result.type, "valid");
 
   return result.state;
+}
+
+function matchReason(match) {
+  switch (match.type) {
+    case "match":
+      return { type: "match", reason: match.reason };
+    case "none":
+      return { type: "none" };
+    default:
+      throw new Error(`Unknown match type: ${match.type}`);
+  }
 }
 
 function validStoredState(rawState, defaultEntries) {

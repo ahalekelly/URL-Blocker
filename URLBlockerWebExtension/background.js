@@ -346,15 +346,15 @@
         case "none":
           return { type: "allowed" };
         case "match":
-          await api.tabs.update(tabId, { url: blockedPageUrl(rawUrl) });
+          await api.tabs.update(tabId, { url: blockedPageUrl(rawUrl, match.reason) });
           return { type: "redirected" };
         default:
           throw new Error(`Unknown match type: ${match.type}`);
       }
     }
 
-    function blockedPageUrl(rawUrl) {
-      return `${runtimeUrl("blocked.html")}#${encodeURIComponent(rawUrl)}`;
+    function blockedPageUrl(rawUrl, reason) {
+      return `${runtimeUrl("blocked.html")}?reason=${encodeURIComponent(reason)}#${encodeURIComponent(rawUrl)}`;
     }
 
     async function loadState() {

@@ -894,7 +894,7 @@
       }
 
       if (entryMatchesUrl(entry, result.url)) {
-        return { type: "match", entry };
+        return { type: "match", entry, reasonType: "directMatch" };
       }
     }
 
@@ -920,16 +920,40 @@
         return { type: "none" };
       case "match":
         if (isScheduleActive(state.schedule, date)) {
-          return match;
+          return blockedMatch(match, "schedule");
         }
 
         if (overLimitDomains.has(associatedDomainForEntry(match.entry))) {
-          return match;
+          return blockedMatch(match, "limit");
         }
 
         return { type: "none" };
       default:
         throw new Error(`Unknown match type: ${match.type}`);
+    }
+  }
+
+  function blockedMatch(match, activation) {
+    switch (match.reasonType) {
+      case "directMatch":
+        return { type: "match", entry: match.entry, reason: blockReason(activation, "scheduleDirectMatch", "limitDirectMatch") };
+      case "rootDirectNavigation":
+        return { type: "match", entry: match.entry, reason: blockReason(activation, "scheduleRootDirectNavigation", "limitRootDirectNavigation") };
+      case "rootSameDomainNavigation":
+        return { type: "match", entry: match.entry, reason: blockReason(activation, "scheduleRootSameDomainNavigation", "limitRootSameDomainNavigation") };
+      default:
+        throw new Error(`Unknown block reason type: ${match.reasonType}`);
+    }
+  }
+
+  function blockReason(activation, scheduleReason, limitReason) {
+    switch (activation) {
+      case "schedule":
+        return scheduleReason;
+      case "limit":
+        return limitReason;
+      default:
+        throw new Error(`Unknown block activation: ${activation}`);
     }
   }
 
@@ -945,8 +969,15 @@
         continue;
       }
 
-      if (rootUrlNavigationMatches(navigationSource, associatedDomainForEntry(entry))) {
-        return { type: "match", entry };
+      const reason = rootUrlNavigationReason(navigationSource, associatedDomainForEntry(entry));
+
+      switch (reason.type) {
+        case "none":
+          continue;
+        case "match":
+          return { type: "match", entry, reasonType: reason.reasonType };
+        default:
+          throw new Error(`Unknown root navigation reason: ${reason.type}`);
       }
     }
 
@@ -963,31 +994,47 @@
     return storedUrl.path === "" && domainMatchesHost(storedUrl.host, host);
   }
 
-  function rootUrlNavigationMatches(source, entryDomain) {
+  function rootUrlNavigationReason(source, entryDomain) {
     switch (source.type) {
       case "unknown":
-        return false;
+        return { type: "none" };
       case "document":
         if (source.navigationType === "reload") {
-          return false;
+          return { type: "none" };
         }
 
-        return sourceReferrerMatchesDomain(source.referrer, entryDomain);
+        return rootReferrerNavigationReason(source.referrer, entryDomain);
       case "safariDocument":
         if (source.navigationType === "reload") {
-          return false;
+          return { type: "none" };
         }
 
-        return source.referrer === "" || sourceReferrerMatchesDomain(source.referrer, entryDomain);
+        if (source.referrer === "") {
+          return { type: "match", reasonType: "rootDirectNavigation" };
+        }
+
+        return rootReferrerNavigationReason(source.referrer, entryDomain);
       case "chromiumCommitted":
         if (source.transitionType === "reload") {
-          return false;
+          return { type: "none" };
         }
 
-        return source.transitionType === "typed" || source.transitionType === "auto_bookmark";
+        if (source.transitionType === "typed" || source.transitionType === "auto_bookmark") {
+          return { type: "match", reasonType: "rootDirectNavigation" };
+        }
+
+        return { type: "none" };
       default:
         throw new Error(`Unknown navigation source type: ${source.type}`);
     }
+  }
+
+  function rootReferrerNavigationReason(rawReferrer, entryDomain) {
+    if (sourceReferrerMatchesDomain(rawReferrer, entryDomain)) {
+      return { type: "match", reasonType: "rootSameDomainNavigation" };
+    }
+
+    return { type: "none" };
   }
 
   function sourceReferrerMatchesDomain(rawReferrer, entryDomain) {

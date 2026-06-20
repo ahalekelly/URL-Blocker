@@ -14,6 +14,10 @@ function urlChangedMessage(url, source = defaultDocumentSource) {
   return { type: "urlChanged", url, source };
 }
 
+function blockedUrl(url, reason, scheme = "safari-web-extension") {
+  return `${scheme}://extension/blocked.html?reason=${reason}#${encodeURIComponent(url)}`;
+}
+
 test("saveState validates, writes storage, and queues settings activation", async () => {
   const api = fakeApi({ now: 0 });
   const controller = createBackgroundController(api);
@@ -383,7 +387,7 @@ test("urlChanged redirects matching sender tab to the blocked page", async () =>
   assert.equal(response.type, "redirected");
   assert.deepEqual(api.updatedTabs, [{
     tabId: 7,
-    url: "safari-web-extension://extension/blocked.html#https%3A%2F%2Fx.com%2Fhome"
+    url: blockedUrl("https://x.com/home", "scheduleDirectMatch")
   }]);
 });
 
@@ -422,7 +426,7 @@ test("urlChanged redirects matching URLs inside the schedule", async () => {
   assert.equal(response.type, "redirected");
   assert.deepEqual(api.updatedTabs, [{
     tabId: 7,
-    url: "safari-web-extension://extension/blocked.html#https%3A%2F%2Fx.com"
+    url: blockedUrl("https://x.com", "scheduleDirectMatch")
   }]);
 });
 
@@ -441,7 +445,7 @@ test("urlChanged expands root URL blocks for Safari empty referrers", async () =
   assert.equal(response.type, "redirected");
   assert.deepEqual(api.updatedTabs, [{
     tabId: 7,
-    url: "safari-web-extension://extension/blocked.html#https%3A%2F%2Fexample.com%2Fpath"
+    url: blockedUrl("https://example.com/path", "scheduleRootDirectNavigation")
   }]);
 });
 
@@ -474,6 +478,10 @@ test("urlChanged expands root URL blocks for Chromium same-domain referrers", as
   }), { tab: { id: 7 } });
 
   assert.equal(response.type, "redirected");
+  assert.deepEqual(api.updatedTabs, [{
+    tabId: 7,
+    url: blockedUrl("https://example.com/path", "scheduleRootSameDomainNavigation", "chrome-extension")
+  }]);
 });
 
 test("urlChanged allows root URL subpage reloads on Chromium", async () => {
@@ -506,6 +514,10 @@ test("committed Chromium typed navigation expands root URL blocks", async () => 
   });
 
   assert.equal(response.type, "redirected");
+  assert.deepEqual(api.updatedTabs, [{
+    tabId: 7,
+    url: blockedUrl("https://example.com/path", "scheduleRootDirectNavigation", "chrome-extension")
+  }]);
 });
 
 test("committed Chromium reload navigation does not expand root URL blocks", async () => {
@@ -936,7 +948,7 @@ test("urlChanged redirects matching URLs when rolling usage is over limit", asyn
   assert.equal(allowed.type, "allowed");
   assert.deepEqual(api.updatedTabs, [{
     tabId: 7,
-    url: "safari-web-extension://extension/blocked.html#https%3A%2F%2Fx.com%2Fhome"
+    url: blockedUrl("https://x.com/home", "limitDirectMatch")
   }]);
 });
 
@@ -960,7 +972,7 @@ test("screenTimeElapsed redirects matching URLs after crossing the limit", async
   assert.deepEqual(response, { type: "logged", domain: "x.com", totalMs: 60000, limitMinutes: 1, isOverLimit: true });
   assert.deepEqual(api.updatedTabs, [{
     tabId: 7,
-    url: "safari-web-extension://extension/blocked.html#https%3A%2F%2Fx.com%2Fhome"
+    url: blockedUrl("https://x.com/home", "limitDirectMatch")
   }]);
 });
 
@@ -1641,7 +1653,7 @@ test("saveState redirects open tabs that match the new state", async () => {
   assert.equal(finishResponse.type, "finishedSavedState");
   assert.deepEqual(api.updatedTabs, [{
     tabId: 7,
-    url: "safari-web-extension://extension/blocked.html#https%3A%2F%2Fx.com%2Fhome"
+    url: blockedUrl("https://x.com/home", "scheduleDirectMatch")
   }]);
 });
 
