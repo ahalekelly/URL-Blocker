@@ -30,6 +30,7 @@ MACOS_INSTALLED_EXTENSION := $(MACOS_INSTALLED_APP)/Contents/PlugIns/URLBlockerM
 SAFARI_EXTENSION_ID := com.akelly.URLBlockerMac.Extension
 SAFARI_EXTENSION_SDK := com.apple.Safari.web-extension
 LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister
+NPM = npm_config_script_shell="$(SHELL)" npm
 
 .PHONY: help test all build check install chrome-extension vivaldi-install brave-install ios-build ios-build-unsigned ios-signed-ipa ios-devices ios-install macos-build macos-install macos-clean-registration macos-verify macos-plugin-check
 
@@ -54,7 +55,7 @@ help:
 	@printf "  make macos-plugin-check      Fail if Safari sees duplicate URL Blocker extensions.\n"
 
 test:
-	npm test
+	$(NPM) test
 
 all: build
 
@@ -66,16 +67,16 @@ install:
 	$(MAKE) -j3 ios-install macos-install vivaldi-install
 
 chrome-extension:
-	npm run build-chrome-extension
+	$(NPM) run build-chrome-extension
 
 vivaldi-install:
 	node scripts/install-chromium-extension.mjs --preflight "$(VIVALDI_APP)" "$(VIVALDI_BINARY)" "$(CHROME_EXTENSION_DIR)"
-	npm run build-chrome-extension
+	$(NPM) run build-chrome-extension
 	node scripts/install-chromium-extension.mjs "$(VIVALDI_APP)" "$(VIVALDI_BINARY)" "$(CHROME_EXTENSION_DIR)"
 
 brave-install:
 	node scripts/install-chromium-extension.mjs --preflight "$(BRAVE_APP)" "$(BRAVE_BINARY)" "$(CHROME_EXTENSION_DIR)"
-	npm run build-chrome-extension
+	$(NPM) run build-chrome-extension
 	node scripts/install-chromium-extension.mjs "$(BRAVE_APP)" "$(BRAVE_BINARY)" "$(CHROME_EXTENSION_DIR)"
 
 ios-build:
