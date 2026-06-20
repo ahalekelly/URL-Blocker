@@ -15,9 +15,11 @@
   const URL_SUBPATH_DEFAULTS_SCHEMA_VERSION = 14;
   const SUBREDDIT_FEEDS_VALUE = "reddit.com/r";
   const YOUTUBE_SUBSCRIPTIONS_VALUE = "youtube.com/feed/subscriptions";
+  const YOUTUBE_SHORTS_VALUE = "youtube.com/shorts";
   const ADDED_DEFAULT_PARENT_VALUES = new Map([
     [SUBREDDIT_FEEDS_VALUE, "reddit.com"],
-    [YOUTUBE_SUBSCRIPTIONS_VALUE, "youtube.com"]
+    [YOUTUBE_SUBSCRIPTIONS_VALUE, "youtube.com"],
+    [YOUTUBE_SHORTS_VALUE, "youtube.com"]
   ]);
   const REMOVED_DEFAULT_IDS = new Set([
     "10000000-0000-4000-8000-000000000012",

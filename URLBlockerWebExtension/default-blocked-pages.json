@@ -148,6 +148,13 @@
   },
   {
     "type": "default",
+    "id": "10000000-0000-4000-8000-000000000031",
+    "kind": "urlWithSubpaths",
+    "value": "youtube.com/shorts",
+    "enabled": true
+  },
+  {
+    "type": "default",
     "id": "10000000-0000-4000-8000-000000000006",
     "kind": "url",
     "value": "reddit.com",

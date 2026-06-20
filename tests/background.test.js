@@ -1265,7 +1265,10 @@ test("syncNow repairs remote settings missing added defaults", async () => {
     now: 20 * 60 * 60 * 1000,
     supabaseConfig: configuredSupabase()
   });
-  const previousDefaults = defaultBlockedPages.filter((entry) => entry.value !== "youtube.com/feed/subscriptions");
+  const previousDefaults = defaultBlockedPages.filter((entry) => ![
+    "youtube.com/feed/subscriptions",
+    "youtube.com/shorts"
+  ].includes(entry.value));
   const previousEntries = previousDefaults.map((entry) => ({ ...entry, enabled: entry.value === "youtube.com" }));
   const remoteState = {
     schemaVersion: core.SCHEMA_VERSION,
@@ -1300,10 +1303,12 @@ test("syncNow repairs remote settings missing added defaults", async () => {
   try {
     const controller = createBackgroundController(api);
     const response = await controller.syncNow();
-    const repairedEntry = api.storageData[core.STATE_KEY].entries.find((entry) => entry.value === "youtube.com/feed/subscriptions");
+    const repairedSubscriptions = api.storageData[core.STATE_KEY].entries.find((entry) => entry.value === "youtube.com/feed/subscriptions");
+    const repairedShorts = api.storageData[core.STATE_KEY].entries.find((entry) => entry.value === "youtube.com/shorts");
 
     assert.equal(response.status.error, "");
-    assert.equal(repairedEntry.enabled, true);
+    assert.equal(repairedSubscriptions.enabled, true);
+    assert.equal(repairedShorts.enabled, true);
   } finally {
     globalThis.fetch = fetch;
   }

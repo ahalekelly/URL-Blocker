@@ -54,6 +54,7 @@ test("loads default blocked pages for new installs", () => {
     { type: "default", kind: "url", value: "linkedin.com", enabled: true },
     { type: "default", kind: "url", value: "youtube.com", enabled: true },
     { type: "default", kind: "url", value: "youtube.com/feed/subscriptions", enabled: true },
+    { type: "default", kind: "urlWithSubpaths", value: "youtube.com/shorts", enabled: true },
     { type: "default", kind: "url", value: "reddit.com", enabled: true },
     { type: "default", kind: "urlWithSubpaths", value: "reddit.com/r", enabled: true },
     { type: "default", kind: "url", value: "ycombinator.com", enabled: true }
@@ -272,7 +273,10 @@ test("migrates schema 8 states to default rolling limit resets", () => {
 });
 
 test("migrates schema 12 settings delay modes to minute values", () => {
-  const previousDefaults = defaultBlockedPages.filter((entry) => entry.value !== "youtube.com/feed/subscriptions");
+  const previousDefaults = defaultBlockedPages.filter((entry) => ![
+    "youtube.com/feed/subscriptions",
+    "youtube.com/shorts"
+  ].includes(entry.value));
   const oldState = {
     schemaVersion: 12,
     entries: previousDefaults.map((entry) => ({ ...entry, enabled: entry.value === "youtube.com" })),
@@ -293,6 +297,7 @@ test("migrates schema 12 settings delay modes to minute values", () => {
   assert.deepEqual(immediate.settingsDelay, { delayMinutes: 0 });
   assert.deepEqual(immediate.limitReset, { type: "daily", resetHour: 6 });
   assert.equal(immediate.entries.find((entry) => entry.value === "youtube.com/feed/subscriptions").enabled, true);
+  assert.equal(immediate.entries.find((entry) => entry.value === "youtube.com/shorts").enabled, true);
   assert.deepEqual(immediate.domainLimits.find((limit) => limit.domain === "youtube.com"), {
     domain: "youtube.com",
     limitMinutes: 11
@@ -301,7 +306,10 @@ test("migrates schema 12 settings delay modes to minute values", () => {
 });
 
 test("migrates schema 13 states to add YouTube subscriptions", () => {
-  const previousDefaults = defaultBlockedPages.filter((entry) => entry.value !== "youtube.com/feed/subscriptions");
+  const previousDefaults = defaultBlockedPages.filter((entry) => ![
+    "youtube.com/feed/subscriptions",
+    "youtube.com/shorts"
+  ].includes(entry.value));
   const previousEntries = previousDefaults.map((entry) => ({ ...entry, enabled: entry.value === "youtube.com" }));
   const state = validStoredState({
     schemaVersion: 13,
@@ -315,6 +323,7 @@ test("migrates schema 13 states to add YouTube subscriptions", () => {
 
   assert.equal(state.schemaVersion, core.SCHEMA_VERSION);
   assert.equal(state.entries.find((entry) => entry.value === "youtube.com/feed/subscriptions").enabled, true);
+  assert.equal(state.entries.find((entry) => entry.value === "youtube.com/shorts").enabled, true);
 });
 
 test("migrates schema 14 states to URL-and-subpaths defaults", () => {
@@ -347,7 +356,10 @@ test("migrates schema 14 states to URL-and-subpaths defaults", () => {
 });
 
 test("repairs stored current states missing added defaults", () => {
-  const previousDefaults = defaultBlockedPages.filter((entry) => entry.value !== "youtube.com/feed/subscriptions");
+  const previousDefaults = defaultBlockedPages.filter((entry) => ![
+    "youtube.com/feed/subscriptions",
+    "youtube.com/shorts"
+  ].includes(entry.value));
   const previousEntries = previousDefaults.map((entry) => ({ ...entry, enabled: entry.value === "youtube.com" }));
   const state = validStoredState({
     schemaVersion: core.SCHEMA_VERSION,
@@ -360,6 +372,7 @@ test("repairs stored current states missing added defaults", () => {
   }, defaultBlockedPages);
 
   assert.equal(state.entries.find((entry) => entry.value === "youtube.com/feed/subscriptions").enabled, true);
+  assert.equal(state.entries.find((entry) => entry.value === "youtube.com/shorts").enabled, true);
   assert.deepEqual(state.limitReset, { type: "daily", resetHour: 6 });
   assert.deepEqual(state.settingsDelay, { delayMinutes: 17 });
 });
