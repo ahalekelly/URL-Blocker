@@ -2,6 +2,7 @@ Work through this list one task at a time. Don't cut corners, complete all aspec
 
 Done, ready for review:
 Add per-domain settings for "Block all pages except via links", and "Block links within this site"
+Make browser back and forward navigations exempt from root URL expansion, matching reload behavior
 
 To Do:
 Add the current time limits are soft time limits that just block the specific pages, add a second set of hard time limits that block the site entirely when reached, which default to 60 min

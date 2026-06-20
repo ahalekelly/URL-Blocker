@@ -1036,13 +1036,13 @@
       case "unknown":
         return { type: "none" };
       case "document":
-        if (source.navigationType === "reload") {
+        if (source.navigationType === "reload" || source.navigationType === "back_forward") {
           return { type: "none" };
         }
 
         return rootReferrerNavigationReason(source.referrer, limit);
       case "safariDocument":
-        if (source.navigationType === "reload") {
+        if (source.navigationType === "reload" || source.navigationType === "back_forward") {
           return { type: "none" };
         }
 
@@ -1052,7 +1052,7 @@
 
         return rootReferrerNavigationReason(source.referrer, limit);
       case "chromiumCommitted":
-        if (source.transitionType === "reload") {
+        if (source.transitionType === "reload" || source.transitionQualifiers.includes("forward_back")) {
           return { type: "none" };
         }
 

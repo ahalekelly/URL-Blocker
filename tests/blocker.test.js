@@ -8,11 +8,14 @@ const manifest = require("../URLBlockerWebExtension/manifest.json");
 const unknownSource = { type: "unknown" };
 const safariEmptySource = { type: "safariDocument", referrer: "", navigationType: "navigate" };
 const safariReloadSource = { type: "safariDocument", referrer: "", navigationType: "reload" };
+const safariBackForwardSource = { type: "safariDocument", referrer: "", navigationType: "back_forward" };
 const sameDomainSource = { type: "document", referrer: "https://example.com/start", navigationType: "navigate" };
+const backForwardSource = { type: "document", referrer: "https://example.com/start", navigationType: "back_forward" };
 const unrelatedSource = { type: "document", referrer: "https://other.example/start", navigationType: "navigate" };
-const chromeTypedSource = { type: "chromiumCommitted", transitionType: "typed" };
-const chromeBookmarkSource = { type: "chromiumCommitted", transitionType: "auto_bookmark" };
-const chromeReloadSource = { type: "chromiumCommitted", transitionType: "reload" };
+const chromeTypedSource = { type: "chromiumCommitted", transitionType: "typed", transitionQualifiers: [] };
+const chromeBookmarkSource = { type: "chromiumCommitted", transitionType: "auto_bookmark", transitionQualifiers: [] };
+const chromeReloadSource = { type: "chromiumCommitted", transitionType: "reload", transitionQualifiers: [] };
+const chromeBackForwardSource = { type: "chromiumCommitted", transitionType: "link", transitionQualifiers: ["forward_back"] };
 
 const ids = [
   "11111111-1111-4111-8111-111111111111",
@@ -693,13 +696,13 @@ test("explains schedule before limit when both apply", () => {
   });
 });
 
-test("does not expand root URL blocks for reloads or unrelated sources", () => {
+test("does not expand root URL blocks for browser controls or unrelated sources", () => {
   const state = validState(
     [{ id: ids[0], kind: "url", value: "example.com" }],
     { type: "always" }
   );
 
-  [unknownSource, safariReloadSource, unrelatedSource, chromeReloadSource].forEach((source) => {
+  [unknownSource, safariReloadSource, safariBackForwardSource, backForwardSource, unrelatedSource, chromeReloadSource, chromeBackForwardSource].forEach((source) => {
     assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/path", new Set(), source).type, "none", source.type);
   });
 });
