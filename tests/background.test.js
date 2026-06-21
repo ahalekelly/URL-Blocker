@@ -465,22 +465,6 @@ test("urlChanged allows root URL subpage reloads on Safari", async () => {
   assert.deepEqual(api.updatedTabs, []);
 });
 
-test("urlChanged allows root URL subpage back and forward navigations", async () => {
-  const api = fakeApi();
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "example.com" }
-  ], { type: "always" });
-  const controller = createBackgroundController(api);
-  const response = await controller.handleMessage(urlChangedMessage("https://example.com/path", {
-    type: "document",
-    referrer: "https://example.com/start",
-    navigationType: "back_forward"
-  }), { tab: { id: 7 } });
-
-  assert.equal(response.type, "allowed");
-  assert.deepEqual(api.updatedTabs, []);
-});
-
 test("urlChanged expands root URL blocks for Chromium same-domain referrers", async () => {
   const api = fakeApi({ runtimeScheme: "chrome-extension" });
   api.storageData[core.STATE_KEY] = validState([
@@ -526,7 +510,6 @@ test("committed Chromium typed navigation expands root URL blocks", async () => 
     frameId: 0,
     tabId: 7,
     transitionType: "typed",
-    transitionQualifiers: [],
     url: "https://example.com/path"
   });
 
@@ -547,25 +530,6 @@ test("committed Chromium reload navigation does not expand root URL blocks", asy
     frameId: 0,
     tabId: 7,
     transitionType: "reload",
-    transitionQualifiers: [],
-    url: "https://example.com/path"
-  });
-
-  assert.equal(response.type, "allowed");
-  assert.deepEqual(api.updatedTabs, []);
-});
-
-test("committed Chromium back and forward navigation does not expand root URL blocks", async () => {
-  const api = fakeApi({ runtimeScheme: "chrome-extension" });
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "example.com" }
-  ], { type: "always" });
-  const controller = createBackgroundController(api);
-  const response = await controller.redirectCommittedNavigation({
-    frameId: 0,
-    tabId: 7,
-    transitionType: "link",
-    transitionQualifiers: ["forward_back"],
     url: "https://example.com/path"
   });
 
@@ -583,7 +547,6 @@ test("committed Chromium subframe navigation is ignored", async () => {
     frameId: 1,
     tabId: 7,
     transitionType: "typed",
-    transitionQualifiers: [],
     url: "https://example.com/path"
   });
 

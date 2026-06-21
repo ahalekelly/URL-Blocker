@@ -318,14 +318,9 @@
         throw codedError("CommittedNavigationInvalid", "Committed navigation transition type must be a string.");
       }
 
-      if (!Array.isArray(details.transitionQualifiers) || details.transitionQualifiers.some((qualifier) => typeof qualifier !== "string")) {
-        throw codedError("CommittedNavigationInvalid", "Committed navigation transition qualifiers must be strings.");
-      }
-
       return redirectBlockedUrl(details.tabId, details.url, {
         type: "chromiumCommitted",
-        transitionType: details.transitionType,
-        transitionQualifiers: details.transitionQualifiers
+        transitionType: details.transitionType
       });
     }
 
