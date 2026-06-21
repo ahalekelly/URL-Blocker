@@ -481,54 +481,6 @@ test("urlChanged allows root URL subpage back and forward navigations", async ()
   assert.deepEqual(api.updatedTabs, []);
 });
 
-test("urlChanged reblocks back and forward returns to a page it just blocked", async () => {
-  const api = fakeApi();
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "example.com" }
-  ], { type: "always" });
-  const controller = createBackgroundController(api);
-
-  const blocked = await controller.handleMessage(urlChangedMessage("https://example.com/path", {
-    type: "document",
-    referrer: "",
-    navigationType: "navigate"
-  }), { tab: { id: 7 } });
-
-  const back = await controller.handleMessage(urlChangedMessage("https://example.com/path", {
-    type: "document",
-    referrer: "",
-    navigationType: "back_forward"
-  }), { tab: { id: 7 } });
-
-  assert.equal(blocked.type, "redirected");
-  assert.equal(back.type, "redirected");
-  assert.equal(api.updatedTabs.length, 2);
-});
-
-test("urlChanged forgets a tab's blocked page once the tab closes", async () => {
-  const api = fakeApi();
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "example.com" }
-  ], { type: "always" });
-  const controller = createBackgroundController(api);
-
-  await controller.handleMessage(urlChangedMessage("https://example.com/path", {
-    type: "document",
-    referrer: "",
-    navigationType: "navigate"
-  }), { tab: { id: 7 } });
-  controller.forgetTab(7);
-
-  const back = await controller.handleMessage(urlChangedMessage("https://example.com/path", {
-    type: "document",
-    referrer: "",
-    navigationType: "back_forward"
-  }), { tab: { id: 7 } });
-
-  assert.equal(back.type, "allowed");
-  assert.equal(api.updatedTabs.length, 1);
-});
-
 test("urlChanged expands root URL blocks for Chromium same-domain referrers", async () => {
   const api = fakeApi({ runtimeScheme: "chrome-extension" });
   api.storageData[core.STATE_KEY] = validState([
@@ -619,34 +571,6 @@ test("committed Chromium back and forward navigation does not expand root URL bl
 
   assert.equal(response.type, "allowed");
   assert.deepEqual(api.updatedTabs, []);
-});
-
-test("committed Chromium reblocks back and forward returns to a page it just blocked", async () => {
-  const api = fakeApi({ runtimeScheme: "chrome-extension" });
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "example.com" }
-  ], { type: "always" });
-  const controller = createBackgroundController(api);
-
-  const blocked = await controller.redirectCommittedNavigation({
-    frameId: 0,
-    tabId: 7,
-    transitionType: "typed",
-    transitionQualifiers: [],
-    url: "https://example.com/path"
-  });
-
-  const back = await controller.redirectCommittedNavigation({
-    frameId: 0,
-    tabId: 7,
-    transitionType: "link",
-    transitionQualifiers: ["forward_back"],
-    url: "https://example.com/path"
-  });
-
-  assert.equal(blocked.type, "redirected");
-  assert.equal(back.type, "redirected");
-  assert.equal(api.updatedTabs.length, 2);
 });
 
 test("committed Chromium subframe navigation is ignored", async () => {

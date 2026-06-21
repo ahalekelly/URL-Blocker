@@ -29,7 +29,6 @@
     const screenTimeStorage = createScreenTimeStorage(api);
     const settingsSyncStorage = createSettingsSyncStorage(api);
     const sessionStorage = createSupabaseSessionStorage(api);
-    const blockedHistoryByTab = new Map();
     let configPromise;
     let lastSyncError = "";
     let activationTimer = 0;
@@ -289,34 +288,9 @@
       const state = await loadState();
       const nowMs = currentTimeMs();
       const usage = await loadScreenTimeUsage();
-      const source = effectiveNavigationSource(tabId, rawUrl, navigationSource);
-      const match = core.findBlockedMatchingEntry(state, rawUrl, overLimitDomains(state, usage, nowMs), source);
-
-      if (match.type === "match") {
-        blockedHistoryByTab.set(tabId, { url: rawUrl, source });
-      }
+      const match = core.findBlockedMatchingEntry(state, rawUrl, overLimitDomains(state, usage, nowMs), navigationSource);
 
       return redirectFromMatch(tabId, rawUrl, match);
-    }
-
-    // Returning to a page we blocked exempts history navigation, which would let "back" from the
-    // block notice reopen it. Re-evaluate with the source that first blocked the page so it stays blocked.
-    function effectiveNavigationSource(tabId, rawUrl, navigationSource) {
-      if (!core.isHistoryNavigation(navigationSource)) {
-        return navigationSource;
-      }
-
-      const blocked = blockedHistoryByTab.get(tabId);
-
-      if (blocked && blocked.url === rawUrl) {
-        return blocked.source;
-      }
-
-      return navigationSource;
-    }
-
-    function forgetTab(tabId) {
-      blockedHistoryByTab.delete(tabId);
     }
 
     async function redirectCommittedNavigation(details) {
@@ -1202,7 +1176,6 @@
       redirectBlockedUrl,
       redirectCommittedNavigation,
       finishSavedState,
-      forgetTab,
       saveState,
       signInWithProvider,
       signOut,
@@ -1726,10 +1699,6 @@
         controller.redirectBlockedUrl(tabId, changeInfo.url, UNKNOWN_NAVIGATION_SOURCE)
           .catch((error) => console.error("URL Blocker could not redirect updated tab.", errorResponse("error", error)));
       });
-    }
-
-    if (api.tabs.onRemoved) {
-      api.tabs.onRemoved.addListener((tabId) => controller.forgetTab(tabId));
     }
 
     if (api.webNavigation && api.webNavigation.onCommitted) {
