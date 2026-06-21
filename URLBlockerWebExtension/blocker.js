@@ -1031,6 +1031,20 @@
     return limit;
   }
 
+  function isHistoryNavigation(source) {
+    switch (source.type) {
+      case "unknown":
+        return false;
+      case "document":
+      case "safariDocument":
+        return source.navigationType === "back_forward";
+      case "chromiumCommitted":
+        return source.transitionQualifiers.includes("forward_back");
+      default:
+        throw new Error(`Unknown navigation source type: ${source.type}`);
+    }
+  }
+
   function rootUrlNavigationReason(source, limit) {
     switch (source.type) {
       case "unknown":
@@ -1535,6 +1549,7 @@
     entryMatchesUrl,
     findBlockedMatchingEntry,
     findMatchingEntry,
+    isHistoryNavigation,
     isScheduleActive,
     newEntry,
     normalizeDomainEntryValue,
