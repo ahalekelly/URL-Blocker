@@ -449,6 +449,25 @@ test("urlChanged expands root URL blocks for Safari empty referrers", async () =
   }]);
 });
 
+test("urlChanged blocks back and forward returns to a root URL page", async () => {
+  const api = fakeApi();
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "example.com" }
+  ], { type: "always" });
+  const controller = createBackgroundController(api);
+  const response = await controller.handleMessage(urlChangedMessage("https://example.com/path", {
+    type: "document",
+    referrer: "",
+    navigationType: "back_forward"
+  }), { tab: { id: 7 } });
+
+  assert.equal(response.type, "redirected");
+  assert.deepEqual(api.updatedTabs, [{
+    tabId: 7,
+    url: blockedUrl("https://example.com/path", "scheduleRootDirectNavigation")
+  }]);
+});
+
 test("urlChanged allows root URL subpage reloads on Safari", async () => {
   const api = fakeApi();
   api.storageData[core.STATE_KEY] = validState([
