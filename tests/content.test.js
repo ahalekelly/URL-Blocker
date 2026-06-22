@@ -7,6 +7,10 @@ const assert = require("node:assert/strict");
 const contentScript = fs.readFileSync(path.join(__dirname, "../URLBlockerWebExtension/content.js"), "utf8");
 const defaultSource = { type: "document", referrer: "", navigationType: "navigate" };
 
+function documentSource(referrer) {
+  return { type: "document", referrer, navigationType: "navigate" };
+}
+
 function urlChanged(url, source = defaultSource) {
   return { type: "urlChanged", url, source };
 }
@@ -28,7 +32,19 @@ test("content script reports changed URLs once", async () => {
 
   assert.deepEqual(page.messages, [
     urlChanged("https://x.com"),
-    urlChanged("https://x.com/home")
+    urlChanged("https://x.com/home", documentSource("https://x.com"))
+  ]);
+});
+
+test("content script reports SPA route changes as internal navigation", async () => {
+  const page = runContentScript("https://www.youtube.com", { referrer: "https://search.example/" });
+
+  page.location.href = "https://www.youtube.com/watch?v=abc123";
+  page.dispatch("popstate");
+
+  assert.deepEqual(page.messages, [
+    urlChanged("https://www.youtube.com", documentSource("https://search.example/")),
+    urlChanged("https://www.youtube.com/watch?v=abc123", documentSource("https://www.youtube.com"))
   ]);
 });
 
@@ -41,7 +57,7 @@ test("content script logs elapsed time before changed URLs", async () => {
   assert.deepEqual(page.messages, [
     urlChanged("https://x.com"),
     { type: "screenTimeElapsed", url: "https://x.com", elapsedMs: 700 },
-    urlChanged("https://x.com/home")
+    urlChanged("https://x.com/home", documentSource("https://x.com"))
   ]);
 });
 

@@ -146,9 +146,10 @@
       return;
     }
 
+    const previousUrl = lastSentUrl;
     lastSentUrl = currentUrl;
     sendMessage(
-      { type: "urlChanged", url: currentUrl, source: documentNavigationSource() },
+      { type: "urlChanged", url: currentUrl, source: documentNavigationSource(previousUrl, currentUrl) },
       (error) => {
         lastSentUrl = "";
         console.error("URL Blocker could not check the current URL.", errorDetails(error));
@@ -156,12 +157,20 @@
     );
   }
 
-  function documentNavigationSource() {
+  function documentNavigationSource(previousUrl, currentUrl) {
     return {
       type: "document",
-      referrer: typeof document.referrer === "string" ? document.referrer : "",
+      referrer: navigationReferrer(previousUrl, currentUrl),
       navigationType: currentNavigationType()
     };
+  }
+
+  function navigationReferrer(previousUrl, currentUrl) {
+    if (previousUrl !== "" && previousUrl !== currentUrl) {
+      return previousUrl;
+    }
+
+    return typeof document.referrer === "string" ? document.referrer : "";
   }
 
   function currentNavigationType() {
