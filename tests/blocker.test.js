@@ -693,6 +693,31 @@ test("explains schedule before limit when both apply", () => {
   });
 });
 
+test("does not expand root URL blocks when only the &/# part of the URL changed", () => {
+  const state = validState(
+    [{ id: ids[0], kind: "url", value: "example.com" }],
+    { type: "always" }
+  );
+  const samePageReferrers = [
+    "https://example.com/path?tab=1&x=1",
+    "https://example.com/path?tab=1#section",
+    "https://example.com/path?tab=1"
+  ];
+
+  ["document", "safariDocument"].forEach((type) => {
+    samePageReferrers.forEach((referrer) => {
+      const source = { type, referrer, navigationType: "navigate" };
+      assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/path?tab=1&x=2", new Set(), source).type, "none", `${type} ${referrer}`);
+    });
+
+    const firstParamSource = { type, referrer: "https://example.com/path?tab=1", navigationType: "navigate" };
+    assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://example.com/path?tab=2", new Set(), firstParamSource)), {
+      type: "match",
+      reason: "scheduleRootSameDomainNavigation"
+    }, type);
+  });
+});
+
 test("does not expand root URL blocks for reloads or unrelated sources", () => {
   const state = validState(
     [{ id: ids[0], kind: "url", value: "example.com" }],

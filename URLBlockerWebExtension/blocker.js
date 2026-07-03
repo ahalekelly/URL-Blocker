@@ -990,6 +990,10 @@
       return { type: "none" };
     }
 
+    if (sourceReferrerIsSamePage(navigationSource, rawUrl)) {
+      return { type: "none" };
+    }
+
     for (const entry of state.entries) {
       if (!entryIsEnabled(entry) || !rootUrlEntryMatchesHost(entry, result.url.limitHost)) {
         continue;
@@ -1072,6 +1076,25 @@
     }
 
     return { type: "none" };
+  }
+
+  function sourceReferrerIsSamePage(source, rawUrl) {
+    switch (source.type) {
+      case "unknown":
+      case "chromiumCommitted":
+        return false;
+      case "document":
+      case "safariDocument":
+        return pageChangeKey(source.referrer) === pageChangeKey(rawUrl);
+      default:
+        throw new Error(`Unknown navigation source type: ${source.type}`);
+    }
+  }
+
+  // Everything up to the first & or # identifies the page: extra query params
+  // and fragments change on SPAs without the user leaving the page.
+  function pageChangeKey(rawUrl) {
+    return rawUrl.split(/[&#]/, 1)[0];
   }
 
   function sourceReferrerMatchesDomain(rawReferrer, entryDomain) {
