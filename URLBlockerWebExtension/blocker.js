@@ -1060,7 +1060,7 @@
           return { type: "none" };
         }
 
-        if (limit.blockDirectVisits && (source.transitionType === "typed" || source.transitionType === "auto_bookmark")) {
+        if (limit.blockDirectVisits && ["typed", "generated", "auto_bookmark"].includes(source.transitionType)) {
           return { type: "match", reasonType: "rootDirectNavigation" };
         }
 

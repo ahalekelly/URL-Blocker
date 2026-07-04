@@ -12,6 +12,7 @@ const sameDomainSource = { type: "document", referrer: "https://example.com/star
 const unrelatedSource = { type: "document", referrer: "https://other.example/start", navigationType: "navigate" };
 const chromeTypedSource = { type: "chromiumCommitted", transitionType: "typed" };
 const chromeBookmarkSource = { type: "chromiumCommitted", transitionType: "auto_bookmark" };
+const chromeOmniboxSource = { type: "chromiumCommitted", transitionType: "generated" };
 const chromeReloadSource = { type: "chromiumCommitted", transitionType: "reload" };
 
 const ids = [
@@ -620,7 +621,7 @@ test("explains root URL expansion from direct navigation", () => {
     { type: "always" }
   );
 
-  [safariEmptySource, chromeTypedSource, chromeBookmarkSource].forEach((source) => {
+  [safariEmptySource, chromeTypedSource, chromeOmniboxSource, chromeBookmarkSource].forEach((source) => {
     assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://www.example.com/path", new Set(), source)), {
       type: "match",
       reason: "scheduleRootDirectNavigation"
@@ -670,6 +671,7 @@ test("uses domain settings for root URL expansion", () => {
 
   assert.equal(core.findBlockedMatchingEntry(directVisitsOff, "https://example.com/path", new Set(), safariEmptySource).type, "none");
   assert.equal(core.findBlockedMatchingEntry(directVisitsOff, "https://example.com/path", new Set(), chromeTypedSource).type, "none");
+  assert.equal(core.findBlockedMatchingEntry(directVisitsOff, "https://example.com/path", new Set(), chromeOmniboxSource).type, "none");
   assert.deepEqual(matchReason(core.findBlockedMatchingEntry(directVisitsOff, "https://example.com/path", new Set(), sameDomainSource)), {
     type: "match",
     reason: "scheduleRootSameDomainNavigation"
