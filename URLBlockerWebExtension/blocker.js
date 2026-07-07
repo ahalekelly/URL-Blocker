@@ -1050,7 +1050,7 @@
           return { type: "none" };
         }
 
-        if (source.referrer === "" && limit.blockDirectVisits) {
+        if (source.referrer.type === "known" && source.referrer.url === "" && limit.blockDirectVisits) {
           return { type: "match", reasonType: "rootDirectNavigation" };
         }
 
@@ -1070,9 +1070,28 @@
     }
   }
 
-  function rootReferrerNavigationReason(rawReferrer, limit) {
-    if (limit.blockInternalLinks && sourceReferrerMatchesDomain(rawReferrer, limit.domain)) {
+  function rootReferrerNavigationReason(referrer, limit) {
+    switch (referrer.type) {
+      case "known":
+        if (limit.blockInternalLinks && sourceReferrerMatchesDomain(referrer.url, limit.domain)) {
+          return { type: "match", reasonType: "rootSameDomainNavigation" };
+        }
+
+        return { type: "none" };
+      case "unknown":
+        return unknownReferrerNavigationReason(limit);
+      default:
+        throw new Error(`Unknown referrer type: ${referrer.type}`);
+    }
+  }
+
+  function unknownReferrerNavigationReason(limit) {
+    if (limit.blockInternalLinks) {
       return { type: "match", reasonType: "rootSameDomainNavigation" };
+    }
+
+    if (limit.blockDirectVisits) {
+      return { type: "match", reasonType: "rootDirectNavigation" };
     }
 
     return { type: "none" };
@@ -1085,7 +1104,14 @@
         return false;
       case "document":
       case "safariDocument":
-        return pageChangeKey(source.referrer) === pageChangeKey(rawUrl);
+        switch (source.referrer.type) {
+          case "known":
+            return pageChangeKey(source.referrer.url) === pageChangeKey(rawUrl);
+          case "unknown":
+            return false;
+          default:
+            throw new Error(`Unknown referrer type: ${source.referrer.type}`);
+        }
       default:
         throw new Error(`Unknown navigation source type: ${source.type}`);
     }

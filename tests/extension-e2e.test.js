@@ -555,6 +555,24 @@ async function runContentScript(app, url, tabId) {
           pendingMessages.push(result);
           return result;
         }
+      },
+      storage: {
+        local: {
+          async get(key) {
+            if (key === null) {
+              return { ...app.backgroundApi.storageData };
+            }
+
+            if (Array.isArray(key)) {
+              return Object.fromEntries(key.map((storageKey) => [storageKey, app.backgroundApi.storageData[storageKey]]));
+            }
+
+            return { [key]: app.backgroundApi.storageData[key] };
+          },
+          async set(value) {
+            Object.assign(app.backgroundApi.storageData, JSON.parse(JSON.stringify(value)));
+          }
+        }
       }
     },
     console,
@@ -574,7 +592,9 @@ async function runContentScript(app, url, tabId) {
   };
 
   vm.runInNewContext(contentScript, context, { filename: "content.js" });
+  await settle();
   await Promise.all(pendingMessages);
+  await settle();
 }
 
 function createExtensionApp(overrides = {}) {
@@ -718,6 +738,14 @@ function fakeBackgroundApi(overrides) {
     storage: {
       local: {
         async get(key) {
+          if (key === null) {
+            return { ...api.storageData };
+          }
+
+          if (Array.isArray(key)) {
+            return Object.fromEntries(key.map((storageKey) => [storageKey, api.storageData[storageKey]]));
+          }
+
           return { [key]: api.storageData[key] };
         },
         async remove(key) {

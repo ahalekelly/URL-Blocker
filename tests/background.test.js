@@ -8,7 +8,17 @@ const sync = require("../URLBlockerWebExtension/supabase-sync.js");
 const { createBackgroundController } = require("../URLBlockerWebExtension/background.js");
 
 const id = "11111111-1111-4111-8111-111111111111";
-const defaultDocumentSource = { type: "document", referrer: "https://other.example/from", navigationType: "navigate" };
+const referrerRecordPrefix = "referrerRecords:";
+const referrerRecordRetentionMs = 30 * 24 * 60 * 60 * 1000;
+const defaultDocumentSource = { type: "document", referrer: knownReferrer("https://other.example/from"), navigationType: "navigate" };
+
+function knownReferrer(url) {
+  return { type: "known", url };
+}
+
+function unknownReferrer() {
+  return { type: "unknown" };
+}
 
 function urlChangedMessage(url, source = defaultDocumentSource) {
   return { type: "urlChanged", url, source };
@@ -438,7 +448,7 @@ test("urlChanged expands root URL blocks for Safari empty referrers", async () =
   const controller = createBackgroundController(api);
   const response = await controller.handleMessage(urlChangedMessage("https://example.com/path", {
     type: "document",
-    referrer: "",
+    referrer: knownReferrer(""),
     navigationType: "navigate"
   }), { tab: { id: 7 } });
 
@@ -457,7 +467,7 @@ test("urlChanged blocks back and forward returns to a root URL page", async () =
   const controller = createBackgroundController(api);
   const response = await controller.handleMessage(urlChangedMessage("https://example.com/path", {
     type: "document",
-    referrer: "",
+    referrer: knownReferrer(""),
     navigationType: "back_forward"
   }), { tab: { id: 7 } });
 
@@ -476,7 +486,7 @@ test("urlChanged allows root URL subpage reloads on Safari", async () => {
   const controller = createBackgroundController(api);
   const response = await controller.handleMessage(urlChangedMessage("https://example.com/path", {
     type: "document",
-    referrer: "",
+    referrer: knownReferrer(""),
     navigationType: "reload"
   }), { tab: { id: 7 } });
 
@@ -492,7 +502,7 @@ test("urlChanged expands root URL blocks for Chromium same-domain referrers", as
   const controller = createBackgroundController(api);
   const response = await controller.handleMessage(urlChangedMessage("https://example.com/path", {
     type: "document",
-    referrer: "https://www.example.com/start",
+    referrer: knownReferrer("https://www.example.com/start"),
     navigationType: "navigate"
   }), { tab: { id: 7 } });
 
@@ -511,12 +521,90 @@ test("urlChanged allows root URL subpage reloads on Chromium", async () => {
   const controller = createBackgroundController(api);
   const response = await controller.handleMessage(urlChangedMessage("https://example.com/path", {
     type: "document",
-    referrer: "https://example.com/start",
+    referrer: knownReferrer("https://example.com/start"),
     navigationType: "reload"
   }), { tab: { id: 7 } });
 
   assert.equal(response.type, "allowed");
   assert.deepEqual(api.updatedTabs, []);
+});
+
+test("urlChanged rejects malformed document referrers", async () => {
+  const controller = createBackgroundController(fakeApi());
+  const malformedReferrers = [
+    { type: "known" },
+    { type: "known", url: "https://example.com/", extra: true },
+    { type: "unknown", url: "https://example.com/" },
+    { type: "mystery", url: "https://example.com/" },
+    "https://example.com/"
+  ];
+
+  for (const referrer of malformedReferrers) {
+    await assert.rejects(() => controller.handleMessage(urlChangedMessage("https://example.com/path", {
+      type: "document",
+      referrer,
+      navigationType: "navigate"
+    }), { tab: { id: 7 } }), { errorCode: "NavigationSourceInvalid" });
+  }
+});
+
+test("urlChanged fails closed for unknown referrers on root URL pages", async () => {
+  const api = fakeApi({ runtimeScheme: "chrome-extension" });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "example.com" }
+  ], { type: "always" });
+  const controller = createBackgroundController(api);
+  const response = await controller.handleMessage(urlChangedMessage("https://example.com/path", {
+    type: "document",
+    referrer: unknownReferrer(),
+    navigationType: "back_forward"
+  }), { tab: { id: 7 } });
+
+  assert.equal(response.type, "redirected");
+  assert.deepEqual(api.updatedTabs, [{
+    tabId: 7,
+    url: blockedUrl("https://example.com/path", "scheduleRootSameDomainNavigation", "chrome-extension")
+  }]);
+});
+
+test("startup sweep removes expired referrer records and preserves fresh records", async () => {
+  const api = fakeApi({ now: referrerRecordRetentionMs + 1000 });
+  const mixedKey = `${referrerRecordPrefix}https://example.com/page`;
+  const expiredKey = `${referrerRecordPrefix}https://example.com/old`;
+  const unrelatedKey = "unrelated";
+
+  api.storageData[mixedKey] = {
+    records: [
+      { referrer: "https://expired.example/", recordedAt: 0 },
+      { referrer: "https://fresh.example/", recordedAt: 1000 }
+    ]
+  };
+  api.storageData[expiredKey] = {
+    records: [{ referrer: "https://expired.example/", recordedAt: 0 }]
+  };
+  api.storageData[unrelatedKey] = { records: [{ referrer: "https://expired.example/", recordedAt: 0 }] };
+
+  createBackgroundController(api);
+  await flushPromises();
+
+  assert.deepEqual(api.storageData[mixedKey], {
+    records: [{ referrer: "https://fresh.example/", recordedAt: 1000 }]
+  });
+  assert.equal(api.storageData[expiredKey], undefined);
+  assert.deepEqual(api.storageData[unrelatedKey], { records: [{ referrer: "https://expired.example/", recordedAt: 0 }] });
+});
+
+test("startup sweep does not rewrite unchanged referrer records", async () => {
+  const api = fakeApi({ now: referrerRecordRetentionMs + 1000 });
+  const freshKey = `${referrerRecordPrefix}https://example.com/fresh`;
+
+  api.storageData[freshKey] = { records: [{ referrer: "https://fresh.example/", recordedAt: 1000 }] };
+
+  createBackgroundController(api);
+  await flushPromises();
+
+  assert.deepEqual(api.storageSets.filter((value) => Object.hasOwn(value, freshKey)), []);
+  assert.deepEqual(api.storageData[freshKey], { records: [{ referrer: "https://fresh.example/", recordedAt: 1000 }] });
 });
 
 test("committed Chromium typed navigation expands root URL blocks", async () => {
@@ -1829,9 +1917,16 @@ function httpErrorResponse(status, value) {
   };
 }
 
+async function flushPromises() {
+  for (let i = 0; i < 5; i += 1) {
+    await Promise.resolve();
+  }
+}
+
 function fakeApi(overrides = {}) {
   const api = {
     storageData: {},
+    storageSets: [],
     nativeData: {},
     grantedOrigins: overrides.grantedOrigins || ["*://*.example.com/*", ...manifest.host_permissions],
     tabsData: overrides.tabs || [],
@@ -1882,12 +1977,21 @@ function fakeApi(overrides = {}) {
     storage: {
       local: {
         async get(key) {
+          if (key === null) {
+            return { ...api.storageData };
+          }
+
+          if (Array.isArray(key)) {
+            return Object.fromEntries(key.map((storageKey) => [storageKey, api.storageData[storageKey]]));
+          }
+
           return { [key]: api.storageData[key] };
         },
         async remove(key) {
           delete api.storageData[key];
         },
         async set(value) {
+          api.storageSets.push(JSON.parse(JSON.stringify(value)));
           Object.assign(api.storageData, value);
         }
       }

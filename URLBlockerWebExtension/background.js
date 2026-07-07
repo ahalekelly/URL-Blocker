@@ -20,6 +20,8 @@
   const SETTINGS_ACTIVATION_KEY = "settingsActivation";
   const SETTINGS_ACTIVATION_SCHEMA_VERSION = 1;
   const SUPABASE_SESSION_KEY = "supabaseSession";
+  const REFERRER_RECORD_PREFIX = "referrerRecords:";
+  const REFERRER_RECORD_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
   const UNKNOWN_NAVIGATION_SOURCE = { type: "unknown" };
 
   function createBackgroundController(api) {
@@ -1155,6 +1157,47 @@
       return Math.floor(nowMs / HOUR_MS);
     }
 
+    async function sweepReferrerRecords() {
+      const values = await api.storage.local.get(null);
+      const expiresBefore = currentTimeMs() - REFERRER_RECORD_RETENTION_MS;
+
+      for (const [key, value] of Object.entries(values)) {
+        if (!key.startsWith(REFERRER_RECORD_PREFIX)) {
+          continue;
+        }
+
+        const records = unexpiredReferrerRecords(value, expiresBefore);
+
+        if (records.length === 0) {
+          await api.storage.local.remove(key);
+          continue;
+        }
+
+        // The sweep runs on every service worker wake; rewriting unchanged
+        // keys would race concurrent content script writes for nothing.
+        if (records.length === value.records.length) {
+          continue;
+        }
+
+        await api.storage.local.set({ [key]: { records } });
+      }
+    }
+
+    function unexpiredReferrerRecords(value, expiresBefore) {
+      if (!isPlainObject(value) || !Array.isArray(value.records)) {
+        return [];
+      }
+
+      return value.records.filter((record) => isPlainObject(record)
+        && typeof record.referrer === "string"
+        && typeof record.recordedAt === "number"
+        && record.recordedAt >= expiresBefore);
+    }
+
+    sweepReferrerRecords().catch((error) => {
+      console.error("URL Blocker could not sweep referrer records.", errorResponse("error", error));
+    });
+
     return {
       getLocalScreenTimeLog,
       getBlockedPageHtml,
@@ -1632,19 +1675,46 @@
 
     requireKeys(source, ["type", "referrer", "navigationType"], "Navigation source");
 
-    if (typeof source.referrer !== "string") {
-      throw codedError("NavigationSourceInvalid", "Navigation source referrer must be a string.");
-    }
-
     if (typeof source.navigationType !== "string") {
       throw codedError("NavigationSourceInvalid", "Navigation source navigation type must be a string.");
     }
 
     return {
       type: isSafariRuntime(api) ? "safariDocument" : "document",
-      referrer: source.referrer,
+      referrer: documentNavigationReferrer(source.referrer),
       navigationType: source.navigationType
     };
+  }
+
+  function documentNavigationReferrer(referrer) {
+    if (!isPlainObject(referrer) || typeof referrer.type !== "string") {
+      throw codedError("NavigationSourceInvalid", "Navigation source referrer must be a referrer object.");
+    }
+
+    switch (referrer.type) {
+      case "known":
+        requireNavigationSourceKeys(referrer, ["type", "url"], "Navigation source referrer");
+
+        if (typeof referrer.url !== "string") {
+          throw codedError("NavigationSourceInvalid", "Navigation source referrer URL must be a string.");
+        }
+
+        return { type: "known", url: referrer.url };
+      case "unknown":
+        requireNavigationSourceKeys(referrer, ["type"], "Navigation source referrer");
+        return { type: "unknown" };
+      default:
+        throw codedError("NavigationSourceInvalid", `Unknown navigation source referrer type: ${referrer.type}.`);
+    }
+  }
+
+  function requireNavigationSourceKeys(object, allowedKeys, label) {
+    const allowed = new Set(allowedKeys);
+    const unknownKeys = Object.keys(object).filter((key) => !allowed.has(key));
+
+    if (unknownKeys.length > 0) {
+      throw codedError("NavigationSourceInvalid", `${label} has unknown key: ${unknownKeys[0]}.`);
+    }
   }
 
   function isSafariRuntime(api) {

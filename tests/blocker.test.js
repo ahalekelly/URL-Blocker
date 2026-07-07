@@ -6,14 +6,20 @@ const defaultBlockedPages = require("../URLBlockerWebExtension/default-blocked-p
 const manifest = require("../URLBlockerWebExtension/manifest.json");
 
 const unknownSource = { type: "unknown" };
-const safariEmptySource = { type: "safariDocument", referrer: "", navigationType: "navigate" };
-const safariReloadSource = { type: "safariDocument", referrer: "", navigationType: "reload" };
-const sameDomainSource = { type: "document", referrer: "https://example.com/start", navigationType: "navigate" };
-const unrelatedSource = { type: "document", referrer: "https://other.example/start", navigationType: "navigate" };
+const safariEmptySource = { type: "safariDocument", referrer: knownReferrer(""), navigationType: "navigate" };
+const safariReloadSource = { type: "safariDocument", referrer: knownReferrer(""), navigationType: "reload" };
+const sameDomainSource = { type: "document", referrer: knownReferrer("https://example.com/start"), navigationType: "navigate" };
+const unrelatedSource = { type: "document", referrer: knownReferrer("https://other.example/start"), navigationType: "navigate" };
+const unknownDocumentSource = { type: "document", referrer: { type: "unknown" }, navigationType: "navigate" };
+const unknownSafariSource = { type: "safariDocument", referrer: { type: "unknown" }, navigationType: "navigate" };
 const chromeTypedSource = { type: "chromiumCommitted", transitionType: "typed" };
 const chromeBookmarkSource = { type: "chromiumCommitted", transitionType: "auto_bookmark" };
 const chromeOmniboxSource = { type: "chromiumCommitted", transitionType: "generated" };
 const chromeReloadSource = { type: "chromiumCommitted", transitionType: "reload" };
+
+function knownReferrer(url) {
+  return { type: "known", url };
+}
 
 const ids = [
   "11111111-1111-4111-8111-111111111111",
@@ -683,6 +689,39 @@ test("uses domain settings for root URL expansion", () => {
   assert.equal(core.findBlockedMatchingEntry(internalLinksOff, "https://example.com/path", new Set(), sameDomainSource).type, "none");
 });
 
+test("fails closed for root URL expansion with unknown document referrers", () => {
+  const bothToggles = validState(
+    [{ id: ids[0], kind: "url", value: "example.com" }],
+    { type: "always" }
+  );
+  const directOnly = validState(
+    [{ id: ids[0], kind: "url", value: "example.com" }],
+    { type: "always" },
+    [domainLimit("example.com", 30, { blockInternalLinks: false })]
+  );
+  const bothOff = validState(
+    [{ id: ids[0], kind: "url", value: "example.com" }],
+    { type: "always" },
+    [domainLimit("example.com", 30, { blockInternalLinks: false, blockDirectVisits: false })]
+  );
+  const unknownReloadSource = { type: "document", referrer: { type: "unknown" }, navigationType: "reload" };
+
+  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(bothToggles, "https://example.com/path", new Set(), unknownDocumentSource)), {
+    type: "match",
+    reason: "scheduleRootSameDomainNavigation"
+  });
+  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(directOnly, "https://example.com/path", new Set(), unknownDocumentSource)), {
+    type: "match",
+    reason: "scheduleRootDirectNavigation"
+  });
+  assert.equal(core.findBlockedMatchingEntry(bothOff, "https://example.com/path", new Set(), unknownDocumentSource).type, "none");
+  assert.equal(core.findBlockedMatchingEntry(bothToggles, "https://example.com/path", new Set(), unknownReloadSource).type, "none");
+  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(bothToggles, "https://example.com/path", new Set(), unknownSafariSource)), {
+    type: "match",
+    reason: "scheduleRootSameDomainNavigation"
+  });
+});
+
 test("explains schedule before limit when both apply", () => {
   const state = validState(
     [{ id: ids[0], kind: "url", value: "example.com" }],
@@ -708,15 +747,18 @@ test("does not expand root URL blocks when only the &/# part of the URL changed"
 
   ["document", "safariDocument"].forEach((type) => {
     samePageReferrers.forEach((referrer) => {
-      const source = { type, referrer, navigationType: "navigate" };
+      const source = { type, referrer: knownReferrer(referrer), navigationType: "navigate" };
       assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/path?tab=1&x=2", new Set(), source).type, "none", `${type} ${referrer}`);
     });
 
-    const firstParamSource = { type, referrer: "https://example.com/path?tab=1", navigationType: "navigate" };
+    const firstParamSource = { type, referrer: knownReferrer("https://example.com/path?tab=1"), navigationType: "navigate" };
     assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://example.com/path?tab=2", new Set(), firstParamSource)), {
       type: "match",
       reason: "scheduleRootSameDomainNavigation"
     }, type);
+
+    const unknownReferrerSource = { type, referrer: { type: "unknown" }, navigationType: "navigate" };
+    assert.notEqual(core.findBlockedMatchingEntry(state, "https://example.com/path?tab=1&x=2", new Set(), unknownReferrerSource).type, "none", type);
   });
 });
 
