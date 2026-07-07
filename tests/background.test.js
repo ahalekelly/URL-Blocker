@@ -115,6 +115,7 @@ test("getState loads default blocked pages when storage is empty", async () => {
   assert.equal(response.type, "state");
   assert.deepEqual(response.state.entries, core.emptyState(defaultBlockedPages).entries);
   assert.deepEqual(response.state.schedule, { type: "dailyWindow", startMinute: 1380, endMinute: 1140 });
+  assert.deepEqual(response.state.hardSchedule, { type: "off" });
   assert.deepEqual(response.state.limitReset, { type: "rollingWindow", windowHours: 24 });
   assert.deepEqual(response.state.domainLimits, core.emptyState(defaultBlockedPages).domainLimits);
 });
@@ -411,6 +412,21 @@ test("urlChanged allows URLs that no longer match saved state", async () => {
 
   assert.equal(response.type, "allowed");
   assert.deepEqual(api.updatedTabs, []);
+});
+
+test("urlChanged redirects deep links during the hard schedule", async () => {
+  const api = fakeApi();
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "https://x.com" }
+  ], inactiveSchedule(), undefined, core.DEFAULT_LIMIT_RESET, activeSchedule());
+  const controller = createBackgroundController(api);
+  const response = await controller.handleMessage(urlChangedMessage("https://x.com/messages"), { tab: { id: 7 } });
+
+  assert.equal(response.type, "redirected");
+  assert.deepEqual(api.updatedTabs, [{
+    tabId: 7,
+    url: blockedUrl("https://x.com/messages", "hardScheduleDomain")
+  }]);
 });
 
 test("urlChanged allows matching URLs outside the schedule", async () => {
@@ -1531,6 +1547,7 @@ test("syncNow repairs remote settings missing added defaults", async () => {
     entries: previousEntries,
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: core.DEFAULT_SCHEDULE,
+    hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     domainLimits: core.domainLimitsForEntries(previousEntries, [])
@@ -1764,7 +1781,7 @@ test("saveState redirects open tabs that match the new state", async () => {
   }]);
 });
 
-function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits, limitReset = core.DEFAULT_LIMIT_RESET) {
+function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits, limitReset = core.DEFAULT_LIMIT_RESET, hardSchedule = core.DEFAULT_HARD_SCHEDULE) {
   const stateEntries = stateEntriesWithDefaults(entries);
 
   return {
@@ -1772,6 +1789,7 @@ function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits, lim
     entries: stateEntries,
     blockedPageHtml: "<p>Blocked.</p>",
     schedule,
+    hardSchedule,
     limitReset,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     domainLimits: core.domainLimitsForEntries(stateEntries, domainLimits === undefined ? [] : domainLimits)

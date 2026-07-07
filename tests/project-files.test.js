@@ -47,11 +47,15 @@ test("options and stats pages link to each other", () => {
 
 test("reset settings follow the block schedule settings", () => {
   const blockScheduleIndex = optionsHtml.indexOf("<h2>Block Schedule</h2>");
+  const hardScheduleIndex = optionsHtml.indexOf("<h2>Hard Block Schedule</h2>");
   const limitResetIndex = optionsHtml.indexOf("id=\"limitResetPanel\"");
 
   assert.notEqual(blockScheduleIndex, -1);
+  assert.notEqual(hardScheduleIndex, -1);
   assert.notEqual(limitResetIndex, -1);
   assert.ok(blockScheduleIndex < limitResetIndex);
+  assert.ok(blockScheduleIndex < hardScheduleIndex);
+  assert.ok(hardScheduleIndex < limitResetIndex);
   assert.match(optionsHtml, /<h2>Reset<\/h2>/);
   assert.doesNotMatch(optionsHtml, /<h2>Limit Reset<\/h2>/);
   assert.doesNotMatch(optionsHtml, /<h2>Schedule<\/h2>/);

@@ -66,7 +66,7 @@
 <div class="page">
   <header>
     <h1>Does URL&nbsp;Blocker block this page?</h1>
-    <p class="sub">The check every navigation runs through. A page is blocked only when it <b>matches an enabled entry</b> <i>and</i> a <b>schedule or time limit</b> is active right now. The right-hand lane is the express path for a direct match.</p>
+    <p class="sub">The check every navigation runs through. The hard block schedule is checked first and blocks any page on a blocked domain while active. Otherwise, a page is blocked only when it <b>matches an enabled entry</b> <i>and</i> the regular <b>schedule or time limit</b> is active right now.</p>
   </header>
 
   <svg viewBox="0 0 880 1500" xmlns="http://www.w3.org/2000/svg" font-family="inherit">
@@ -79,7 +79,8 @@
     <!-- ===================== CONNECTORS ===================== -->
     <g stroke="var(--line)" stroke-width="2" fill="none">
       <!-- spine (center x=270) -->
-      <line x1="270" y1="76"   x2="270" y2="170" marker-end="url(#ah)"/>
+      <line x1="270" y1="76"   x2="270" y2="90"  marker-end="url(#ah)"/>
+      <line x1="270" y1="160"  x2="270" y2="170" marker-end="url(#ah)"/>
       <line x1="270" y1="250"  x2="270" y2="344" marker-end="url(#ah)"/>
       <line x1="270" y1="436"  x2="270" y2="530" marker-end="url(#ah)"/>
       <line x1="270" y1="622"  x2="270" y2="716" marker-end="url(#ah)"/>
@@ -89,6 +90,7 @@
       <line x1="270" y1="1338" x2="270" y2="1432" marker-end="url(#ah)"/>
 
       <!-- side exits to terminals (right edge x=500 -> pill left x=580) -->
+      <line x1="500" y1="126"  x2="578" y2="126"  marker-end="url(#ah)"/>
       <line x1="500" y1="211"  x2="578" y2="211"  marker-end="url(#ah)"/>
       <line x1="500" y1="577"  x2="578" y2="577"  marker-end="url(#ah)"/>
       <line x1="500" y1="757"  x2="578" y2="757"  marker-end="url(#ah)"/>
@@ -103,6 +105,7 @@
     <!-- branch labels -->
     <g font-size="11.5" font-weight="700" letter-spacing=".03em">
       <!-- down-arrow (pass-through) labels: one per decision, opposite its side exit -->
+      <text x="284" y="168"  fill="var(--no)">NO</text>
       <text x="284" y="302"  fill="var(--yes)">YES</text>
       <text x="284" y="488"  fill="var(--no)">NO</text>
       <text x="284" y="674"  fill="var(--yes)">YES</text>
@@ -111,6 +114,7 @@
       <text x="284" y="1212" fill="var(--no)">NO</text>
       <text x="284" y="1388" fill="var(--no)">NO</text>
       <!-- side-exit labels -->
+      <text x="521" y="118" fill="var(--yes)">YES</text>
       <text x="521" y="203" fill="var(--no)">NO</text>
       <text x="521" y="569" fill="var(--no)">NO</text>
       <text x="521" y="749" fill="var(--yes)">YES</text>
@@ -125,6 +129,14 @@
     <!-- Start -->
     <foreignObject x="120" y="22" width="300" height="54">
       <div xmlns="http://www.w3.org/1999/xhtml" class="box start"><div class="t">Page navigates to a URL</div></div>
+    </foreignObject>
+
+    <!-- A hard schedule -->
+    <foreignObject x="40" y="92" width="460" height="68">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="box decision">
+        <div class="t">Hard schedule active and host matches an enabled entry&rsquo;s domain?</div>
+        <div class="d">Any entry for the domain blocks the whole domain: <code>hardScheduleDomain</code></div>
+      </div>
     </foreignObject>
 
     <!-- B http/https -->
@@ -200,6 +212,9 @@
     <foreignObject x="580" y="184" width="200" height="54">
       <div xmlns="http://www.w3.org/1999/xhtml" class="box pill pass"><div class="t">Not blocked</div></div>
     </foreignObject>
+    <foreignObject x="580" y="99" width="200" height="54">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="box pill block"><div class="t">BLOCKED</div></div>
+    </foreignObject>
     <foreignObject x="580" y="550" width="200" height="54">
       <div xmlns="http://www.w3.org/1999/xhtml" class="box pill pass"><div class="t">Not blocked</div></div>
     </foreignObject>
@@ -227,6 +242,9 @@
     <span><i class="chip cp"></i> Allowed through</span>
   </div>
 
+  <p class="note">
+    <b>Hard block schedule.</b> This is a separate daily window. When it is active, URL Blocker compares the page host with the associated domain for every enabled entry. Path entries and regex entries still hard-block their whole domain during this window, and the root-URL arrival toggles are bypassed.
+  </p>
   <p class="note">
     <b>Root-URL expansion</b> (the middle chain) is what blocks a site’s <i>feed</i> — landing on <code>reddit.com</code> — while still letting you open a specific link into it. It only fires for a bare-domain “URL” entry, and only on a qualifying arrival, governed per domain by the <b>block direct visits</b> and <b>block internal links</b> toggles. A direct match to a more specific entry (full path, subpaths, or regex) takes the express lane straight to the activation gate.
   </p>

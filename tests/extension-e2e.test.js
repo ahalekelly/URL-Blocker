@@ -335,6 +335,42 @@ test("options restores saved mode details after temporary mode changes", async (
   assert.equal(page.byId("rollingWindowHoursInput").value, "16");
 });
 
+test("options round-trips hard schedule settings and restores saved window details", async () => {
+  const app = createExtensionApp();
+  app.backgroundApi.storageData[core.STATE_KEY] = validState([]);
+
+  let page = await openOptionsPage(app);
+
+  assert.equal(page.byId("offHardScheduleInput").checked, true);
+  assert.equal(page.byId("hardScheduleWindowFields").hidden, true);
+
+  await page.byId("dailyHardScheduleInput").dispatch("change");
+  page.byId("hardScheduleStartInput").value = "01:00";
+  await page.byId("hardScheduleStartInput").dispatch("input");
+  page.byId("hardScheduleEndInput").value = "02:00";
+  await page.byId("hardScheduleEndInput").dispatch("input");
+  await page.byId("saveButton").dispatch("click");
+
+  assert.deepEqual(app.backgroundApi.storageData[core.STATE_KEY].hardSchedule, {
+    type: "dailyWindow",
+    startMinute: 60,
+    endMinute: 120
+  });
+
+  page = await openOptionsPage(app);
+
+  assert.equal(page.byId("dailyHardScheduleInput").checked, true);
+  assert.equal(page.byId("hardScheduleWindowFields").hidden, false);
+  assert.equal(page.byId("hardScheduleStartInput").value, "01:00");
+  assert.equal(page.byId("hardScheduleEndInput").value, "02:00");
+
+  await page.byId("offHardScheduleInput").dispatch("change");
+  await page.byId("dailyHardScheduleInput").dispatch("change");
+
+  assert.equal(page.byId("hardScheduleStartInput").value, "01:00");
+  assert.equal(page.byId("hardScheduleEndInput").value, "02:00");
+});
+
 test("end-to-end options save blocks a page and renders the blocked view", async () => {
   const app = createExtensionApp({
     tabs: [{ id: 2, url: "https://example.com/focus" }]
@@ -395,6 +431,7 @@ test("blocked page renders each reason body without a built-in title", async () 
   const app = createExtensionApp();
   app.backgroundApi.storageData[core.STATE_KEY] = validState([]);
   const reasons = [
+    ["hardScheduleDomain", "All pages on this site are blocked during your hard block schedule."],
     ["scheduleDirectMatch", "This page is blocked during your schedule."],
     ["limitDirectMatch", "You've reached your time limit for this site."],
     ["scheduleRootDirectNavigation", "Direct visits to this blocked site are blocked during your schedule."],
@@ -846,6 +883,7 @@ function validState(entries, schedule = core.DEFAULT_SCHEDULE) {
     entries: stateEntries,
     blockedPageHtml: "<h1>Stay focused</h1>",
     schedule,
+    hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     domainLimits: core.domainLimitsForEntries(stateEntries, [])
@@ -965,6 +1003,11 @@ function optionsDocument() {
     "scheduleWindowFields",
     "scheduleStartInput",
     "scheduleEndInput",
+    "offHardScheduleInput",
+    "dailyHardScheduleInput",
+    "hardScheduleWindowFields",
+    "hardScheduleStartInput",
+    "hardScheduleEndInput",
     "screenTimePanel",
     "screenTimeTitle",
     "limitResetPanel",

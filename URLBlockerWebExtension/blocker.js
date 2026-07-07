@@ -3,7 +3,7 @@
 
   const STATE_KEY = "blockerState";
   const BLOCKED_PAGE_HTML_KEY = "blockedPageHtml";
-  const SCHEMA_VERSION = 16;
+  const SCHEMA_VERSION = 17;
   const LEGACY_SCHEMA_VERSION = 6;
   const SUBREDDIT_SCHEMA_VERSION = 7;
   const LIMIT_RESET_SCHEMA_VERSION = 8;
@@ -14,6 +14,7 @@
   const YOUTUBE_SUBSCRIPTIONS_SCHEMA_VERSION = 13;
   const URL_SUBPATH_DEFAULTS_SCHEMA_VERSION = 14;
   const DOMAIN_NAVIGATION_SETTINGS_SCHEMA_VERSION = 15;
+  const HARD_SCHEDULE_SCHEMA_VERSION = 16;
   const SUBREDDIT_FEEDS_VALUE = "reddit.com/r/*";
   const YOUTUBE_SUBSCRIPTIONS_VALUE = "youtube.com/feed/subscriptions";
   const YOUTUBE_SHORTS_VALUE = "youtube.com/shorts";
@@ -38,6 +39,7 @@
   const MAX_SETTINGS_DELAY_MINUTES = 10080;
   const DEFAULT_BLOCKED_PAGE_HTML = "<h1>Blocked</h1><p>This page is on your blocklist.</p>";
   const DEFAULT_SCHEDULE = { type: "dailyWindow", startMinute: 1380, endMinute: 1140 };
+  const DEFAULT_HARD_SCHEDULE = { type: "off" };
   const DEFAULT_LIMIT_RESET = { type: "rollingWindow", windowHours: 24 };
   const DEFAULT_SETTINGS_DELAY = { delayMinutes: DEFAULT_SETTINGS_DELAY_MINUTES };
   const UNSUPPORTED_BLOCKLIST_VERSION_MESSAGE = "Unsupported blocklist version. Reset the blocklist to repair it.";
@@ -77,6 +79,7 @@
       entries,
       blockedPageHtml: DEFAULT_BLOCKED_PAGE_HTML,
       schedule: DEFAULT_SCHEDULE,
+      hardSchedule: DEFAULT_HARD_SCHEDULE,
       limitReset: DEFAULT_LIMIT_RESET,
       settingsDelay: DEFAULT_SETTINGS_DELAY,
       domainLimits: domainLimitsForEntries(entries, [])
@@ -123,6 +126,10 @@
       errors.push({ index: null, message: "Schedule must be an object." });
     }
 
+    if (!isPlainObject(rawState.hardSchedule)) {
+      errors.push({ index: null, message: "Hard schedule must be an object." });
+    }
+
     if (!isPlainObject(rawState.limitReset)) {
       errors.push({ index: null, message: "Limit reset must be an object." });
     }
@@ -141,6 +148,7 @@
 
     let blockedPageHtml = "";
     let schedule = DEFAULT_SCHEDULE;
+    let hardSchedule = DEFAULT_HARD_SCHEDULE;
     let limitReset = DEFAULT_LIMIT_RESET;
     let settingsDelay = DEFAULT_SETTINGS_DELAY;
 
@@ -156,6 +164,14 @@
       errors.push(...scheduleResult.errors);
     } else {
       schedule = scheduleResult.schedule;
+    }
+
+    const hardScheduleResult = normalizeHardSchedule(rawState.hardSchedule);
+
+    if (hardScheduleResult.type === "invalid") {
+      errors.push(...hardScheduleResult.errors);
+    } else {
+      hardSchedule = hardScheduleResult.schedule;
     }
 
     const limitResetResult = normalizeLimitReset(rawState.limitReset);
@@ -243,6 +259,7 @@
         entries,
         blockedPageHtml,
         schedule,
+        hardSchedule,
         limitReset,
         settingsDelay,
         domainLimits: limitsResult.domainLimits
@@ -268,6 +285,7 @@
       SETTINGS_DELAY_SCHEMA_VERSION,
       SETTINGS_DELAY_MODE_SCHEMA_VERSION,
       SCHEMA_VERSION,
+      HARD_SCHEDULE_SCHEMA_VERSION,
       DOMAIN_NAVIGATION_SETTINGS_SCHEMA_VERSION,
       URL_SUBPATH_DEFAULTS_SCHEMA_VERSION,
       YOUTUBE_SUBSCRIPTIONS_SCHEMA_VERSION
@@ -325,20 +343,22 @@
   function storedStateWithCurrentShape(rawState) {
     switch (rawState.schemaVersion) {
       case SCHEMA_VERSION:
+        return rawState;
+      case HARD_SCHEDULE_SCHEMA_VERSION:
       case DOMAIN_NAVIGATION_SETTINGS_SCHEMA_VERSION:
       case URL_SUBPATH_DEFAULTS_SCHEMA_VERSION:
       case YOUTUBE_SUBSCRIPTIONS_SCHEMA_VERSION:
-        return rawState;
+        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE };
       case SETTINGS_DELAY_MODE_SCHEMA_VERSION:
-        return { ...rawState, settingsDelay: migrateSettingsDelay(rawState.settingsDelay) };
+        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, settingsDelay: migrateSettingsDelay(rawState.settingsDelay) };
       case SETTINGS_DELAY_SCHEMA_VERSION:
-        return { ...rawState, settingsDelay: DEFAULT_SETTINGS_DELAY };
+        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, settingsDelay: DEFAULT_SETTINGS_DELAY };
       case LEGACY_SCHEMA_VERSION:
       case SUBREDDIT_SCHEMA_VERSION:
       case LIMIT_RESET_SCHEMA_VERSION:
       case FACEBOOK_HOME_SCHEMA_VERSION:
       case SOCIAL_DEFAULTS_SCHEMA_VERSION:
-        return { ...rawState, limitReset: DEFAULT_LIMIT_RESET, settingsDelay: DEFAULT_SETTINGS_DELAY };
+        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, limitReset: DEFAULT_LIMIT_RESET, settingsDelay: DEFAULT_SETTINGS_DELAY };
       default:
         throw new Error(`Unknown migratable schema version: ${rawState.schemaVersion}`);
     }
@@ -644,35 +664,68 @@
 
         return { type: "valid", schedule: { type: "always" } };
       case "dailyWindow":
-        pushUnknownKeyErrors(errors, schedule, ["type", "startMinute", "endMinute"], "Schedule");
+        return normalizedDailyWindow(schedule);
+      default:
+        return invalid([{ index: null, message: `Unknown schedule type: ${schedule.type}` }]);
+    }
+  }
 
-        if (!isMinute(schedule.startMinute)) {
-          errors.push({ index: null, message: "Schedule start minute must be between 0 and 1439." });
-        }
+  function normalizeHardSchedule(schedule) {
+    const errors = [];
 
-        if (!isMinute(schedule.endMinute)) {
-          errors.push({ index: null, message: "Schedule end minute must be between 0 and 1439." });
-        }
+    if (!isPlainObject(schedule)) {
+      return invalid([{ index: null, message: "Schedule must be an object." }]);
+    }
+
+    if (typeof schedule.type !== "string") {
+      return invalid([{ index: null, message: "Schedule type must be a string." }]);
+    }
+
+    switch (schedule.type) {
+      case "off":
+        pushUnknownKeyErrors(errors, schedule, ["type"], "Schedule");
 
         if (errors.length > 0) {
           return invalid(errors);
         }
 
-        if (schedule.startMinute === schedule.endMinute) {
-          return invalid([{ index: null, message: "Daily schedule start and end times must be different." }]);
-        }
-
-        return {
-          type: "valid",
-          schedule: {
-            type: "dailyWindow",
-            startMinute: schedule.startMinute,
-            endMinute: schedule.endMinute
-          }
-        };
+        return { type: "valid", schedule: { type: "off" } };
+      case "dailyWindow":
+        return normalizedDailyWindow(schedule);
       default:
         return invalid([{ index: null, message: `Unknown schedule type: ${schedule.type}` }]);
     }
+  }
+
+  function normalizedDailyWindow(schedule) {
+    const errors = [];
+
+    pushUnknownKeyErrors(errors, schedule, ["type", "startMinute", "endMinute"], "Schedule");
+
+    if (!isMinute(schedule.startMinute)) {
+      errors.push({ index: null, message: "Schedule start minute must be between 0 and 1439." });
+    }
+
+    if (!isMinute(schedule.endMinute)) {
+      errors.push({ index: null, message: "Schedule end minute must be between 0 and 1439." });
+    }
+
+    if (errors.length > 0) {
+      return invalid(errors);
+    }
+
+    if (schedule.startMinute === schedule.endMinute) {
+      return invalid([{ index: null, message: "Daily schedule start and end times must be different." }]);
+    }
+
+    return {
+      type: "valid",
+      schedule: {
+        type: "dailyWindow",
+        startMinute: schedule.startMinute,
+        endMinute: schedule.endMinute
+      }
+    };
   }
 
   function normalizeLimitReset(limitReset) {
@@ -928,6 +981,12 @@
   }
 
   function findBlockedMatchingEntry(state, rawUrl, overLimitDomains, navigationSource, date = new Date()) {
+    const hardScheduleMatch = findHardScheduleMatchingEntry(state, rawUrl, date);
+
+    if (hardScheduleMatch.type === "match") {
+      return hardScheduleMatch;
+    }
+
     const match = findMatchingEntry(state, rawUrl);
 
     switch (match.type) {
@@ -938,6 +997,26 @@
       default:
         throw new Error(`Unknown match type: ${match.type}`);
     }
+  }
+
+  function findHardScheduleMatchingEntry(state, rawUrl, date) {
+    if (!isScheduleActive(state.hardSchedule, date)) {
+      return { type: "none" };
+    }
+
+    const result = normalizePageUrl(rawUrl);
+
+    if (result.type === "invalid") {
+      return { type: "none" };
+    }
+
+    for (const entry of state.entries) {
+      if (entryIsEnabled(entry) && domainMatchesHost(associatedDomainForEntry(entry), result.url.limitHost)) {
+        return { type: "match", entry, reason: "hardScheduleDomain" };
+      }
+    }
+
+    return { type: "none" };
   }
 
   function activeBlockedMatch(state, match, overLimitDomains, date) {
@@ -1212,6 +1291,8 @@
 
   function isScheduleActive(schedule, date = new Date()) {
     switch (schedule.type) {
+      case "off":
+        return false;
       case "always":
         return true;
       case "dailyWindow":
@@ -1543,6 +1624,8 @@
   function stateKeys(schemaVersion) {
     switch (schemaVersion) {
       case SCHEMA_VERSION:
+        return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "hardSchedule", "limitReset", "settingsDelay", "domainLimits"];
+      case HARD_SCHEDULE_SCHEMA_VERSION:
       case DOMAIN_NAVIGATION_SETTINGS_SCHEMA_VERSION:
       case URL_SUBPATH_DEFAULTS_SCHEMA_VERSION:
         return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "limitReset", "settingsDelay", "domainLimits"];
@@ -1564,6 +1647,7 @@
     DEFAULT_BLOCK_DIRECT_VISITS,
     DEFAULT_BLOCK_INTERNAL_LINKS,
     DEFAULT_BLOCKED_PAGE_HTML,
+    DEFAULT_HARD_SCHEDULE,
     DEFAULT_LIMIT_RESET,
     DEFAULT_SCHEDULE,
     BLOCKED_PAGE_HTML_KEY,

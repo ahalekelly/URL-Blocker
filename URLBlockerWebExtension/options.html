@@ -93,6 +93,34 @@
         </div>
       </section>
 
+      <section class="settings-panel">
+        <h2>Hard Block Schedule</h2>
+        <div class="schedule-options">
+          <label class="choice-label">
+            <input id="offHardScheduleInput" type="radio" name="hardScheduleType" value="off">
+            <span>Off</span>
+          </label>
+          <label class="choice-label">
+            <input id="dailyHardScheduleInput" type="radio" name="hardScheduleType" value="dailyWindow">
+            <span>Daily Window</span>
+          </label>
+        </div>
+        <div id="hardScheduleWindowFields" class="schedule-window-fields">
+          <label>
+            Start
+            <span class="time-control">
+              <input id="hardScheduleStartInput" type="time" aria-label="Hard schedule start time">
+            </span>
+          </label>
+          <label>
+            End
+            <span class="time-control">
+              <input id="hardScheduleEndInput" type="time" aria-label="Hard schedule end time">
+            </span>
+          </label>
+        </div>
+      </section>
+
       <section id="limitResetPanel" class="settings-panel">
         <h2>Reset</h2>
         <div class="reset-options">

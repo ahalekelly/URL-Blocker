@@ -24,12 +24,14 @@
     draftEntries: [],
     draftBlockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     draftSchedule: core.DEFAULT_SCHEDULE,
+    draftHardSchedule: core.DEFAULT_HARD_SCHEDULE,
     draftLimitReset: core.DEFAULT_LIMIT_RESET,
     draftSettingsDelay: core.DEFAULT_SETTINGS_DELAY,
     savedDraft: {
       entries: [],
       blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
       schedule: core.DEFAULT_SCHEDULE,
+      hardSchedule: core.DEFAULT_HARD_SCHEDULE,
       limitReset: core.DEFAULT_LIMIT_RESET,
       settingsDelay: core.DEFAULT_SETTINGS_DELAY
     },
@@ -53,6 +55,11 @@
   const scheduleWindowFields = document.getElementById("scheduleWindowFields");
   const scheduleStartInput = document.getElementById("scheduleStartInput");
   const scheduleEndInput = document.getElementById("scheduleEndInput");
+  const offHardScheduleInput = document.getElementById("offHardScheduleInput");
+  const dailyHardScheduleInput = document.getElementById("dailyHardScheduleInput");
+  const hardScheduleWindowFields = document.getElementById("hardScheduleWindowFields");
+  const hardScheduleStartInput = document.getElementById("hardScheduleStartInput");
+  const hardScheduleEndInput = document.getElementById("hardScheduleEndInput");
   const screenTimeTitle = document.getElementById("screenTimeTitle");
   const rollingResetInput = document.getElementById("rollingResetInput");
   const dailyResetInput = document.getElementById("dailyResetInput");
@@ -87,6 +94,10 @@
   dailyScheduleInput.addEventListener("change", () => updateScheduleType("dailyWindow"));
   scheduleStartInput.addEventListener("input", updateScheduleWindow);
   scheduleEndInput.addEventListener("input", updateScheduleWindow);
+  offHardScheduleInput.addEventListener("change", () => updateHardScheduleType("off"));
+  dailyHardScheduleInput.addEventListener("change", () => updateHardScheduleType("dailyWindow"));
+  hardScheduleStartInput.addEventListener("input", updateHardScheduleWindow);
+  hardScheduleEndInput.addEventListener("input", updateHardScheduleWindow);
   rollingResetInput.addEventListener("change", () => updateLimitResetType("rollingWindow"));
   dailyResetInput.addEventListener("change", () => updateLimitResetType("daily"));
   rollingWindowHoursInput.addEventListener("input", updateRollingWindow);
@@ -193,6 +204,11 @@
     scheduleWindowFields.hidden = state.draftSchedule.type !== "dailyWindow";
     scheduleStartInput.value = minuteToTime(state.draftSchedule.startMinute);
     scheduleEndInput.value = minuteToTime(state.draftSchedule.endMinute);
+    offHardScheduleInput.checked = state.draftHardSchedule.type === "off";
+    dailyHardScheduleInput.checked = state.draftHardSchedule.type === "dailyWindow";
+    hardScheduleWindowFields.hidden = state.draftHardSchedule.type !== "dailyWindow";
+    hardScheduleStartInput.value = minuteToTime(hardScheduleStartMinute());
+    hardScheduleEndInput.value = minuteToTime(hardScheduleEndMinute());
     rollingResetInput.checked = state.draftLimitReset.type === "rollingWindow";
     dailyResetInput.checked = state.draftLimitReset.type === "daily";
     rollingResetFields.hidden = state.draftLimitReset.type !== "rollingWindow";
@@ -325,6 +341,7 @@
       entries: state.draftEntries.map(draftEntrySnapshot),
       blockedPageHtml: state.draftBlockedPageHtml,
       schedule: editableSchedule(state.draftSchedule),
+      hardSchedule: editableHardSchedule(state.draftHardSchedule),
       limitReset: editableLimitReset(state.draftLimitReset),
       settingsDelay: editableSettingsDelay(state.draftSettingsDelay)
     };
@@ -868,6 +885,32 @@
     renderSaveButton();
   }
 
+  function updateHardScheduleType(type) {
+    switch (type) {
+      case "off":
+        state.draftHardSchedule = { type: "off" };
+        break;
+      case "dailyWindow":
+        state.draftHardSchedule = existingHardDailyWindow();
+        break;
+      default:
+        throw new Error(`Unknown hard schedule type: ${type}`);
+    }
+
+    clearMessages();
+    render();
+  }
+
+  function updateHardScheduleWindow() {
+    state.draftHardSchedule = {
+      type: "dailyWindow",
+      startMinute: timeToMinute(hardScheduleStartInput.value),
+      endMinute: timeToMinute(hardScheduleEndInput.value)
+    };
+    clearMessages();
+    renderSaveButton();
+  }
+
   function updateLimitResetType(type) {
     switch (type) {
       case "rollingWindow":
@@ -1242,6 +1285,7 @@
         entries: storedEntries(state.draftEntries),
         blockedPageHtml: state.draftBlockedPageHtml,
         schedule: state.draftSchedule,
+        hardSchedule: state.draftHardSchedule,
         limitReset: state.draftLimitReset,
         settingsDelay: state.draftSettingsDelay,
         domainLimits: domainLimitsForDraft()
@@ -1253,6 +1297,7 @@
       entries: storedEntries(state.draftEntries),
       blockedPageHtml: state.draftBlockedPageHtml,
       schedule: state.draftSchedule,
+      hardSchedule: state.draftHardSchedule,
       limitReset: state.draftLimitReset,
       settingsDelay: state.draftSettingsDelay,
       domainLimits: domainLimitsForDraft()
@@ -1262,6 +1307,7 @@
       state.draftEntries = editableEntries(result.state.entries, result.state.domainLimits);
       state.draftBlockedPageHtml = result.state.blockedPageHtml;
       state.draftSchedule = editableSchedule(result.state.schedule);
+      state.draftHardSchedule = editableHardSchedule(result.state.hardSchedule);
       state.draftLimitReset = editableLimitReset(result.state.limitReset);
       state.draftSettingsDelay = editableSettingsDelay(result.state.settingsDelay);
     }
@@ -1398,6 +1444,7 @@
     state.draftEntries = editableEntries(blockerState.entries, blockerState.domainLimits);
     state.draftBlockedPageHtml = blockerState.blockedPageHtml;
     state.draftSchedule = editableSchedule(blockerState.schedule);
+    state.draftHardSchedule = editableHardSchedule(blockerState.hardSchedule);
     state.draftLimitReset = editableLimitReset(blockerState.limitReset);
     state.draftSettingsDelay = editableSettingsDelay(blockerState.settingsDelay);
     state.settingsActivation = activation || { type: "active" };
@@ -1583,6 +1630,21 @@
     }
   }
 
+  function editableHardSchedule(schedule) {
+    switch (schedule.type) {
+      case "off":
+        return { type: "off" };
+      case "dailyWindow":
+        return {
+          type: "dailyWindow",
+          startMinute: schedule.startMinute,
+          endMinute: schedule.endMinute
+        };
+      default:
+        throw new Error(`Unknown hard schedule type: ${schedule.type}`);
+    }
+  }
+
   function editableLimitReset(limitReset) {
     switch (limitReset.type) {
       case "rollingWindow":
@@ -1608,6 +1670,22 @@
     }
 
     return core.DEFAULT_SCHEDULE;
+  }
+
+  function existingHardDailyWindow() {
+    if (state.draftHardSchedule.type === "dailyWindow") {
+      return state.draftHardSchedule;
+    }
+
+    if (state.savedDraft.hardSchedule.type === "dailyWindow") {
+      return state.savedDraft.hardSchedule;
+    }
+
+    return {
+      type: "dailyWindow",
+      startMinute: core.DEFAULT_SCHEDULE.startMinute,
+      endMinute: core.DEFAULT_SCHEDULE.endMinute
+    };
   }
 
   function existingRollingWindow() {
@@ -1648,6 +1726,14 @@
     }
 
     return 0;
+  }
+
+  function hardScheduleStartMinute() {
+    return existingHardDailyWindow().startMinute;
+  }
+
+  function hardScheduleEndMinute() {
+    return existingHardDailyWindow().endMinute;
   }
 
   function minuteToTime(minute) {

@@ -66,6 +66,8 @@
 
   function blockedReasonText(reason) {
     switch (reason) {
+      case "hardScheduleDomain":
+        return "All pages on this site are blocked during your hard block schedule.";
       case "scheduleDirectMatch":
         return "This page is blocked during your schedule.";
       case "limitDirectMatch":
