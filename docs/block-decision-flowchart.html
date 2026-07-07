@@ -1,0 +1,236 @@
+<title>URL Blocker — Block Decision Flowchart</title>
+<style>
+  :root {
+    --bg:#f6f7f9; --ink:#1c2024; --muted:#5b636b; --line:#8b95a0;
+    --start-bg:#e7edf3; --start-br:#b3c1cf;
+    --dec-bg:#fff3d4; --dec-br:#e3c25f; --dec-ink:#5a4a12;
+    --block-bg:#fbe1de; --block-br:#df9188; --block-ink:#8c2f24;
+    --pass-bg:#e0f0e3; --pass-br:#8fc59b; --pass-ink:#256235;
+    --gate-bg:#eae2f4; --gate-br:#c4aee0; --gate-ink:#5a3f86;
+    --yes:#b0472f; --no:#2f7d46;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#14171a; --ink:#e8eaed; --muted:#9aa3ab; --line:#66707a;
+      --start-bg:#2a3642; --start-br:#425568;
+      --dec-bg:#3c3620; --dec-br:#7a682f; --dec-ink:#e8d69a;
+      --block-bg:#45231f; --block-br:#8c463c; --block-ink:#f2b3aa;
+      --pass-bg:#213829; --pass-br:#3f6e4c; --pass-ink:#9fd9ab;
+      --gate-bg:#2f2740; --gate-br:#5a4a7a; --gate-ink:#cbb6ec;
+      --yes:#f0977f; --no:#86d19a;
+    }
+  }
+  :root[data-theme="dark"]{--bg:#14171a;--ink:#e8eaed;--muted:#9aa3ab;--line:#66707a;--start-bg:#2a3642;--start-br:#425568;--dec-bg:#3c3620;--dec-br:#7a682f;--dec-ink:#e8d69a;--block-bg:#45231f;--block-br:#8c463c;--block-ink:#f2b3aa;--pass-bg:#213829;--pass-br:#3f6e4c;--pass-ink:#9fd9ab;--gate-bg:#2f2740;--gate-br:#5a4a7a;--gate-ink:#cbb6ec;--yes:#f0977f;--no:#86d19a;}
+  :root[data-theme="light"]{--bg:#f6f7f9;--ink:#1c2024;--muted:#5b636b;--line:#8b95a0;--start-bg:#e7edf3;--start-br:#b3c1cf;--dec-bg:#fff3d4;--dec-br:#e3c25f;--dec-ink:#5a4a12;--block-bg:#fbe1de;--block-br:#df9188;--block-ink:#8c2f24;--pass-bg:#e0f0e3;--pass-br:#8fc59b;--pass-ink:#256235;--gate-bg:#eae2f4;--gate-br:#c4aee0;--gate-ink:#5a3f86;--yes:#b0472f;--no:#2f7d46;}
+
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  .page { max-width: 920px; margin: 0 auto; padding: 40px 16px 70px; }
+  header { text-align:center; margin-bottom: 18px; }
+  h1 { font-size: 25px; margin: 0 0 8px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0 auto; max-width: 620px; line-height:1.5; }
+  svg { width: 100%; height: auto; display: block; }
+
+  .box { width:100%; height:100%; border-radius:12px; border:1.5px solid;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding:6px 14px; }
+  .box .t { font-weight:650; font-size:14.5px; line-height:1.2; }
+  .box .d { color:var(--muted); font-size:11.5px; line-height:1.3; margin-top:4px; }
+  .box code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px;
+    background:rgba(128,128,128,.18); padding:0 4px; border-radius:4px; }
+
+  .start { background:var(--start-bg); border-color:var(--start-br); border-radius:26px; }
+  .decision { background:var(--dec-bg); border-color:var(--dec-br); }
+  .decision .t { color:var(--dec-ink); }
+  .pill { border-radius:26px; }
+  .block { background:var(--block-bg); border-color:var(--block-br); }
+  .block .t { color:var(--block-ink); font-weight:750; letter-spacing:.03em; }
+  .pass  { background:var(--pass-bg);  border-color:var(--pass-br); }
+  .pass .t { color:var(--pass-ink); }
+  .gate { background:var(--gate-bg); border-color:var(--gate-br); border-style:dashed; }
+  .gate .t { color:var(--gate-ink); font-weight:750; font-size:12px; letter-spacing:.08em; }
+
+  .legend { display:flex; flex-wrap:wrap; gap:12px 20px; justify-content:center;
+    margin-top:26px; font-size:12.5px; color:var(--muted); }
+  .legend span { display:inline-flex; align-items:center; gap:7px; }
+  .chip { width:14px; height:14px; border-radius:4px; border:1.5px solid; }
+  .cd{background:var(--dec-bg);border-color:var(--dec-br);}
+  .cb{background:var(--block-bg);border-color:var(--block-br);}
+  .cp{background:var(--pass-bg);border-color:var(--pass-br);}
+  .cg{background:var(--gate-bg);border-color:var(--gate-br);border-style:dashed;}
+  .note { max-width:660px; margin:22px auto 0; font-size:12.5px; color:var(--muted); line-height:1.55; }
+  .note code { font-family:ui-monospace,Menlo,monospace; background:rgba(128,128,128,.18); padding:1px 5px; border-radius:5px; font-size:11.5px; }
+</style>
+
+<div class="page">
+  <header>
+    <h1>Does URL&nbsp;Blocker block this page?</h1>
+    <p class="sub">The check every navigation runs through. A page is blocked only when it <b>matches an enabled entry</b> <i>and</i> a <b>schedule or time limit</b> is active right now. The right-hand lane is the express path for a direct match.</p>
+  </header>
+
+  <svg viewBox="0 0 880 1500" xmlns="http://www.w3.org/2000/svg" font-family="inherit">
+    <defs>
+      <marker id="ah" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="var(--line)"/>
+      </marker>
+    </defs>
+
+    <!-- ===================== CONNECTORS ===================== -->
+    <g stroke="var(--line)" stroke-width="2" fill="none">
+      <!-- spine (center x=270) -->
+      <line x1="270" y1="76"   x2="270" y2="170" marker-end="url(#ah)"/>
+      <line x1="270" y1="250"  x2="270" y2="344" marker-end="url(#ah)"/>
+      <line x1="270" y1="436"  x2="270" y2="530" marker-end="url(#ah)"/>
+      <line x1="270" y1="622"  x2="270" y2="716" marker-end="url(#ah)"/>
+      <line x1="270" y1="796"  x2="270" y2="890" marker-end="url(#ah)"/>
+      <line x1="270" y1="990"  x2="270" y2="1084" marker-end="url(#ah)"/>
+      <line x1="270" y1="1164" x2="270" y2="1258" marker-end="url(#ah)"/>
+      <line x1="270" y1="1338" x2="270" y2="1432" marker-end="url(#ah)"/>
+
+      <!-- side exits to terminals (right edge x=500 -> pill left x=580) -->
+      <line x1="500" y1="211"  x2="578" y2="211"  marker-end="url(#ah)"/>
+      <line x1="500" y1="577"  x2="578" y2="577"  marker-end="url(#ah)"/>
+      <line x1="500" y1="757"  x2="578" y2="757"  marker-end="url(#ah)"/>
+      <line x1="500" y1="941"  x2="578" y2="941"  marker-end="url(#ah)"/>
+      <line x1="500" y1="1125" x2="578" y2="1125" marker-end="url(#ah)"/>
+      <line x1="500" y1="1299" x2="578" y2="1299" marker-end="url(#ah)"/>
+
+      <!-- express lane: direct match YES -> activation gate -->
+      <path d="M500,391 L850,391 L850,1064 L272,1064" />
+    </g>
+
+    <!-- branch labels -->
+    <g font-size="11.5" font-weight="700" letter-spacing=".03em">
+      <!-- down-arrow (pass-through) labels: one per decision, opposite its side exit -->
+      <text x="284" y="302"  fill="var(--yes)">YES</text>
+      <text x="284" y="488"  fill="var(--no)">NO</text>
+      <text x="284" y="674"  fill="var(--yes)">YES</text>
+      <text x="284" y="848"  fill="var(--no)">NO</text>
+      <text x="284" y="1016" fill="var(--yes)">YES</text>
+      <text x="284" y="1212" fill="var(--no)">NO</text>
+      <text x="284" y="1388" fill="var(--no)">NO</text>
+      <!-- side-exit labels -->
+      <text x="521" y="203" fill="var(--no)">NO</text>
+      <text x="521" y="569" fill="var(--no)">NO</text>
+      <text x="521" y="749" fill="var(--yes)">YES</text>
+      <text x="521" y="933" fill="var(--no)">NO</text>
+      <text x="521" y="1117" fill="var(--yes)">YES</text>
+      <text x="521" y="1291" fill="var(--yes)">YES</text>
+      <!-- express label -->
+      <text x="560" y="382" fill="var(--yes)">YES — direct match, skip to gate</text>
+    </g>
+
+    <!-- ===================== NODES ===================== -->
+    <!-- Start -->
+    <foreignObject x="120" y="22" width="300" height="54">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="box start"><div class="t">Page navigates to a URL</div></div>
+    </foreignObject>
+
+    <!-- B http/https -->
+    <foreignObject x="40" y="172" width="460" height="78">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="box decision">
+        <div class="t">Is it an http / https page?</div>
+        <div class="d">Other schemes (chrome:, file:, about:…) are ignored</div>
+      </div>
+    </foreignObject>
+
+    <!-- C direct match -->
+    <foreignObject x="40" y="346" width="460" height="90">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="box decision">
+        <div class="t">Does the URL directly match an enabled entry?</div>
+        <div class="d">Full domain · URL · URL+subpaths · custom regex&nbsp;&nbsp;(www stripped, aliases applied)</div>
+      </div>
+    </foreignObject>
+
+    <!-- D root entry -->
+    <foreignObject x="40" y="532" width="460" height="90">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="box decision">
+        <div class="t">Is there an enabled root-URL entry for this domain?</div>
+        <div class="d">A “URL” matcher with no path (e.g. <code>reddit.com</code>) whose domain matches the page</div>
+      </div>
+    </foreignObject>
+
+    <!-- E reload/SPA -->
+    <foreignObject x="40" y="718" width="460" height="78">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="box decision">
+        <div class="t">Is it a reload or same-page (SPA) change?</div>
+        <div class="d">In-page hash/query changes and reloads never trigger expansion — they keep the page&rsquo;s original arrival</div>
+      </div>
+    </foreignObject>
+
+    <!-- F nav type -->
+    <foreignObject x="40" y="892" width="460" height="98">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="box decision">
+        <div class="t">Does the arrival qualify for this domain?</div>
+        <div class="d">Direct visit (typed / bookmark / no referrer) with <b>block direct visits</b> on, or a same-domain internal link with <b>block internal links</b> on — judged by the page&rsquo;s <i>remembered</i> arrival; an unknown arrival qualifies too</div>
+      </div>
+    </foreignObject>
+
+    <!-- Gate label -->
+    <foreignObject x="150" y="1036" width="240" height="34">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="box gate"><div class="t">ACTIVATION GATE</div></div>
+    </foreignObject>
+
+    <!-- G schedule -->
+    <foreignObject x="40" y="1086" width="460" height="78">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="box decision">
+        <div class="t">Is the schedule active now?</div>
+        <div class="d">“Always”, or the current time is inside the daily blocking window</div>
+      </div>
+    </foreignObject>
+
+    <!-- H over limit -->
+    <foreignObject x="40" y="1260" width="460" height="78">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="box decision">
+        <div class="t">Is this domain over its time limit?</div>
+        <div class="d">Tracked usage in the reset window exceeds the domain’s minute limit</div>
+      </div>
+    </foreignObject>
+
+    <!-- Terminal: final not blocked -->
+    <foreignObject x="140" y="1434" width="260" height="54">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="box pill pass">
+        <div class="t">Not blocked</div>
+        <div class="d" style="color:inherit;opacity:.72">matches, but nothing is active</div>
+      </div>
+    </foreignObject>
+
+    <!-- Terminals (right column, x=580 w=200) -->
+    <foreignObject x="580" y="184" width="200" height="54">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="box pill pass"><div class="t">Not blocked</div></div>
+    </foreignObject>
+    <foreignObject x="580" y="550" width="200" height="54">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="box pill pass"><div class="t">Not blocked</div></div>
+    </foreignObject>
+    <foreignObject x="580" y="730" width="200" height="54">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="box pill pass"><div class="t">Not blocked</div></div>
+    </foreignObject>
+    <foreignObject x="580" y="914" width="200" height="54">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="box pill pass">
+        <div class="t">Not blocked</div>
+        <div class="d" style="color:inherit;opacity:.72">e.g. link from another site</div>
+      </div>
+    </foreignObject>
+    <foreignObject x="580" y="1098" width="200" height="54">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="box pill block"><div class="t">BLOCKED</div></div>
+    </foreignObject>
+    <foreignObject x="580" y="1272" width="200" height="54">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="box pill block"><div class="t">BLOCKED</div></div>
+    </foreignObject>
+  </svg>
+
+  <div class="legend">
+    <span><i class="chip cd"></i> Decision</span>
+    <span><i class="chip cg"></i> Activation gate</span>
+    <span><i class="chip cb"></i> Blocked</span>
+    <span><i class="chip cp"></i> Allowed through</span>
+  </div>
+
+  <p class="note">
+    <b>Root-URL expansion</b> (the middle chain) is what blocks a site’s <i>feed</i> — landing on <code>reddit.com</code> — while still letting you open a specific link into it. It only fires for a bare-domain “URL” entry, and only on a qualifying arrival, governed per domain by the <b>block direct visits</b> and <b>block internal links</b> toggles. A direct match to a more specific entry (full path, subpaths, or regex) takes the express lane straight to the activation gate.
+  </p>
+  <p class="note">
+    <b>Arrival memory.</b> Each page’s arrival referrer is recorded in extension storage for 30 days, so Back/Forward returns and periodic re-checks re-apply the arrival that originally brought you to the page — the browser’s own referrer goes stale on SPAs, where every in-app hop keeps the document’s first referrer. A history return whose arrival can’t be determined (no record, expired record, or unreadable storage) counts as a qualifying arrival, so it blocks rather than slips through.
+  </p>
+</div>
