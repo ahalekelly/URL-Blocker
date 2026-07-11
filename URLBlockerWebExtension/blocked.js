@@ -14,7 +14,7 @@
   closeButton.addEventListener("click", closeCurrentTab);
   loadBlockedPageHtml().catch((error) => {
     renderBlockedPage(fallbackHtml);
-    console.warn("URL Blocker could not load the blocked page settings.", errorDetails(error));
+    console.warn(`URL Blocker could not load the blocked page settings. ${errorLogText(error)}`);
   });
 
   async function loadBlockedPageHtml() {
@@ -27,10 +27,7 @@
       case "blockedPageHtmlError":
       case "error":
         renderBlockedPage(fallbackHtml);
-        console.warn("URL Blocker could not load custom blocked page HTML.", {
-          message: response.error,
-          code: response.errorCode || response.type
-        });
+        console.warn(`URL Blocker could not load custom blocked page HTML. ${response.error} (${response.errorCode || response.type})`);
         return;
       default:
         throw new Error(`Unknown getBlockedPageHtml response: ${response.type}`);
@@ -95,18 +92,20 @@
     await api.tabs.remove(tab.id);
   }
 
-  function errorDetails(error) {
+  // Browser extension error panes stringify console arguments, so log errors as
+  // one formatted string instead of an object that renders as [object Object].
+  function errorLogText(error) {
     if (error instanceof Error) {
-      return { message: error.message, code: error.errorCode || error.code || error.name };
+      return `${error.message} (${error.errorCode || error.code || error.name})`;
     }
 
     if (isPlainObject(error)) {
       const code = typeof error.errorCode === "string" ? error.errorCode : error.code;
 
-      return { message: JSON.stringify(error), code: code === undefined ? "UnknownError" : String(code) };
+      return `${JSON.stringify(error)} (${code === undefined ? "UnknownError" : String(code)})`;
     }
 
-    return { message: String(error), code: "UnknownError" };
+    return `${String(error)} (UnknownError)`;
   }
 
   function isPlainObject(value) {

@@ -147,7 +147,7 @@
     const url = screenTimeUrl;
     sendMessage(
       { type: "screenTimeElapsed", url, elapsedMs },
-      (error) => console.error("URL Blocker could not log screen time.", errorDetails(error)),
+      (error) => console.error(`URL Blocker could not log screen time. ${errorLogText(error)}`),
     );
   }
 
@@ -179,7 +179,7 @@
       { type: "urlChanged", url: currentUrl, source: documentNavigationSource() },
       (error) => {
         lastSentUrl = "";
-        console.error("URL Blocker could not check the current URL.", errorDetails(error));
+        console.error(`URL Blocker could not check the current URL. ${errorLogText(error)}`);
       },
     );
   }
@@ -223,7 +223,7 @@
 
       return { type: "known", url: record.referrer };
     } catch (error) {
-      console.error("URL Blocker could not read referrer records.", errorDetails(error));
+      console.error(`URL Blocker could not read referrer records. ${errorLogText(error)}`);
 
       return { type: "unknown" };
     }
@@ -239,7 +239,7 @@
 
       return { type: "known", url: record.referrer };
     } catch (error) {
-      console.error("URL Blocker could not read referrer records.", errorDetails(error));
+      console.error(`URL Blocker could not read referrer records. ${errorLogText(error)}`);
 
       return { type: "unknown" };
     }
@@ -265,7 +265,7 @@
 
   function recordReferrer(rawUrl, referrer) {
     writeReferrerRecord(rawUrl, referrer).catch((error) => {
-      console.error("URL Blocker could not write referrer records.", errorDetails(error));
+      console.error(`URL Blocker could not write referrer records. ${errorLogText(error)}`);
     });
   }
 
@@ -334,18 +334,20 @@
     }
   }
 
-  function errorDetails(error) {
+  // Browser extension error panes stringify console arguments, so log errors as
+  // one formatted string instead of an object that renders as [object Object].
+  function errorLogText(error) {
     if (error instanceof Error) {
-      return { message: error.message, code: error.errorCode || error.code || error.name };
+      return `${error.message} (${error.errorCode || error.code || error.name})`;
     }
 
     if (isPlainObject(error)) {
       const code = typeof error.errorCode === "string" ? error.errorCode : error.code;
 
-      return { message: JSON.stringify(error), code: code === undefined ? "UnknownError" : String(code) };
+      return `${JSON.stringify(error)} (${code === undefined ? "UnknownError" : String(code)})`;
     }
 
-    return { message: String(error), code: "UnknownError" };
+    return `${String(error)} (UnknownError)`;
   }
 
   function isPlainObject(value) {

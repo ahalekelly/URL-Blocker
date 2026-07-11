@@ -122,9 +122,8 @@ test("content script logs plain object message errors with details", async () =>
 
   await page.flush();
 
-  assert.deepEqual(JSON.parse(JSON.stringify(page.consoleErrors)), [[
-    "URL Blocker could not check the current URL.",
-    { message: JSON.stringify(error), code: "TabUpdateTestError" }
+  assert.deepEqual(page.consoleErrors, [[
+    `URL Blocker could not check the current URL. ${JSON.stringify(error)} (TabUpdateTestError)`
   ]]);
 });
 
@@ -213,7 +212,7 @@ test("content script fails closed when reading back and forward records fails", 
   assert.deepEqual(page.messages, [
     urlChanged("https://example.com/page", { type: "document", referrer: unknownReferrer(), navigationType: "back_forward" })
   ]);
-  assert.equal(page.consoleErrors[0][0], "URL Blocker could not read referrer records.");
+  assert.match(page.consoleErrors[0][0], /^URL Blocker could not read referrer records\. .*StorageGetTestError/);
 });
 
 test("content script force-checks bfcache restores with the stored SPA arrival", async () => {

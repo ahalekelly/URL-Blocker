@@ -1134,7 +1134,7 @@
 
     function rememberSyncError(error) {
       lastSyncError = errorMessage(error);
-      console.error("URL Blocker sync failed.", errorResponse("syncError", error));
+      console.error(`URL Blocker sync failed. ${errorLogText(error)}`);
     }
 
     function createId() {
@@ -1195,7 +1195,7 @@
     }
 
     sweepReferrerRecords().catch((error) => {
-      console.error("URL Blocker could not sweep referrer records.", errorResponse("error", error));
+      console.error(`URL Blocker could not sweep referrer records. ${errorLogText(error)}`);
     });
 
     return {
@@ -1751,7 +1751,7 @@
 
     if (action && action.onClicked) {
       action.onClicked.addListener(() => {
-        controller.openOptions().catch((error) => console.error("URL Blocker could not open options.", errorResponse("error", error)));
+        controller.openOptions().catch((error) => console.error(`URL Blocker could not open options. ${errorLogText(error)}`));
       });
     }
 
@@ -1762,14 +1762,14 @@
         }
 
         controller.redirectBlockedUrl(tabId, changeInfo.url, UNKNOWN_NAVIGATION_SOURCE)
-          .catch((error) => console.error("URL Blocker could not redirect updated tab.", errorResponse("error", error)));
+          .catch((error) => console.error(`URL Blocker could not redirect updated tab. ${errorLogText(error)}`));
       });
     }
 
     if (api.webNavigation && api.webNavigation.onCommitted) {
       api.webNavigation.onCommitted.addListener((details) => {
         controller.redirectCommittedNavigation(details)
-          .catch((error) => console.error("URL Blocker could not redirect committed navigation.", errorResponse("error", error)));
+          .catch((error) => console.error(`URL Blocker could not redirect committed navigation. ${errorLogText(error)}`));
       });
     }
 
@@ -1791,6 +1791,12 @@
 
   function errorResponse(type, error) {
     return { type, error: errorMessage(error), errorCode: errorCode(error) };
+  }
+
+  // Browser extension error panes stringify console arguments, so log errors as
+  // one formatted string instead of an object that renders as [object Object].
+  function errorLogText(error) {
+    return `${errorMessage(error)} (${errorCode(error)})`;
   }
 
   function errorFromResponse(response) {
@@ -1858,6 +1864,6 @@
 
     controller.loadState()
       .then(controller.syncContentScripts)
-      .catch((error) => console.error("URL Blocker could not sync website access.", errorResponse("error", error)));
+      .catch((error) => console.error(`URL Blocker could not sync website access. ${errorLogText(error)}`));
   }
 })(globalThis);
