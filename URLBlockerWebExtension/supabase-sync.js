@@ -453,6 +453,21 @@
       body: JSON.stringify({ refresh_token: session.refreshToken })
     });
 
+    // An unvalidated response would get persisted as the stored session and
+    // break every later sync until the user signs in again, so fail loudly
+    // here instead.
+    if (typeof response.access_token !== "string" || response.access_token === "") {
+      throw new Error("Supabase token refresh returned no access token.");
+    }
+
+    if (typeof response.refresh_token !== "string" || response.refresh_token === "") {
+      throw new Error("Supabase token refresh returned no refresh token.");
+    }
+
+    if (!Number.isInteger(response.expires_in) || response.expires_in <= 0) {
+      throw new Error("Supabase token refresh returned an invalid expiration.");
+    }
+
     return {
       schemaVersion: SUPABASE_SESSION_SCHEMA_VERSION,
       accessToken: response.access_token,
