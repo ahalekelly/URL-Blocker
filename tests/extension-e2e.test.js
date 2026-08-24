@@ -335,6 +335,24 @@ test("options restores saved mode details after temporary mode changes", async (
   assert.equal(page.byId("rollingWindowHoursInput").value, "16");
 });
 
+test("options round-trips YouTube finish setting", async () => {
+  const app = createExtensionApp();
+  app.backgroundApi.storageData[core.STATE_KEY] = validState([]);
+  let page = await openOptionsPage(app);
+
+  assert.equal(page.byId("finishYouTubeVideosInput").checked, true);
+
+  page.byId("finishYouTubeVideosInput").checked = false;
+  await page.byId("finishYouTubeVideosInput").dispatch("change");
+  await page.byId("saveButton").dispatch("click");
+
+  assert.deepEqual(app.backgroundApi.storageData[core.STATE_KEY].youtubeFocus, { finishCurrentVideo: false });
+
+  page = await openOptionsPage(app);
+
+  assert.equal(page.byId("finishYouTubeVideosInput").checked, false);
+});
+
 test("options round-trips hard schedule settings and restores saved window details", async () => {
   const app = createExtensionApp();
   app.backgroundApi.storageData[core.STATE_KEY] = validState([]);
@@ -615,7 +633,13 @@ async function runContentScript(app, url, tabId) {
       }
     },
     console,
-    document: { hidden: false },
+    document: {
+      hidden: false,
+      documentElement: {
+        setAttribute() {},
+        removeAttribute() {}
+      }
+    },
     location: { href: url },
     addEventListener() {},
     clearInterval() {},
@@ -888,6 +912,7 @@ function validState(entries, schedule = core.DEFAULT_SCHEDULE) {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
+    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     domainLimits: core.domainLimitsForEntries(stateEntries, [])
   };
 }
@@ -1020,6 +1045,7 @@ function optionsDocument() {
     "rollingWindowHoursInput",
     "dailyResetHourSelect",
     "settingsDelayMinutesInput",
+    "finishYouTubeVideosInput",
     "settingsActivationText",
     "errorSummary",
     "screenTimeRows",

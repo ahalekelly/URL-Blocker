@@ -12,6 +12,8 @@
   const core = root.BlockerCore || require("./blocker.js");
   const sync = root.SupabaseSync || require("./supabase-sync.js");
   const CONTENT_SCRIPT_ID = "url-blocker-content";
+  const CONTENT_SCRIPT_JS = ["content.js"];
+  const CONTENT_SCRIPT_CSS = ["content.css"];
   const MINUTE_MS = 60 * 1000;
   const HOUR_MS = 60 * 60 * 1000;
   const MAX_SCREEN_TIME_ELAPSED_MS = 30 * 1000;
@@ -32,6 +34,7 @@
     const screenTimeStorage = createScreenTimeStorage(api);
     const settingsSyncStorage = createSettingsSyncStorage(api);
     const sessionStorage = createSupabaseSessionStorage(api);
+    const youtubeVideosByTab = new Map();
     let configPromise;
     let lastSyncError = "";
     let activationTimer = 0;
@@ -293,6 +296,15 @@
       const usage = await loadScreenTimeUsage();
       const match = core.findBlockedMatchingEntry(state, rawUrl, overLimitDomains(state, usage, nowMs), navigationSource);
 
+      if (youtubeFocusAllows(state, tabId, rawUrl, match)) {
+        return { type: "allowed", youtubeFocus: true };
+      }
+
+      if (match.type === "none") {
+        rememberAllowedYoutubeVideo(tabId, rawUrl);
+        return { type: "allowed", youtubeFocus: false };
+      }
+
       return redirectFromMatch(tabId, rawUrl, match);
     }
 
@@ -342,6 +354,42 @@
 
         return redirectFromMatch(tab.id, tab.url, match);
       }));
+    }
+
+    function youtubeFocusAllows(state, tabId, rawUrl, match) {
+      if (!state.youtubeFocus.finishCurrentVideo || match.type !== "match" || match.reason === "hardScheduleDomain") {
+        return false;
+      }
+
+      const video = core.youtubeWatchVideoForUrl(rawUrl);
+
+      if (video.type === "none") {
+        return false;
+      }
+
+      const allowedVideoId = youtubeVideosByTab.get(tabId);
+
+      if (allowedVideoId !== video.videoId) {
+        return false;
+      }
+
+      youtubeVideosByTab.set(tabId, video.videoId);
+      return true;
+    }
+
+    function rememberAllowedYoutubeVideo(tabId, rawUrl) {
+      const video = core.youtubeWatchVideoForUrl(rawUrl);
+
+      switch (video.type) {
+        case "match":
+          youtubeVideosByTab.set(tabId, video.videoId);
+          return;
+        case "none":
+          youtubeVideosByTab.delete(tabId);
+          return;
+        default:
+          throw new Error(`Unknown YouTube video match type: ${video.type}`);
+      }
     }
 
     async function redirectFromMatch(tabId, rawUrl, match) {
@@ -593,7 +641,9 @@
       if (isOverLimit && sender.tab && typeof sender.tab.id === "number") {
         const match = core.findBlockedMatchingEntry(state, rawUrl, new Set([domain]), SAME_DOCUMENT_NAVIGATION_SOURCE);
 
-        await redirectFromMatch(sender.tab.id, rawUrl, match);
+        if (!youtubeFocusAllows(state, sender.tab.id, rawUrl, match)) {
+          await redirectFromMatch(sender.tab.id, rawUrl, match);
+        }
       }
 
       return { type: "logged", domain, totalMs, limitMinutes: limit.limitMinutes, isOverLimit };
@@ -688,7 +738,8 @@
 
       await api.scripting.registerContentScripts([{
         id: CONTENT_SCRIPT_ID,
-        js: ["content.js"],
+        js: CONTENT_SCRIPT_JS,
+        css: CONTENT_SCRIPT_CSS,
         matches: origins,
         runAt: "document_start"
       }]);
@@ -701,7 +752,8 @@
 
       const script = registered[0];
 
-      return sameItems(script.js, ["content.js"])
+      return sameItems(script.js, CONTENT_SCRIPT_JS)
+        && sameItems(script.css || [], CONTENT_SCRIPT_CSS)
         && sameItems(script.matches, origins)
         && script.runAt === "document_start";
     }

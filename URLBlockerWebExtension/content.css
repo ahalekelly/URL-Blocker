@@ -1,0 +1,21 @@
+html[data-url-blocker-youtube-focus="true"] ytd-watch-flexy #secondary,
+html[data-url-blocker-youtube-focus="true"] ytd-watch-flexy #related,
+html[data-url-blocker-youtube-focus="true"] ytd-watch-flexy #playlist,
+html[data-url-blocker-youtube-focus="true"] ytd-watch-flexy ytd-compact-video-renderer,
+html[data-url-blocker-youtube-focus="true"] ytd-watch-flexy ytd-radio-renderer,
+html[data-url-blocker-youtube-focus="true"] ytd-watch-flexy ytd-reel-shelf-renderer,
+html[data-url-blocker-youtube-focus="true"] ytd-watch-flexy ytd-rich-grid-renderer,
+html[data-url-blocker-youtube-focus="true"] ytd-watch-flexy ytd-merch-shelf-renderer,
+html[data-url-blocker-youtube-focus="true"] ytm-watch ytm-item-section-renderer[section-identifier="related-items"],
+html[data-url-blocker-youtube-focus="true"] ytm-watch ytm-related-videos-renderer,
+html[data-url-blocker-youtube-focus="true"] ytm-watch ytm-compact-video-renderer,
+html[data-url-blocker-youtube-focus="true"] ytm-watch ytm-playlist-panel-renderer,
+html[data-url-blocker-youtube-focus="true"] ytm-watch ytm-reel-shelf-renderer,
+html[data-url-blocker-youtube-focus="true"] .ytp-ce-element,
+html[data-url-blocker-youtube-focus="true"] .ytp-ce-covering-overlay,
+html[data-url-blocker-youtube-focus="true"] .ytp-pause-overlay,
+html[data-url-blocker-youtube-focus="true"] .ytp-next-button,
+html[data-url-blocker-youtube-focus="true"] .ytp-prev-button,
+html[data-url-blocker-youtube-focus="true"] button[data-tooltip-target-id="ytp-autonav-toggle-button"] {
+  display: none !important;
+}

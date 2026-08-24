@@ -16,6 +16,7 @@
 		01A000000000000000000007 /* blocker.js in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000007 /* blocker.js */; };
 		01A000000000000000000008 /* background.js in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000008 /* background.js */; };
 		01A000000000000000000009 /* content.js in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000009 /* content.js */; };
+		01A000000000000000000018 /* content.css in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000019 /* content.css */; };
 		01A00000000000000000000A /* options.html in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000A /* options.html */; };
 		01A00000000000000000000B /* options.css in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000B /* options.css */; };
 		01A00000000000000000000C /* options.js in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000C /* options.js */; };
@@ -40,6 +41,7 @@
 		02A000000000000000000008 /* blocker.js in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000007 /* blocker.js */; };
 		02A000000000000000000009 /* background.js in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000008 /* background.js */; };
 		02A00000000000000000000A /* content.js in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000009 /* content.js */; };
+		02A000000000000000000018 /* content.css in Resources */ = {isa = PBXBuildFile; fileRef = 01B000000000000000000019 /* content.css */; };
 		02A00000000000000000000B /* options.html in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000A /* options.html */; };
 		02A00000000000000000000C /* options.css in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000B /* options.css */; };
 		02A00000000000000000000D /* options.js in Resources */ = {isa = PBXBuildFile; fileRef = 01B00000000000000000000C /* options.js */; };
@@ -116,6 +118,7 @@
 		01B000000000000000000007 /* blocker.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = blocker.js; sourceTree = "<group>"; };
 		01B000000000000000000008 /* background.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = background.js; sourceTree = "<group>"; };
 		01B000000000000000000009 /* content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = content.js; sourceTree = "<group>"; };
+		01B000000000000000000019 /* content.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = content.css; sourceTree = "<group>"; };
 		01B00000000000000000000A /* options.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = options.html; sourceTree = "<group>"; };
 		01B00000000000000000000B /* options.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = options.css; sourceTree = "<group>"; };
 		01B00000000000000000000C /* options.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = options.js; sourceTree = "<group>"; };
@@ -224,6 +227,7 @@
 				01B000000000000000000007 /* blocker.js */,
 				01B000000000000000000008 /* background.js */,
 				01B000000000000000000009 /* content.js */,
+				01B000000000000000000019 /* content.css */,
 				01B00000000000000000000A /* options.html */,
 				01B00000000000000000000B /* options.css */,
 				01B00000000000000000000C /* options.js */,
@@ -426,6 +430,7 @@
 				01A000000000000000000007 /* blocker.js in Resources */,
 				01A000000000000000000008 /* background.js in Resources */,
 				01A000000000000000000009 /* content.js in Resources */,
+				01A000000000000000000018 /* content.css in Resources */,
 				01A00000000000000000000A /* options.html in Resources */,
 				01A00000000000000000000B /* options.css in Resources */,
 				01A00000000000000000000C /* options.js in Resources */,
@@ -459,6 +464,7 @@
 				02A000000000000000000008 /* blocker.js in Resources */,
 				02A000000000000000000009 /* background.js in Resources */,
 				02A00000000000000000000A /* content.js in Resources */,
+				02A000000000000000000018 /* content.css in Resources */,
 				02A00000000000000000000B /* options.html in Resources */,
 				02A00000000000000000000C /* options.css in Resources */,
 				02A00000000000000000000D /* options.js in Resources */,

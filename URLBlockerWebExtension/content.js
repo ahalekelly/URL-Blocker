@@ -7,6 +7,7 @@
   const REFERRER_RECORD_PREFIX = "referrerRecords:";
   const REFERRER_RECORD_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
   const MAX_REFERRER_RECORDS = 20;
+  const YOUTUBE_FOCUS_ATTRIBUTE = "data-url-blocker-youtube-focus";
   let lastSentUrl = "";
   let currentPageUrl = location.href;
   let arrival = { type: "unknown" };
@@ -30,6 +31,8 @@
     root.addEventListener("pagehide", stopScreenTime);
     root.addEventListener("popstate", checkCurrentUrl);
     root.addEventListener("hashchange", checkCurrentUrl);
+    root.addEventListener("yt-navigate-finish", checkCurrentUrl);
+    root.addEventListener("yt-page-data-updated", checkCurrentUrl);
     root.addEventListener("visibilitychange", syncVisibility);
     root.addEventListener("focus", checkCurrentUrl);
     root.addEventListener("click", queueCheck, true);
@@ -183,6 +186,7 @@
         lastSentUrl = "";
         console.error(`URL Blocker could not check the current URL. ${errorLogText(error)}`);
       },
+      applyUrlChangedResponse,
     );
   }
 
@@ -334,14 +338,53 @@
     return rawUrl.split(/[&#]/, 1)[0];
   }
 
-  function sendMessage(payload, onError) {
+  function applyUrlChangedResponse(response) {
+    if (!isPlainObject(response) || typeof response.type !== "string") {
+      throw new Error("URL check response must include a type.");
+    }
+
+    switch (response.type) {
+      case "allowed":
+        setYoutubeFocus(response.youtubeFocus === true);
+        return;
+      case "redirected":
+        return;
+      case "error":
+        setYoutubeFocus(false);
+        lastSentUrl = "";
+        console.error(`URL Blocker could not check the current URL. ${response.error} (${response.errorCode || response.type})`);
+        return;
+      default:
+        throw new Error(`Unknown URL check response: ${response.type}`);
+    }
+  }
+
+  function setYoutubeFocus(enabled) {
+    if (enabled) {
+      document.documentElement.setAttribute(YOUTUBE_FOCUS_ATTRIBUTE, "true");
+      return;
+    }
+
+    document.documentElement.removeAttribute(YOUTUBE_FOCUS_ATTRIBUTE);
+  }
+
+  function sendMessage(payload, onError, onResponse = null) {
     if (stopped || !api.runtime?.id) {
       teardown();
       return;
     }
 
     try {
-      api.runtime.sendMessage(payload).catch((error) => {
+      api.runtime.sendMessage(payload).then((response) => {
+        if (!api.runtime?.id) {
+          teardown();
+          return;
+        }
+
+        if (onResponse) {
+          onResponse(response);
+        }
+      }).catch((error) => {
         if (!api.runtime?.id) {
           teardown();
           return;

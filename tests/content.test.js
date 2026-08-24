@@ -59,6 +59,34 @@ test("content script reports SPA route changes as internal navigation", async ()
   ]);
 });
 
+test("content script reports YouTube navigation events", async () => {
+  const page = await runContentScript("https://www.youtube.com/watch?v=abc");
+
+  page.location.href = "https://www.youtube.com/watch?v=def";
+  await page.dispatch("yt-navigate-finish");
+
+  assert.deepEqual(page.messages, [
+    urlChanged("https://www.youtube.com/watch?v=abc"),
+    urlChanged("https://www.youtube.com/watch?v=def", documentSource("https://www.youtube.com/watch?v=abc"))
+  ]);
+});
+
+test("content script toggles YouTube focus from URL check responses", async () => {
+  const page = await runContentScript("https://www.youtube.com/watch?v=abc", {
+    urlChangedResponses: [
+      { type: "allowed", youtubeFocus: true },
+      { type: "allowed", youtubeFocus: false }
+    ]
+  });
+
+  assert.equal(page.documentElement.attributes["data-url-blocker-youtube-focus"], "true");
+
+  page.location.href = "https://www.youtube.com";
+  await page.dispatch("popstate");
+
+  assert.equal(page.documentElement.attributes["data-url-blocker-youtube-focus"], undefined);
+});
+
 test("content script logs elapsed time before changed URLs", async () => {
   const page = await runContentScript("https://x.com");
 
@@ -325,6 +353,16 @@ test("content script reload loads reuse records without writing new ones", async
 
 async function runContentScript(url, options = {}) {
   const storageData = options.storageData || JSON.parse(JSON.stringify(options.initialStorage || {}));
+  const urlChangedResponses = [...(options.urlChangedResponses || [])];
+  const documentElement = {
+    attributes: {},
+    setAttribute(name, value) {
+      this.attributes[name] = value;
+    },
+    removeAttribute(name) {
+      delete this.attributes[name];
+    }
+  };
   const context = {
     browser: {
       runtime: {
@@ -334,6 +372,10 @@ async function runContentScript(url, options = {}) {
 
           if (options.sendError) {
             throw options.sendError;
+          }
+
+          if (message.type === "urlChanged" && urlChangedResponses.length > 0) {
+            return urlChangedResponses.shift();
           }
 
           return { type: "allowed" };
@@ -374,7 +416,7 @@ async function runContentScript(url, options = {}) {
         context.consoleErrors.push(args);
       }
     },
-    document: { hidden: false, referrer: options.referrer || "" },
+    document: { hidden: false, referrer: options.referrer || "", documentElement },
     intervals: [],
     listeners: new Map(),
     location: { href: url },
@@ -421,6 +463,7 @@ async function runContentScript(url, options = {}) {
     },
     storageData,
     storageSets: context.storageSets,
+    documentElement,
     async dispatch(type, elapsedMs = 0, event = {}) {
       context.now += elapsedMs;
       context.listeners.get(type)(event);

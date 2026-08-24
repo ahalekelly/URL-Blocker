@@ -50,6 +50,7 @@ test("saveState validates, writes storage, and queues settings activation", asyn
     effectiveAtMs: 60 * 60 * 1000
   });
   assert.deepEqual(api.registeredScripts[0].js, ["content.js"]);
+  assert.deepEqual(api.registeredScripts[0].css, ["content.css"]);
   assert.deepEqual(api.registeredScripts[0].matches, core.permissionOriginsForState(defaultState));
 
   api.nowValue = 60 * 60 * 1000;
@@ -97,6 +98,7 @@ test("saveState keeps matching content script registration", async () => {
   api.registeredScripts = [{
     id: "url-blocker-content",
     js: ["content.js"],
+    css: ["content.css"],
     matches: core.permissionOriginsForState(defaultState),
     runAt: "document_start"
   }];
@@ -1099,6 +1101,156 @@ test("urlChanged redirects matching URLs when rolling usage is over limit", asyn
   }]);
 });
 
+test("urlChanged lets a remembered YouTube video continue after rolling usage exceeds the limit", async () => {
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "youtube.com" }
+  ], inactiveSchedule(), [
+    { domain: "youtube.com", limitMinutes: 1 }
+  ]);
+  const controller = createBackgroundController(api);
+  const remembered = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc"), { tab: { id: 7 } });
+
+  api.storageData.screenTimeUsage = screenTimeUsage({
+    "youtube.com": { 20: 60000 }
+  });
+  const focused = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc&t=30", sameDocumentSource), { tab: { id: 7 } });
+
+  assert.deepEqual(remembered, { type: "allowed", youtubeFocus: false });
+  assert.deepEqual(focused, { type: "allowed", youtubeFocus: true });
+  assert.deepEqual(api.updatedTabs, []);
+});
+
+test("urlChanged blocks other YouTube videos after rolling usage exceeds the limit", async () => {
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "youtube.com" }
+  ], inactiveSchedule(), [
+    { domain: "youtube.com", limitMinutes: 1 }
+  ]);
+  const controller = createBackgroundController(api);
+
+  await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc"), { tab: { id: 7 } });
+  api.storageData.screenTimeUsage = screenTimeUsage({
+    "youtube.com": { 20: 60000 }
+  });
+  const response = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=def", sameDocumentSource), { tab: { id: 7 } });
+
+  assert.equal(response.type, "redirected");
+  assert.deepEqual(api.updatedTabs, [{
+    tabId: 7,
+    url: blockedUrl("https://www.youtube.com/watch?v=def", "limitDirectMatch")
+  }]);
+});
+
+test("urlChanged blocks YouTube videos started from the homepage after block time starts", async () => {
+  const api = fakeApi();
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "youtube.com" }
+  ], inactiveSchedule());
+  const controller = createBackgroundController(api);
+
+  await controller.handleMessage(urlChangedMessage("https://www.youtube.com"), { tab: { id: 7 } });
+  const blockedState = validState([
+    { id, kind: "url", value: "youtube.com" }
+  ], activeSchedule());
+
+  api.storageData[core.STATE_KEY] = blockedState;
+  api.storageData.settingsActivation = {
+    schemaVersion: 1,
+    activeState: blockedState,
+    pending: { type: "none" }
+  };
+  const response = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", {
+    type: "document",
+    referrer: knownReferrer("https://www.youtube.com"),
+    navigationType: "navigate"
+  }), { tab: { id: 7 } });
+
+  assert.equal(response.type, "redirected");
+  assert.deepEqual(api.updatedTabs, [{
+    tabId: 7,
+    url: blockedUrl("https://www.youtube.com/watch?v=abc", "scheduleRootSameDomainNavigation")
+  }]);
+});
+
+test("screenTimeElapsed lets the current YouTube video continue after crossing the limit", async () => {
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "youtube.com" }
+  ], inactiveSchedule(), [
+    { domain: "youtube.com", limitMinutes: 1 }
+  ]);
+  api.storageData.screenTimeUsage = screenTimeUsage({
+    "youtube.com": { 20: 30000 }
+  });
+  const controller = createBackgroundController(api);
+
+  await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc"), { tab: { id: 7 } });
+  const response = await controller.handleMessage({
+    type: "screenTimeElapsed",
+    url: "https://www.youtube.com/watch?v=abc",
+    elapsedMs: 30000
+  }, { tab: { id: 7 } });
+  const focused = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", sameDocumentSource), { tab: { id: 7 } });
+
+  assert.deepEqual(response, { type: "logged", domain: "youtube.com", totalMs: 60000, limitMinutes: 1, isOverLimit: true });
+  assert.deepEqual(focused, { type: "allowed", youtubeFocus: true });
+  assert.deepEqual(api.updatedTabs, []);
+});
+
+test("disabled YouTube focus redirects the current video after crossing the limit", async () => {
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
+  api.storageData[core.STATE_KEY] = {
+    ...validState([
+      { id, kind: "url", value: "youtube.com" }
+    ], inactiveSchedule(), [
+      { domain: "youtube.com", limitMinutes: 1 }
+    ]),
+    youtubeFocus: { finishCurrentVideo: false }
+  };
+  api.storageData.screenTimeUsage = screenTimeUsage({
+    "youtube.com": { 20: 60000 }
+  });
+  const controller = createBackgroundController(api);
+
+  await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc"), { tab: { id: 7 } });
+  const response = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", sameDocumentSource), { tab: { id: 7 } });
+
+  assert.equal(response.type, "redirected");
+  assert.deepEqual(api.updatedTabs, [{
+    tabId: 7,
+    url: blockedUrl("https://www.youtube.com/watch?v=abc", "limitDirectMatch")
+  }]);
+});
+
+test("hard schedule redirects remembered YouTube videos", async () => {
+  const api = fakeApi();
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "youtube.com" }
+  ], inactiveSchedule());
+  const controller = createBackgroundController(api);
+
+  await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc"), { tab: { id: 7 } });
+  const blockedState = validState([
+    { id, kind: "url", value: "youtube.com" }
+  ], inactiveSchedule(), undefined, core.DEFAULT_LIMIT_RESET, activeSchedule());
+
+  api.storageData[core.STATE_KEY] = blockedState;
+  api.storageData.settingsActivation = {
+    schemaVersion: 1,
+    activeState: blockedState,
+    pending: { type: "none" }
+  };
+  const response = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", sameDocumentSource), { tab: { id: 7 } });
+
+  assert.equal(response.type, "redirected");
+  assert.deepEqual(api.updatedTabs, [{
+    tabId: 7,
+    url: blockedUrl("https://www.youtube.com/watch?v=abc", "hardScheduleDomain")
+  }]);
+});
+
 test("screenTimeElapsed redirects current root URL subpages after crossing the limit", async () => {
   const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
   api.storageData[core.STATE_KEY] = validState([
@@ -1598,6 +1750,7 @@ test("syncNow repairs remote settings missing added defaults", async () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
+    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     domainLimits: core.domainLimitsForEntries(previousEntries, [])
   };
 
@@ -1840,6 +1993,7 @@ function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits, lim
     hardSchedule,
     limitReset,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
+    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     domainLimits: core.domainLimitsForEntries(stateEntries, domainLimits === undefined ? [] : domainLimits)
   };
 }

@@ -3,7 +3,8 @@
 
   const STATE_KEY = "blockerState";
   const BLOCKED_PAGE_HTML_KEY = "blockedPageHtml";
-  const SCHEMA_VERSION = 17;
+  const SCHEMA_VERSION = 18;
+  const YOUTUBE_FOCUS_SCHEMA_VERSION = 17;
   const LEGACY_SCHEMA_VERSION = 6;
   const SUBREDDIT_SCHEMA_VERSION = 7;
   const LIMIT_RESET_SCHEMA_VERSION = 8;
@@ -42,6 +43,7 @@
   const DEFAULT_HARD_SCHEDULE = { type: "off" };
   const DEFAULT_LIMIT_RESET = { type: "rollingWindow", windowHours: 24 };
   const DEFAULT_SETTINGS_DELAY = { delayMinutes: DEFAULT_SETTINGS_DELAY_MINUTES };
+  const DEFAULT_YOUTUBE_FOCUS = { finishCurrentVideo: true };
   const UNSUPPORTED_BLOCKLIST_VERSION_MESSAGE = "Unsupported blocklist version. Reset the blocklist to repair it.";
   const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const URL_ALIASES = [
@@ -82,6 +84,7 @@
       hardSchedule: DEFAULT_HARD_SCHEDULE,
       limitReset: DEFAULT_LIMIT_RESET,
       settingsDelay: DEFAULT_SETTINGS_DELAY,
+      youtubeFocus: DEFAULT_YOUTUBE_FOCUS,
       domainLimits: domainLimitsForEntries(entries, [])
     }, entries);
 
@@ -138,6 +141,10 @@
       errors.push({ index: null, message: "Settings delay must be an object." });
     }
 
+    if (!isPlainObject(rawState.youtubeFocus)) {
+      errors.push({ index: null, message: "YouTube focus settings must be an object." });
+    }
+
     if (!Array.isArray(rawState.domainLimits)) {
       errors.push({ index: null, message: "Domain limits must be an array." });
     }
@@ -151,6 +158,7 @@
     let hardSchedule = DEFAULT_HARD_SCHEDULE;
     let limitReset = DEFAULT_LIMIT_RESET;
     let settingsDelay = DEFAULT_SETTINGS_DELAY;
+    let youtubeFocus = DEFAULT_YOUTUBE_FOCUS;
 
     try {
       blockedPageHtml = normalizeBlockedPageHtml(rawState.blockedPageHtml);
@@ -188,6 +196,14 @@
       errors.push(...settingsDelayResult.errors);
     } else {
       settingsDelay = settingsDelayResult.settingsDelay;
+    }
+
+    const youtubeFocusResult = normalizeYouTubeFocus(rawState.youtubeFocus);
+
+    if (youtubeFocusResult.type === "invalid") {
+      errors.push(...youtubeFocusResult.errors);
+    } else {
+      youtubeFocus = youtubeFocusResult.youtubeFocus;
     }
 
     if (rawState.entries.length > MAX_ENTRIES) {
@@ -262,6 +278,7 @@
         hardSchedule,
         limitReset,
         settingsDelay,
+        youtubeFocus,
         domainLimits: limitsResult.domainLimits
       }
     };
@@ -285,6 +302,7 @@
       SETTINGS_DELAY_SCHEMA_VERSION,
       SETTINGS_DELAY_MODE_SCHEMA_VERSION,
       SCHEMA_VERSION,
+      YOUTUBE_FOCUS_SCHEMA_VERSION,
       HARD_SCHEDULE_SCHEMA_VERSION,
       DOMAIN_NAVIGATION_SETTINGS_SCHEMA_VERSION,
       URL_SUBPATH_DEFAULTS_SCHEMA_VERSION,
@@ -344,21 +362,23 @@
     switch (rawState.schemaVersion) {
       case SCHEMA_VERSION:
         return rawState;
+      case YOUTUBE_FOCUS_SCHEMA_VERSION:
+        return { ...rawState, youtubeFocus: DEFAULT_YOUTUBE_FOCUS };
       case HARD_SCHEDULE_SCHEMA_VERSION:
       case DOMAIN_NAVIGATION_SETTINGS_SCHEMA_VERSION:
       case URL_SUBPATH_DEFAULTS_SCHEMA_VERSION:
       case YOUTUBE_SUBSCRIPTIONS_SCHEMA_VERSION:
-        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE };
+        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, youtubeFocus: DEFAULT_YOUTUBE_FOCUS };
       case SETTINGS_DELAY_MODE_SCHEMA_VERSION:
-        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, settingsDelay: migrateSettingsDelay(rawState.settingsDelay) };
+        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, settingsDelay: migrateSettingsDelay(rawState.settingsDelay), youtubeFocus: DEFAULT_YOUTUBE_FOCUS };
       case SETTINGS_DELAY_SCHEMA_VERSION:
-        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, settingsDelay: DEFAULT_SETTINGS_DELAY };
+        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, settingsDelay: DEFAULT_SETTINGS_DELAY, youtubeFocus: DEFAULT_YOUTUBE_FOCUS };
       case LEGACY_SCHEMA_VERSION:
       case SUBREDDIT_SCHEMA_VERSION:
       case LIMIT_RESET_SCHEMA_VERSION:
       case FACEBOOK_HOME_SCHEMA_VERSION:
       case SOCIAL_DEFAULTS_SCHEMA_VERSION:
-        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, limitReset: DEFAULT_LIMIT_RESET, settingsDelay: DEFAULT_SETTINGS_DELAY };
+        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, limitReset: DEFAULT_LIMIT_RESET, settingsDelay: DEFAULT_SETTINGS_DELAY, youtubeFocus: DEFAULT_YOUTUBE_FOCUS };
       default:
         throw new Error(`Unknown migratable schema version: ${rawState.schemaVersion}`);
     }
@@ -798,6 +818,29 @@
     };
   }
 
+  function normalizeYouTubeFocus(youtubeFocus) {
+    const errors = [];
+
+    if (!isPlainObject(youtubeFocus)) {
+      return invalid([{ index: null, message: "YouTube focus settings must be an object." }]);
+    }
+
+    pushUnknownKeyErrors(errors, youtubeFocus, ["finishCurrentVideo"], "YouTube focus settings");
+
+    if (typeof youtubeFocus.finishCurrentVideo !== "boolean") {
+      errors.push({ index: null, message: "YouTube finish current video setting must be a boolean." });
+    }
+
+    if (errors.length > 0) {
+      return invalid(errors);
+    }
+
+    return {
+      type: "valid",
+      youtubeFocus: { finishCurrentVideo: youtubeFocus.finishCurrentVideo }
+    };
+  }
+
   function normalizeDomainLimits(rawDomainLimits, entries) {
     const errors = [];
 
@@ -1216,6 +1259,28 @@
     return domainMatchesHost(entryDomain, result.url.limitHost);
   }
 
+  function youtubeWatchVideoForUrl(rawUrl) {
+    const result = normalizePageUrl(rawUrl);
+
+    if (result.type === "invalid" || !domainMatchesHost("youtube.com", result.url.host)) {
+      return { type: "none" };
+    }
+
+    const url = new URL(rawUrl);
+
+    if (url.pathname !== "/watch") {
+      return { type: "none" };
+    }
+
+    const videoId = url.searchParams.get("v");
+
+    if (videoId === null || videoId.trim() === "") {
+      return { type: "none" };
+    }
+
+    return { type: "match", videoId };
+  }
+
   function screenTimeDomainForUrl(state, rawUrl) {
     const result = normalizePageUrl(rawUrl);
 
@@ -1628,6 +1693,8 @@
   function stateKeys(schemaVersion) {
     switch (schemaVersion) {
       case SCHEMA_VERSION:
+        return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "hardSchedule", "limitReset", "settingsDelay", "youtubeFocus", "domainLimits"];
+      case YOUTUBE_FOCUS_SCHEMA_VERSION:
         return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "hardSchedule", "limitReset", "settingsDelay", "domainLimits"];
       case HARD_SCHEDULE_SCHEMA_VERSION:
       case DOMAIN_NAVIGATION_SETTINGS_SCHEMA_VERSION:
@@ -1654,6 +1721,7 @@
     DEFAULT_HARD_SCHEDULE,
     DEFAULT_LIMIT_RESET,
     DEFAULT_SCHEDULE,
+    DEFAULT_YOUTUBE_FOCUS,
     BLOCKED_PAGE_HTML_KEY,
     EDITABLE_KIND_LABELS,
     KIND_LABELS,
@@ -1683,6 +1751,7 @@
     normalizeUrlEntryValue,
     hasUnsupportedBlocklistVersion,
     screenTimeDomainForUrl,
+    youtubeWatchVideoForUrl,
     validateStoredState,
     validateState
   };

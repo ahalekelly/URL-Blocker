@@ -15,6 +15,7 @@ const webExtensionFiles = [
   "blocker.js",
   "background.js",
   "content.js",
+  "content.css",
   "options.html",
   "options.css",
   "options.js",

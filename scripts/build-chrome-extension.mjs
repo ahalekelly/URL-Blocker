@@ -25,6 +25,7 @@ const requiredFiles = [
   "blocked.js",
   "blocker.js",
   "content.js",
+  "content.css",
   "default-blocked-pages.json",
   "icons/icon-48.png",
   "icons/icon-96.png",
