@@ -423,6 +423,7 @@ test("end-to-end options save blocks a page and renders the blocked view", async
 
   assert.equal(blocked.byId("blockedMessage").innerHTML, "<h1>Stay focused</h1>");
   assert.equal(blocked.byId("blockedReason").textContent, "This page is blocked during your schedule.");
+  assert.equal(blocked.byId("blockedTarget").href, "https://example.com/focus");
   assert.equal(blocked.byId("blockedTarget").textContent, "https://example.com/focus");
   assert.equal(blocked.byId("blockedCard").dataset.loading, undefined);
 });
@@ -445,6 +446,7 @@ test("blocked page renders each reason body without a built-in title", async () 
 
     assert.equal(blocked.byId("blockedMessage").innerHTML, "<h1>Stay focused</h1>");
     assert.equal(blocked.byId("blockedReason").textContent, body);
+    assert.equal(blocked.byId("blockedTarget").href, "https://example.com/focus");
     assert.equal(blocked.byId("blockedTarget").textContent, "https://example.com/focus");
   }
 });

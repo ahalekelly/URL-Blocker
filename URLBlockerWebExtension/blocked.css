@@ -70,12 +70,19 @@ p {
   overflow-wrap: anywhere;
 }
 
-#blockedMessage a {
+#blockedMessage a,
+#blockedTarget {
   color: var(--accent);
 }
 
 #blockedTarget {
+  margin-top: 10px;
   font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+#blockedTarget:not([hidden]) {
+  display: block;
 }
 
 button {

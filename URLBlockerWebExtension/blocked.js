@@ -39,6 +39,7 @@
     blockedMessage.hidden = html === "";
     blockedReason.textContent = reasonText;
     blockedTarget.hidden = blockedUrl === "";
+    blockedTarget.href = blockedUrl;
     blockedTarget.textContent = blockedUrl;
     blockedCard.removeAttribute("data-loading");
   }
