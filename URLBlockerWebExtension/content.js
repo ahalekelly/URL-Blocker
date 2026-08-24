@@ -47,7 +47,7 @@
 
   function pageShown(event) {
     updateScreenTimeUrl(Date.now());
-    sendCurrentUrl(!!event.persisted);
+    sendCurrentUrl(event.persisted ? "document" : "none");
   }
 
   function teardown() {
@@ -89,7 +89,7 @@
 
   function checkCurrentUrl() {
     updateScreenTimeUrl(Date.now());
-    sendCurrentUrl(false);
+    sendCurrentUrl("none");
   }
 
   function recheckCurrentUrl() {
@@ -97,7 +97,7 @@
 
     updateScreenTimeUrl(now);
     sendScreenTime(now);
-    sendCurrentUrl(true);
+    sendCurrentUrl("sameDocument");
   }
 
   function updateScreenTimeUrl(now) {
@@ -151,7 +151,7 @@
     );
   }
 
-  async function sendCurrentUrl(force) {
+  async function sendCurrentUrl(sourceMode) {
     await initPromise;
 
     const currentUrl = location.href;
@@ -170,18 +170,37 @@
       }
     }
 
-    if (!force && currentUrl === lastSentUrl) {
+    const source = urlCheckSource(sourceMode, currentUrl === lastSentUrl);
+
+    if (source.type === "none") {
       return;
     }
 
     lastSentUrl = currentUrl;
     sendMessage(
-      { type: "urlChanged", url: currentUrl, source: documentNavigationSource() },
+      { type: "urlChanged", url: currentUrl, source },
       (error) => {
         lastSentUrl = "";
         console.error(`URL Blocker could not check the current URL. ${errorLogText(error)}`);
       },
     );
+  }
+
+  function urlCheckSource(sourceMode, sameUrl) {
+    if (!sameUrl) {
+      return documentNavigationSource();
+    }
+
+    switch (sourceMode) {
+      case "none":
+        return { type: "none" };
+      case "document":
+        return documentNavigationSource();
+      case "sameDocument":
+        return { type: "sameDocument" };
+      default:
+        throw new Error(`Unknown URL check source: ${sourceMode}`);
+    }
   }
 
   function documentNavigationSource() {

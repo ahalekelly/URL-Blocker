@@ -23,6 +23,7 @@
   const REFERRER_RECORD_PREFIX = "referrerRecords:";
   const REFERRER_RECORD_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
   const UNKNOWN_NAVIGATION_SOURCE = { type: "unknown" };
+  const SAME_DOCUMENT_NAVIGATION_SOURCE = { type: "sameDocument" };
 
   function createBackgroundController(api) {
     const stateStorage = createStateStorage(api);
@@ -209,7 +210,7 @@
         throw codedError("MissingSenderTab", "urlChanged message must come from a tab.");
       }
 
-      return redirectBlockedUrl(sender.tab.id, rawUrl, documentNavigationSource(api, rawSource));
+      return redirectBlockedUrl(sender.tab.id, rawUrl, urlChangedNavigationSource(api, rawSource));
     }
 
     async function logScreenTime(rawUrl, elapsedMs, sender = {}) {
@@ -590,7 +591,7 @@
       await syncScreenTimeIfReady(state, { force: isOverLimit });
 
       if (isOverLimit && sender.tab && typeof sender.tab.id === "number") {
-        const match = core.findBlockedMatchingEntry(state, rawUrl, new Set([domain]), UNKNOWN_NAVIGATION_SOURCE);
+        const match = core.findBlockedMatchingEntry(state, rawUrl, new Set([domain]), SAME_DOCUMENT_NAVIGATION_SOURCE);
 
         await redirectFromMatch(sender.tab.id, rawUrl, match);
       }
@@ -1668,11 +1669,23 @@
     return canSendNativeMessage(api) && api.runtime.getURL("options.html").startsWith("safari-web-extension://");
   }
 
-  function documentNavigationSource(api, source) {
-    if (!isPlainObject(source) || source.type !== "document") {
-      throw codedError("NavigationSourceInvalid", "Navigation source must be a document source.");
+  function urlChangedNavigationSource(api, source) {
+    if (!isPlainObject(source) || typeof source.type !== "string") {
+      throw codedError("NavigationSourceInvalid", "Navigation source must include a type.");
     }
 
+    switch (source.type) {
+      case "document":
+        return documentNavigationSource(api, source);
+      case "sameDocument":
+        requireKeys(source, ["type"], "Navigation source");
+        return SAME_DOCUMENT_NAVIGATION_SOURCE;
+      default:
+        throw codedError("NavigationSourceInvalid", `Unknown navigation source type: ${source.type}.`);
+    }
+  }
+
+  function documentNavigationSource(api, source) {
     requireKeys(source, ["type", "referrer", "navigationType"], "Navigation source");
 
     if (typeof source.navigationType !== "string") {

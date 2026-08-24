@@ -8,6 +8,7 @@ const contentScript = fs.readFileSync(path.join(__dirname, "../URLBlockerWebExte
 const referrerRecordPrefix = "referrerRecords:";
 const referrerRecordRetentionMs = 30 * 24 * 60 * 60 * 1000;
 const defaultSource = { type: "document", referrer: knownReferrer(""), navigationType: "navigate" };
+const sameDocumentSource = { type: "sameDocument" };
 
 function knownReferrer(url) {
   return { type: "known", url };
@@ -79,7 +80,7 @@ test("content script periodically rechecks unchanged URLs", async () => {
   assert.deepEqual(page.messages, [
     urlChanged("https://x.com/home"),
     { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 5000 },
-    urlChanged("https://x.com/home")
+    urlChanged("https://x.com/home", sameDocumentSource)
   ]);
 });
 
@@ -103,9 +104,9 @@ test("content script ignores stale screen time after sleep", async () => {
 
   assert.deepEqual(page.messages, [
     urlChanged("https://x.com/home"),
-    urlChanged("https://x.com/home"),
+    urlChanged("https://x.com/home", sameDocumentSource),
     { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 5000 },
-    urlChanged("https://x.com/home")
+    urlChanged("https://x.com/home", sameDocumentSource)
   ]);
 });
 
@@ -229,14 +230,14 @@ test("content script force-checks bfcache restores with the stored SPA arrival",
   ]);
 });
 
-test("content script poll rechecks report SPA arrival instead of document referrer", async () => {
+test("content script poll rechecks report unchanged pages as same-document checks", async () => {
   const page = await runContentScript("https://example.com/a", { referrer: "https://search.example/" });
 
   page.location.href = "https://example.com/b";
   await page.dispatch("popstate");
   await page.tick();
 
-  assert.deepEqual(page.messages.at(-1), urlChanged("https://example.com/b", documentSource("https://example.com/a")));
+  assert.deepEqual(page.messages.at(-1), urlChanged("https://example.com/b", sameDocumentSource));
 });
 
 test("content script appends referrer records and caps history at 20", async () => {

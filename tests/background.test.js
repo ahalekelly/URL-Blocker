@@ -11,6 +11,7 @@ const id = "11111111-1111-4111-8111-111111111111";
 const referrerRecordPrefix = "referrerRecords:";
 const referrerRecordRetentionMs = 30 * 24 * 60 * 60 * 1000;
 const defaultDocumentSource = { type: "document", referrer: knownReferrer("https://other.example/from"), navigationType: "navigate" };
+const sameDocumentSource = { type: "sameDocument" };
 
 function knownReferrer(url) {
   return { type: "known", url };
@@ -564,6 +565,29 @@ test("urlChanged rejects malformed document referrers", async () => {
   }
 });
 
+test("urlChanged redirects same-document root URL rechecks after reaching a domain limit", async () => {
+  const api = fakeApi({
+    now: 20 * 60 * 60 * 1000,
+    runtimeScheme: "chrome-extension"
+  });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "example.com" }
+  ], inactiveSchedule(), [
+    { domain: "example.com", limitMinutes: 1 }
+  ]);
+  api.storageData.screenTimeUsage = screenTimeUsage({
+    "example.com": { 20: 60000 }
+  });
+  const controller = createBackgroundController(api);
+  const response = await controller.handleMessage(urlChangedMessage("https://example.com/watch?v=1", sameDocumentSource), { tab: { id: 7 } });
+
+  assert.equal(response.type, "redirected");
+  assert.deepEqual(api.updatedTabs, [{
+    tabId: 7,
+    url: blockedUrl("https://example.com/watch?v=1", "limitDirectMatch", "chrome-extension")
+  }]);
+});
+
 test("urlChanged fails closed for unknown referrers on root URL pages", async () => {
   const api = fakeApi({ runtimeScheme: "chrome-extension" });
   api.storageData[core.STATE_KEY] = validState([
@@ -1075,6 +1099,30 @@ test("urlChanged redirects matching URLs when rolling usage is over limit", asyn
   }]);
 });
 
+test("screenTimeElapsed redirects current root URL subpages after crossing the limit", async () => {
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "x.com" }
+  ], inactiveSchedule(), [
+    { domain: "x.com", limitMinutes: 1 }
+  ]);
+  api.storageData.screenTimeUsage = screenTimeUsage({
+    "x.com": { 20: 30000 }
+  });
+  const controller = createBackgroundController(api);
+  const response = await controller.handleMessage({
+    type: "screenTimeElapsed",
+    url: "https://x.com/messages",
+    elapsedMs: 30000
+  }, { tab: { id: 7 } });
+
+  assert.deepEqual(response, { type: "logged", domain: "x.com", totalMs: 60000, limitMinutes: 1, isOverLimit: true });
+  assert.deepEqual(api.updatedTabs, [{
+    tabId: 7,
+    url: blockedUrl("https://x.com/messages", "limitDirectMatch")
+  }]);
+});
+
 test("screenTimeElapsed redirects matching URLs after crossing the limit", async () => {
   const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
   api.storageData[core.STATE_KEY] = validState([
@@ -1102,21 +1150,21 @@ test("screenTimeElapsed redirects matching URLs after crossing the limit", async
 test("whole-domain usage counts on non-matching URLs without redirecting them", async () => {
   const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
   api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "https://x.com/home" }
+    { id, kind: "url", value: "https://example.com/home" }
   ], inactiveSchedule(), [
-    { domain: "x.com", limitMinutes: 1 }
+    { domain: "example.com", limitMinutes: 1 }
   ]);
   api.storageData.screenTimeUsage = screenTimeUsage({
-    "x.com": { 20: 30000 }
+    "example.com": { 20: 30000 }
   });
   const controller = createBackgroundController(api);
   const response = await controller.handleMessage({
     type: "screenTimeElapsed",
-    url: "https://x.com/messages",
+    url: "https://example.com/messages",
     elapsedMs: 30000
   }, { tab: { id: 7 } });
 
-  assert.deepEqual(response, { type: "logged", domain: "x.com", totalMs: 60000, limitMinutes: 1, isOverLimit: true });
+  assert.deepEqual(response, { type: "logged", domain: "example.com", totalMs: 60000, limitMinutes: 1, isOverLimit: true });
   assert.deepEqual(api.updatedTabs, []);
 });
 

@@ -1041,6 +1041,7 @@
   function blockedMatch(match, activation) {
     switch (match.reasonType) {
       case "directMatch":
+      case "currentPage":
         return { type: "match", entry: match.entry, reason: blockReason(activation, "scheduleDirectMatch", "limitDirectMatch") };
       case "rootDirectNavigation":
         return { type: "match", entry: match.entry, reason: blockReason(activation, "scheduleRootDirectNavigation", "limitRootDirectNavigation") };
@@ -1118,6 +1119,8 @@
     switch (source.type) {
       case "unknown":
         return { type: "none" };
+      case "sameDocument":
+        return { type: "match", reasonType: "currentPage" };
       case "document":
         if (source.navigationType === "reload") {
           return { type: "none" };
@@ -1180,6 +1183,7 @@
     switch (source.type) {
       case "unknown":
       case "chromiumCommitted":
+      case "sameDocument":
         return false;
       case "document":
       case "safariDocument":
