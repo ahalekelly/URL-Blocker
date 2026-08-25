@@ -72,7 +72,7 @@ p {
 
 #blockedMessage a,
 #blockedTarget {
-  color: var(--accent);
+  color: var(--muted);
 }
 
 #blockedTarget {
