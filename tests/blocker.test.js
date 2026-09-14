@@ -878,7 +878,10 @@ test("explains root URL expansion from same-document rechecks", () => {
     { type: "always" }
   );
 
-  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://www.example.com/path", new Set(), sameDocumentSource)), {
+  assert.deepEqual(core.findBlockedMatchingEntry(state, "https://www.example.com/path", new Set(), sameDocumentSource), {
+    type: "none"
+  });
+  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://www.example.com", new Set(), sameDocumentSource)), {
     type: "match",
     reason: "scheduleDirectMatch"
   });

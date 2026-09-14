@@ -1067,7 +1067,9 @@
       case "none":
         return { type: "none" };
       case "match":
-        if (isScheduleActive(state.schedule, date)) {
+        // A page that only matches through root URL expansion on a same-document
+        // recheck blocks when its domain runs out of time, never on the schedule.
+        if (match.reasonType !== "currentPage" && isScheduleActive(state.schedule, date)) {
           return blockedMatch(match, "schedule");
         }
 
