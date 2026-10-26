@@ -611,6 +611,7 @@ async function openBlockedPage(app, url) {
         async remove() {}
       }
     },
+    BlockerCore: core,
     console,
     document,
     location: { hash: pageUrl.hash, search: pageUrl.search },

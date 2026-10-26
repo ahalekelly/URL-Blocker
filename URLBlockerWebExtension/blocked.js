@@ -8,7 +8,7 @@
   const blockedTarget = document.getElementById("blockedTarget");
   const closeButton = document.getElementById("closeButton");
   const blockedUrl = decodeBlockedUrl();
-  const reasonText = blockedReasonText(decodeBlockedReason());
+  const reasonText = root.BlockerCore.blockedReasonText(decodeBlockedReason());
   const fallbackHtml = "<h1>Blocked</h1><p>This page is on your blocklist.</p>";
 
   closeButton.addEventListener("click", closeCurrentTab);
@@ -60,27 +60,6 @@
     }
 
     return reason;
-  }
-
-  function blockedReasonText(reason) {
-    switch (reason) {
-      case "hardScheduleDomain":
-        return "All pages on this site are blocked during your hard block schedule.";
-      case "scheduleDirectMatch":
-        return "This page is blocked during your schedule.";
-      case "limitDirectMatch":
-        return "You've reached your time limit for this site.";
-      case "scheduleRootDirectNavigation":
-        return "Direct visits to this blocked site are blocked during your schedule.";
-      case "limitRootDirectNavigation":
-        return "Direct visits to this site are blocked because you've reached your time limit.";
-      case "scheduleRootSameDomainNavigation":
-        return "Links within this blocked site are blocked during your schedule.";
-      case "limitRootSameDomainNavigation":
-        return "Links within this site are blocked because you've reached your time limit.";
-      default:
-        throw new Error(`Unknown blocked page reason: ${reason}`);
-    }
   }
 
   async function closeCurrentTab() {

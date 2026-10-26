@@ -1228,6 +1228,27 @@
     }
   }
 
+  function blockedReasonText(reason) {
+    switch (reason) {
+      case "hardScheduleDomain":
+        return "All pages on this site are blocked during your hard block schedule.";
+      case "scheduleDirectMatch":
+        return "This page is blocked during your schedule.";
+      case "limitDirectMatch":
+        return "You've reached your time limit for this site.";
+      case "scheduleRootDirectNavigation":
+        return "Direct visits to this blocked site are blocked during your schedule.";
+      case "limitRootDirectNavigation":
+        return "Direct visits to this site are blocked because you've reached your time limit.";
+      case "scheduleRootSameDomainNavigation":
+        return "Links within this blocked site are blocked during your schedule.";
+      case "limitRootSameDomainNavigation":
+        return "Links within this site are blocked because you've reached your time limit.";
+      default:
+        throw new Error(`Unknown blocked page reason: ${reason}`);
+    }
+  }
+
   function blockReason(activation, scheduleReason, limitReason) {
     switch (activation) {
       case "schedule":
@@ -2095,6 +2116,7 @@
     activeDomainLimits,
     activeSettingsActivation,
     associatedDomainForEntry,
+    blockedReasonText,
     contentScriptOriginsForState,
     domainForEntry,
     domainForRegexEntryValue,
