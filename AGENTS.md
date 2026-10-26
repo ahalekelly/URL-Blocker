@@ -10,7 +10,7 @@
 ## Workflow
 
 - After the initial draft of changes, run `make test` and then fix any issues. Then install all platforms with `make install`. Make sure all builds succeed. If the iOS build succeeds but the device install fails it's probably just that the iPhone isn't connected so don't bother retrying. Notify the user whether all installs succeeded or the iOS install failed.
-- If you made functional or UI changes, use Computer Use in Brave or Safari to verify your changes work as intended.
+- If you made functional or UI changes, verify them in a browser: headless Brave (see Commands) for automated checks, or Computer Use in Brave or Safari when you need the user's logged-in sites.
 - After finishing and testing the change, commit the changes for that completed work.
 
 ## Coding Preferences
@@ -38,6 +38,7 @@
 - `scripts/build-chrome-extension.mjs`: builds the unpacked Chrome extension in `build/chrome-extension`.
 - `scripts/install-chromium-extension.mjs`: updates or reloads the unpacked Chrome extension in a Chromium-based browser profile.
 - `scripts/sync-default-blocked-pages.mjs`: syncs/checks default blocked pages.
+- `scripts/headless-brave.mjs`: launches muted headless Brave with a throwaway profile and the unpacked extension for automated checks.
 
 ## Commands
 
@@ -79,13 +80,25 @@ The Chromium install targets first verify URL Blocker is already installed from 
 
 The Codex in-app browser does not work for local URL Blocker extension UI checks. It rejects the local extension/options page, so use Brave for browser UI verification instead.
 
-Build the signed iOS IPA, signed macOS app, and unpacked Chrome extension:
+Launch headless Brave for automated checks (outside the sandbox; inside it Brave exits with code 21):
+
+```sh
+node scripts/headless-brave.mjs
+```
+
+It builds the extension, prints the CDP URL, extension ID, and options URL as JSON, and runs until killed. Always use it rather than launching a browser by hand: headless Chromium plays audio through the speakers unless muted. Drive it over CDP (Node has a global `WebSocket`). The extension's content-script world is the execution context named "URL Blocker". When setting state from the service worker:
+
+- Write both `blockerState` and `settingsActivation.activeState` (with `pending: { type: "none" }`), since the active state comes from the activation.
+- The default block schedule may be active at test time; set a window that excludes now. There is no `off` schedule type.
+- `youtubeFocus.finishCurrentVideo` keeps an already-open `/watch` page open past its limit; turn it off when testing limit blocking on YouTube.
+
+Build the signed iOS app, signed macOS app, and unpacked Chrome extension:
 
 ```sh
 make all
 ```
 
-Build the UDID-signed iOS IPA:
+Build the signed iOS device app:
 
 ```sh
 make ios-build
@@ -97,19 +110,13 @@ Build the unsigned iOS device app:
 make ios-build-unsigned
 ```
 
-Build the UDID-signed iOS IPA with the legacy alias:
-
-```sh
-make ios-signed-ipa
-```
-
 List iOS devices available to Xcode:
 
 ```sh
 make ios-devices
 ```
 
-Build the UDID-signed iOS IPA and install it on the connected iPhone:
+Build the signed iOS app and install it on the connected iPhone:
 
 ```sh
 make ios-install
@@ -139,7 +146,7 @@ Sync default blocked pages after editing defaults:
 npm run sync-default-blocked-pages
 ```
 
-See [ios_build_sign_install.md](ios_build_sign_install.md) for the complete signing and iPhone install flow.
+iOS and macOS builds sign with Adrian's team (`T3TBGN4UX7`). `make ios-build` uses Xcode automatic signing, authenticated with the App Store Connect API key in `~/.appstoreconnect/`, and installs with `xcrun devicectl`. The API key cannot create or assign app groups; register a new app group and attach it to each App ID in the Apple Developer portal before building.
 
 ## Supabase Sync
 
@@ -183,9 +190,5 @@ grant execute on function public.sync_screen_time_buckets(jsonb) to authenticate
 
 ## Signing Hygiene
 
-- Never commit `.p12`, `.mobileprovision`, keychains, signed `.ipa` files, or private order links.
-- The current UDID Registrations account is Silver, not Platinum. Use local signing with the downloaded `.p12` and `.mobileprovision`; do not expect online signing to work.
-- Prefer temporary working directories under `/tmp` or `/private/tmp` for signing.
-- Restore the normal keychain search list after local signing.
+- Never commit `.p12`, `.p8`, `.mobileprovision`, keychains, or signed `.ipa` files.
 - After building and copying the macOS app to `/Applications`, unregister the temporary build product's Safari extension with `pluginkit -r /tmp/.../URLBlockerMac.app/Contents/PlugIns/URLBlockerMacExtension.appex` and verify `pluginkit -m -A -D -vvv -p com.apple.Safari.web-extension` shows only the `/Applications/URLBlockerMac.app` copy. Otherwise Safari can show duplicate URL Blocker extensions.
-- The UDID Registrations certificate is for iOS signing. It can manually stamp the macOS app and Safari extension with `codesign`, but it did not produce a normally trusted macOS signing result in local testing. Use an Apple Development, Mac Development, or Developer ID Application certificate for macOS Safari extension signing.
