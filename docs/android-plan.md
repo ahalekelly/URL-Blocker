@@ -10,7 +10,7 @@ Target device: rooted Pixel 8.
 
 ## Browser
 
-- Vivaldi for Android is the only browser. Other browsers and the YouTube app are disabled with `pm disable-user`.
+- Vivaldi for Android is the only browser. Other browsers and the YouTube app are disabled with `pm disable-user` (see step 8 for the YouTube app alternative).
 - Vivaldi runs URL Blocker unpacked (Developer Mode → Load unpacked) and uBlock Origin Lite for ads, including YouTube.
 - Settings are edited in URL Blocker's options page in Vivaldi.
 
@@ -44,6 +44,7 @@ Each `domainLimits` entry has `hiddenSelectors: string[]`. `content.js` hides ma
 5. App MVP: accessibility service, app-to-site table, schedules, block page, settings pushed over adb.
 6. App Supabase sign-in and sync, including app screen time.
 7. Device Owner, extension check, browser disabling.
+8. Optional, decided after using YouTube in Vivaldi: a custom ReVanced patch bundle for the YouTube app. The patch reports the current video ID, player type (watch vs Shorts), and navigation tab to the native app as YouTube URLs, so route rules, "finish current video", and per-route screen time apply in the app. Official patches add ad blocking, SponsorBlock, and Shorts hiding. Root-mounted over stock YouTube (same package name), pinned to a ReVanced-supported version. Replaces disabling the YouTube app.
 
 ## Open questions
 
