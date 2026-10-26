@@ -4,6 +4,4 @@ Done, ready for review:
 Add per-domain settings for "Block all pages except via links", and "Block links within this site"
 
 To Do:
-Add the current time limits are soft time limits that just block the specific pages, add a second set of hard time limits that block the site entirely when reached, which default to 60 min
-
 Use Computer Use in Safari to do QA on all aspects of this extension, test every user flow and every edge case to find bugs, fix them, and verify that they are fixed. If you're not sure if something is a bug, bring it up to me.
