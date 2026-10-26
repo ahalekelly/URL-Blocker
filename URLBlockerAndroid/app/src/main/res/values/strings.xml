@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">URL Blocker</string>
+    <string name="service_description">Covers apps for blocked sites with the block screen during your schedules and after time limits.</string>
+</resources>
