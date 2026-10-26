@@ -1560,3 +1560,51 @@ function screenTimeUsage(totalsByDomain, remoteBuckets = {}) {
 function customEntries(entries) {
   return entries.map((entry) => ({ type: "custom", ...entry }));
 }
+
+test("maps every app to a default blocklist domain", () => {
+  const defaultDomains = new Set(core.emptyState(defaultBlockedPages).entries.map(core.associatedDomainForEntry));
+
+  Object.values(core.APP_SITE_DOMAINS).forEach((domain) => assert.ok(defaultDomains.has(domain), domain));
+});
+
+test("blocks apps like their site's home page", () => {
+  const noon = new Date(2026, 0, 2, 12);
+  const evening = new Date(2026, 0, 2, 20);
+  const defaults = { ...core.emptyState(defaultBlockedPages), schedule: { type: "dailyWindow", startMinute: 540, endMinute: 1020 } };
+  const instagramOff = {
+    ...defaults,
+    entries: defaults.entries.map((entry) => entry.value === "instagram.com" ? { ...entry, enabled: false } : entry)
+  };
+  const hardScheduled = { ...instagramOff, hardSchedule: { type: "dailyWindow", startMinute: 540, endMinute: 1020 } };
+  const blocked = (state, packageName, overLimit, date) => matchReason(core.findBlockedApp(state, packageName, overLimit, date));
+
+  assert.deepEqual(blocked(defaults, "com.instagram.android", new Set(), noon), { type: "match", reason: "scheduleDirectMatch" });
+  assert.deepEqual(blocked(defaults, "com.twitter.android", new Set(), noon), { type: "match", reason: "scheduleDirectMatch" });
+  assert.deepEqual(blocked(defaults, "com.instagram.android", new Set(), evening), { type: "none" });
+  assert.deepEqual(blocked(defaults, "com.instagram.android", new Set(["instagram.com"]), evening), { type: "match", reason: "limitDirectMatch" });
+  assert.deepEqual(blocked(defaults, "com.instagram.android", new Set(["facebook.com"]), evening), { type: "none" });
+  assert.deepEqual(blocked(instagramOff, "com.instagram.android", new Set(["instagram.com"]), noon), { type: "none" });
+  assert.deepEqual(blocked(hardScheduled, "com.instagram.android", new Set(), noon), { type: "match", reason: "hardScheduleDomain" });
+  assert.deepEqual(blocked(defaults, "com.example.unmapped", new Set(["instagram.com"]), noon), { type: "none" });
+});
+
+test("blocks apps for full-domain entries and reports the matching entry", () => {
+  const state = validState([{ id: ids[0], kind: "domain", value: "reddit.com" }], { type: "always" });
+  const match = core.findBlockedApp(state, "com.reddit.frontpage", new Set(), new Date(2026, 0, 2, 12));
+
+  assert.equal(match.type, "match");
+  assert.equal(match.entry.value, "reddit.com");
+  assert.equal(match.reason, "scheduleDirectMatch");
+});
+
+test("counts app screen time only for enabled blocklist domains", () => {
+  const defaults = core.emptyState(defaultBlockedPages);
+  const youtubeOff = {
+    ...defaults,
+    entries: defaults.entries.map((entry) => entry.value.startsWith("youtube.com") ? { ...entry, enabled: false } : entry)
+  };
+
+  assert.deepEqual(core.screenTimeDomainForApp(defaults, "com.google.android.youtube"), { type: "match", domain: "youtube.com" });
+  assert.deepEqual(core.screenTimeDomainForApp(youtubeOff, "com.google.android.youtube"), { type: "none" });
+  assert.deepEqual(core.screenTimeDomainForApp(defaults, "com.example.unmapped"), { type: "none" });
+});

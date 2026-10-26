@@ -67,6 +67,21 @@
     facebook: [{ type: "inPlace", pathPattern: /^\/reel\/[0-9]+\/?$/ }],
     linkedin: []
   };
+  // Android apps that open a blocklist site's home feed.
+  const APP_SITE_DOMAINS = {
+    "com.twitter.android": "x.com",
+    "com.instagram.android": "instagram.com",
+    "com.zhiliaoapp.musically": "tiktok.com",
+    "com.ss.android.ugc.trill": "tiktok.com",
+    "com.facebook.katana": "facebook.com",
+    "com.facebook.lite": "facebook.com",
+    "com.instagram.barcelona": "threads.com",
+    "xyz.blueskyweb.app": "bsky.app",
+    "com.pinterest": "pinterest.com",
+    "com.linkedin.android": "linkedin.com",
+    "com.google.android.youtube": "youtube.com",
+    "com.reddit.frontpage": "reddit.com"
+  };
   const UNSUPPORTED_BLOCKLIST_VERSION_MESSAGE = "Unsupported blocklist version. Reset the blocklist to repair it.";
   const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const URL_ALIASES = [
@@ -1156,6 +1171,31 @@
     return { type: "none" };
   }
 
+  // An app counts as its site's home page, so it is blocked whenever the home
+  // page would be blocked for a direct match.
+  function findBlockedApp(state, packageName, overLimitDomains, date) {
+    if (!Object.hasOwn(APP_SITE_DOMAINS, packageName)) {
+      return { type: "none" };
+    }
+
+    const homeUrl = `https://${APP_SITE_DOMAINS[packageName]}/`;
+    const hardScheduleMatch = findHardScheduleMatchingEntry(state, homeUrl, date);
+
+    if (hardScheduleMatch.type === "match") {
+      return hardScheduleMatch;
+    }
+
+    return activeBlockedMatch(state, findEntryMatch(state.entries, homeUrl), overLimitDomains, date);
+  }
+
+  function screenTimeDomainForApp(state, packageName) {
+    if (!Object.hasOwn(APP_SITE_DOMAINS, packageName)) {
+      return { type: "none" };
+    }
+
+    return screenTimeDomainForUrl(state, `https://${APP_SITE_DOMAINS[packageName]}/`);
+  }
+
   function activeBlockedMatch(state, match, overLimitDomains, date) {
     switch (match.type) {
       case "none":
@@ -2044,6 +2084,7 @@
     BLOCKED_PAGE_HTML_KEY,
     EDITABLE_KIND_LABELS,
     KIND_LABELS,
+    APP_SITE_DOMAINS,
     MAX_LIMIT_MINUTES,
     MAX_ROLLING_WINDOW_HOURS,
     MAX_SETTINGS_DELAY_MINUTES,
@@ -2061,6 +2102,7 @@
     domainLimitsForEntries,
     emptyState,
     entryMatchesUrl,
+    findBlockedApp,
     findBlockedMatchingEntry,
     findMatchingEntry,
     isScheduleActive,
@@ -2077,6 +2119,7 @@
     normalizeUrlEntryValue,
     hasUnsupportedBlocklistVersion,
     screenTimeBucketTotalMs,
+    screenTimeDomainForApp,
     screenTimeDomainForUrl,
     screenTimeEntries,
     screenTimeTotalMs,
