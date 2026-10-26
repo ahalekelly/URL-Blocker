@@ -7,7 +7,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.PixelFormat
-import android.os.FileObserver
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
@@ -32,27 +31,31 @@ class BlockerService : AccessibilityService() {
     private val tick = object : Runnable {
         override fun run() {
             step()
-            persistUsage()
+            call("AndroidEngine.persist()") {}
+            if (screenInUse) call("AndroidEngine.sync(false)") {}
             handler.postDelayed(this, TICK_MS)
         }
     }
 
     // Screen off ends the current interval, so the time before it still
-    // counts; unlocking steps at once, so counting restarts promptly.
+    // counts; unlocking steps and syncs at once, so counting restarts
+    // promptly with fresh limits.
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
                 Intent.ACTION_SCREEN_OFF -> {
                     step(screenInUseNow = false)
-                    persistUsage()
+                    call("AndroidEngine.persist()") {}
                 }
-                Intent.ACTION_USER_PRESENT -> step()
+                Intent.ACTION_USER_PRESENT -> {
+                    step()
+                    call("AndroidEngine.sync(true)") {}
+                }
                 else -> throw IllegalStateException("Unexpected broadcast: ${intent.action}")
             }
         }
     }
     private lateinit var engine: WebView
-    private lateinit var settingsObserver: FileObserver
     private var engineStarted = false
     private var engineReady = false
     private var screenInUse = false
@@ -65,14 +68,9 @@ class BlockerService : AccessibilityService() {
     private var blockPage = JSONObject()
 
     override fun onServiceConnected() {
-        val settingsFile = settingsFile(this)
-        settingsObserver = object : FileObserver(settingsFile.parentFile!!, CLOSE_WRITE or MOVED_TO or DELETE or MOVED_FROM) {
-            override fun onEvent(event: Int, path: String?) {
-                if (path == settingsFile.name) handler.post { loadSettings() }
-            }
-        }
         engine = WebView(this)
         engine.settings.javaScriptEnabled = true
+        engine.addJavascriptInterface(EngineHost(), "AndroidHost")
         engine.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String) {
                 if (engineStarted) return
@@ -84,11 +82,11 @@ class BlockerService : AccessibilityService() {
     }
 
     private fun startEngine() {
-        val defaults = assets.open("default-blocked-pages.json").bufferedReader().readText()
-        val usageFile = File(filesDir, USAGE_FILE)
-        val usage = if (usageFile.exists()) JSONObject.quote(usageFile.readText()) else "null"
-        call("AndroidEngine.start(${JSONObject.quote(defaults)}, $usage)") {
+        val config = JSONObject.quote(assets.open("supabase-config.json").bufferedReader().readText())
+        val defaults = JSONObject.quote(assets.open("default-blocked-pages.json").bufferedReader().readText())
+        call("AndroidEngine.start($config, $defaults)") {
             engineReady = true
+            running = this
             screenInUse = isScreenInUse()
             lastStepMs = System.currentTimeMillis()
             registerReceiver(
@@ -99,35 +97,26 @@ class BlockerService : AccessibilityService() {
                 },
                 RECEIVER_NOT_EXPORTED,
             )
-            settingsObserver.startWatching()
-            loadSettings()
+            step()
+            call("AndroidEngine.sync(true)") {}
             handler.postDelayed(tick, TICK_MS)
         }
     }
 
-    private fun loadSettings() {
-        val file = settingsFile(this)
-        val text = if (file.exists()) JSONObject.quote(file.readText()) else "null"
-        call("AndroidEngine.loadSettings($text)") { value ->
-            val result = value as JSONObject
-            Status.settings = when (val type = result.getString("type")) {
-                "valid" -> "Loaded from ${file.path}"
-                "missing" -> "No settings file at ${file.path}"
-                "invalid" -> "Invalid, nothing is blocked:\n${result.getString("message")}"
-                else -> throw IllegalStateException("Unknown settings result: $type")
-            }
-            Log.i(TAG, "Settings: ${Status.settings}")
-            step()
-        }
-    }
+    fun signInUrl(open: (String) -> Unit) = call("AndroidEngine.signInUrl()") { open(it as String) }
+
+    fun completeSignIn(url: String) = call("AndroidEngine.completeSignIn(${JSONObject.quote(url)})") {}
+
+    fun signOut() = call("AndroidEngine.signOut()") {}
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) = step()
 
     // Credits the time since the last step to the apps that were visible, then
     // judges the apps visible now. Steps run on window changes and on every
-    // tick, so schedules starting and limits running out take effect while an
-    // app stays open. Visible apps include split screen and picture-in-picture.
-    // An interval counts only if the screen was on and unlocked at its start.
+    // tick, so schedules starting, limits running out and delayed settings
+    // take effect while an app stays open. Visible apps include split screen
+    // and picture-in-picture. An interval counts only if the screen was on and
+    // unlocked at its start.
     private fun step(screenInUseNow: Boolean = isScreenInUse()) {
         if (!engineReady) return
         val nowMs = System.currentTimeMillis()
@@ -139,7 +128,6 @@ class BlockerService : AccessibilityService() {
         call("AndroidEngine.step(${JSONArray(counted)}, $elapsedMs, ${JSONArray(visiblePackages)}, $nowMs)") { value ->
             val decision = value as JSONObject
             when (val type = decision.getString("type")) {
-                "noSettings" -> Status.lastDecision = "No settings loaded"
                 "allowed" -> Status.lastDecision = "Allowed ${decision.getJSONArray("packages").join(", ")}"
                 "blocked" -> block(decision)
                 else -> throw IllegalStateException("Unknown decision: $type")
@@ -208,13 +196,28 @@ class BlockerService : AccessibilityService() {
         }
     }
 
-    private fun persistUsage() {
-        if (!engineReady) return
-        call("AndroidEngine.takeDirtyUsage()") { value ->
-            if (value == JSONObject.NULL) return@call
-            val temp = File(filesDir, "$USAGE_FILE.tmp")
-            temp.writeText(value as String)
-            Files.move(temp.toPath(), File(filesDir, USAGE_FILE).toPath(), StandardCopyOption.ATOMIC_MOVE)
+    // The engine's storage, files in app-private storage. Called from
+    // engine.js on a WebView thread.
+    private inner class EngineHost {
+        @JavascriptInterface
+        fun read(name: String): String? = File(filesDir, name).takeIf { it.exists() }?.readText()
+
+        @JavascriptInterface
+        fun write(name: String, text: String) {
+            val temp = File(filesDir, "$name.tmp")
+            temp.writeText(text)
+            Files.move(temp.toPath(), File(filesDir, name).toPath(), StandardCopyOption.ATOMIC_MOVE)
+        }
+
+        @JavascriptInterface
+        fun remove(name: String) {
+            File(filesDir, name).delete()
+        }
+
+        @JavascriptInterface
+        fun syncStatus(json: String) {
+            Log.i(TAG, "Sync status: $json")
+            Status.sync = JSONObject(json)
         }
     }
 
@@ -232,8 +235,9 @@ class BlockerService : AccessibilityService() {
     override fun onInterrupt() {}
 
     override fun onDestroy() {
+        running = null
+        Status.sync = null
         handler.removeCallbacks(tick)
-        settingsObserver.stopWatching()
         if (engineReady) unregisterReceiver(screenReceiver)
         closeOverlay()
         engine.destroy()
@@ -243,14 +247,17 @@ class BlockerService : AccessibilityService() {
     companion object {
         private const val TAG = "URLBlocker"
         private const val TICK_MS = 15_000L
-        private const val USAGE_FILE = "screen-time-usage.json"
 
-        fun settingsFile(context: Context) = File(context.getExternalFilesDir(null), "settings.json")
+        // Set while the engine runs. StatusActivity, in the same process,
+        // signs in and out through it.
+        var running: BlockerService? = null
+            private set
     }
 }
 
 // Shared with StatusActivity, which runs in the same process.
 object Status {
-    var settings = "Accessibility service not running"
+    @Volatile
+    var sync: JSONObject? = null
     var lastDecision = "None yet"
 }

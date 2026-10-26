@@ -34,7 +34,7 @@
 - `ChromeExtension/`: Chrome-specific manifest and reload helpers. The Chrome build reuses `URLBlockerWebExtension/`.
 - `URLBlockerShared/`: Swift shared state validation and storage.
 - `URLBlockerMac/` and `URLBlockerExtensionMac/`: macOS targets.
-- `URLBlockerAndroid/`: Android app (Kotlin, Gradle). An accessibility service runs `blocker.js` in a headless WebView through `app/src/main/assets/engine.js` and covers apps from `APP_SITE_DOMAINS` in `blocker.js`. The build copies `blocker.js`, `supabase-sync.js`, `default-blocked-pages.json`, `blocked.html`, and `blocked.css` into the app's assets; the app's own `assets/blocked.js` fills the block page.
+- `URLBlockerAndroid/`: Android app (Kotlin, Gradle). An accessibility service runs `blocker.js` in a headless WebView through `app/src/main/assets/engine.js` and covers apps from `APP_SITE_DOMAINS` in `blocker.js`. The build copies `blocker.js`, `supabase-sync.js`, `supabase-config.json`, `default-blocked-pages.json`, `blocked.html`, and `blocked.css` into the app's assets; the app's own `assets/blocked.js` fills the block page.
 - `tests/`: Node tests for extension JavaScript behavior.
 - `scripts/build-chrome-extension.mjs`: builds the unpacked Chrome extension in `build/chrome-extension`.
 - `scripts/install-chromium-extension.mjs`: updates or reloads the unpacked Chrome extension in a Chromium-based browser profile.
@@ -147,11 +147,7 @@ Build and install the Android app on the connected device or emulator with adb:
 make android-install
 ```
 
-The Android app loads settings from a `blockerState` JSON file and reloads it when the file changes. Push one with:
-
-```sh
-adb push settings.json /sdcard/Android/data/com.akelly.urlblocker/files/settings.json
-```
+The Android app gets settings by signing in to Supabase (Google, via the `urlblocker://supabase-auth` redirect) from its status screen; until then it uses the default settings. Synced settings wait out the active settings delay, like in the extension. The engine keeps its session, settings, and screen time in app-private files, readable in debug builds with `adb shell run-as com.akelly.urlblocker ls files`. `adb logcat -s URLBlocker` shows each sync status.
 
 Enable the accessibility service from Settings → Accessibility, or with root (`adb root` works on `google_apis` emulator images):
 
@@ -176,7 +172,7 @@ iOS and macOS builds sign with Adrian's team (`T3TBGN4UX7`). `make ios-build` us
 ## Supabase Sync
 
 - Supabase project ref: `YOUR_PROJECT_REF`.
-- Runtime config is bundled from `URLBlockerWebExtension/supabase-config.json`. It must contain the project URL, publishable anon key, `redirectScheme: "urlblocker"`, and `screenTimeSyncAgeMs`.
+- Runtime config is bundled from `URLBlockerWebExtension/supabase-config.json` into every platform, including Android. It must contain the project URL, publishable anon key, `redirectScheme: "urlblocker"`, and `screenTimeSyncAgeMs`.
 - The committed `supabase-config.json` must stay as an example with placeholder values. Keep real local values in that same file only with `git update-index --skip-worktree URLBlockerWebExtension/supabase-config.json` set, so local builds include the real config but Git status and commits ignore it. Use `git update-index --no-skip-worktree ...` only when intentionally editing the example config.
 - Backend schema lives in `supabase/001_url_blocker_sync.sql`.
 - Run Supabase CLI commands outside the Codex sandbox. The CLI writes local metadata under `supabase/.temp/` and `~/.supabase`.

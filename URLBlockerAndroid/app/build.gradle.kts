@@ -34,7 +34,7 @@ abstract class CopySharedAssets @Inject constructor(private val files: FileSyste
 
 val copySharedAssets = tasks.register<CopySharedAssets>("copySharedAssets") {
     sharedFiles.from(
-        listOf("blocker.js", "supabase-sync.js", "default-blocked-pages.json", "blocked.html", "blocked.css")
+        listOf("blocker.js", "supabase-sync.js", "supabase-config.json", "default-blocked-pages.json", "blocked.html", "blocked.css")
             .map { rootProject.file("../URLBlockerWebExtension/$it") }
     )
 }

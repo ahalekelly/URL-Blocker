@@ -26,9 +26,8 @@ Target device: rooted Pixel 8.
 - An accessibility service watches the visible apps, including split screen and picture-in-picture. Apps in a fixed app-to-site table in `blocker.js` (`APP_SITE_DOMAINS`) count as their site's home page, so they are blocked whenever the home page would be. A blocked app is covered with an accessibility overlay that renders the extension's `blocked.html` and `blocked.css`, the user is sent home, and its picture-in-picture window is closed. Apps are never stopped, so notifications still arrive.
 - The service re-checks every 15 seconds, so schedules and limits apply while an app stays open.
 - Visible apps' time counts toward their site's shared screen time limit while the screen is on and unlocked, stored in the extension's `screenTimeUsage` shape.
-- Until sync lands, settings come from a JSON file pushed over adb (see `AGENTS.md`) and apply immediately, without the settings delay.
-- Signs in to Supabase with Google through the `urlblocker://` redirect and syncs settings and screen time as its own device.
-- Shows status only: sign-in, accessibility, Device Owner, extension check.
+- Signs in to Supabase with Google in the browser through the `urlblocker://supabase-auth` redirect, then syncs as its own device: it pulls settings, which wait out the active settings delay like in the extension, pushes its screen time, and pulls other devices'. It syncs every `screenTimeSyncAgeMs` while the screen is in use, on unlock, and when a site goes over its limit. Before the first sync it uses the default settings.
+- Shows status only: account, last sync and errors, sign-in and sign-out, accessibility, Device Owner, extension check.
 
 ### Tamper resistance
 
