@@ -6,15 +6,12 @@ IOS_SCHEME := URLBlockerIOS
 MACOS_SCHEME := URLBlockerMac
 
 IOS_DERIVED_DATA ?= /tmp/urlblocker_ios_build
-IOS_SIGNED_IPA ?= $(CURDIR)/build/URLBlockerIOS-signed.ipa
+IOS_APP := $(IOS_DERIVED_DATA)/Build/Products/Release-iphoneos/URLBlockerIOS.app
 IOS_DEVICE_SCRIPT := $(CURDIR)/scripts/connected-iphone.mjs
-IOS_SIGNING_ASSETS ?= $(HOME)/Documents/UDIDRegistrations/iOSSigning
-IOS_SIGNING_DERIVED_DATA ?= /tmp/urlblocker_signing_build
-IOS_SIGNING_SCRIPT := $(CURDIR)/scripts/sign-ios-udid.mjs
-IOS_SIGNING_WORK_DIR ?= /tmp/urlblocker_signing
-IOS_SIGNED_DIR ?= /tmp/urlblocker_signed
-IOS_APP_GROUP ?= group.d944b664533a4c2f.1
-P12_PASSWORD_FILE ?= $(IOS_SIGNING_ASSETS)/Development.p12.password
+# App Store Connect API key that lets xcodebuild manage provisioning profiles. The .p8 stays outside Git.
+ASC_KEY_ID ?= ZT4M83BNFY
+ASC_ISSUER_ID ?= 1572e43c-4c24-4268-b52e-3f9460b87529
+ASC_KEY_PATH ?= $(HOME)/.appstoreconnect/AuthKey_$(ASC_KEY_ID).p8
 MACOS_DERIVED_DATA ?= /tmp/urlblocker_macos_build
 MACOS_CODE_SIGN_IDENTITY ?= Apple Development
 VIVALDI_APP ?= Vivaldi
@@ -32,7 +29,7 @@ SAFARI_EXTENSION_SDK := com.apple.Safari.web-extension
 LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister
 NPM = npm_config_script_shell="$(SHELL)" npm
 
-.PHONY: help test all build check install chrome-extension vivaldi-install brave-install ios-build ios-build-unsigned ios-signed-ipa ios-devices ios-install macos-build macos-install macos-clean-registration macos-verify macos-plugin-check
+.PHONY: help test all build check install chrome-extension vivaldi-install brave-install ios-build ios-build-unsigned ios-devices ios-install macos-build macos-install macos-clean-registration macos-verify macos-plugin-check
 
 help:
 	@printf "Targets:\n"
@@ -40,12 +37,11 @@ help:
 	@printf "  make chrome-extension        Build the unpacked Chrome extension in build/chrome-extension.\n"
 	@printf "  make vivaldi-install         Build the Vivaldi extension; reload the running profile when open.\n"
 	@printf "  make brave-install           Build the Brave extension; reload the running profile when open.\n"
-	@printf "  make ios-build               Build build/URLBlockerIOS-signed.ipa with UDID Registrations signing.\n"
+	@printf "  make ios-build               Build the signed iOS device app.\n"
 	@printf "  make ios-build-unsigned      Build the unsigned iOS device app.\n"
-	@printf "  make ios-signed-ipa          Alias for make ios-build.\n"
 	@printf "  make ios-devices             List iOS devices available to Xcode.\n"
-	@printf "  make ios-install             Build the signed IPA, then install it on the connected iPhone.\n"
-	@printf "  make ios-install DEVICE=...  Build the signed IPA, then install it on a specific iPhone.\n"
+	@printf "  make ios-install             Build the signed app, then install it on the connected iPhone.\n"
+	@printf "  make ios-install DEVICE=...  Build the signed app, then install it on a specific iPhone.\n"
 	@printf "  make macos-build             Build the signed macOS app.\n"
 	@printf "  make all                     Build iOS, macOS, and Chrome.\n"
 	@printf "  make build                   Build iOS, macOS, and Chrome.\n"
@@ -80,16 +76,21 @@ brave-install:
 	node scripts/install-chromium-extension.mjs "$(BRAVE_APP)" "$(BRAVE_BINARY)" "$(CHROME_EXTENSION_DIR)"
 
 ios-build:
-	IOS_APP_GROUP="$(IOS_APP_GROUP)" \
-	IOS_PROJECT="$(PROJECT)" \
-	IOS_SCHEME="$(IOS_SCHEME)" \
-	IOS_SIGNED_DIR="$(IOS_SIGNED_DIR)" \
-	IOS_SIGNED_IPA="$(IOS_SIGNED_IPA)" \
-	IOS_SIGNING_ASSETS="$(IOS_SIGNING_ASSETS)" \
-	IOS_SIGNING_DERIVED_DATA="$(IOS_SIGNING_DERIVED_DATA)" \
-	IOS_SIGNING_WORK_DIR="$(IOS_SIGNING_WORK_DIR)" \
-	P12_PASSWORD_FILE="$(P12_PASSWORD_FILE)" \
-	node "$(IOS_SIGNING_SCRIPT)"
+	xcodebuild \
+	  -quiet \
+	  -hideShellScriptEnvironment \
+	  -project "$(PROJECT)" \
+	  -scheme "$(IOS_SCHEME)" \
+	  -configuration Release \
+	  -sdk iphoneos \
+	  -destination generic/platform=iOS \
+	  -derivedDataPath "$(IOS_DERIVED_DATA)" \
+	  -allowProvisioningUpdates \
+	  -authenticationKeyPath "$(ASC_KEY_PATH)" \
+	  -authenticationKeyID "$(ASC_KEY_ID)" \
+	  -authenticationKeyIssuerID "$(ASC_ISSUER_ID)" \
+	  COMPILATION_CACHE_ENABLE_CACHING=YES \
+	  build
 
 ios-build-unsigned:
 	xcodebuild \
@@ -105,16 +106,10 @@ ios-build-unsigned:
 	  COMPILATION_CACHE_ENABLE_CACHING=YES \
 	  build
 
-ios-signed-ipa: ios-build
-
 ios-devices:
 	xcrun devicectl list devices
 
 ios-install: ios-build
-	@if [[ ! -f "$(IOS_SIGNED_IPA)" ]]; then \
-	  printf "Missing signed IPA: %s\n" "$(IOS_SIGNED_IPA)" >&2; \
-	  exit 1; \
-	fi
 	@device="$(DEVICE)"; \
 	if [[ -z "$$device" ]]; then \
 	  device_file=$$(mktemp /tmp/urlblocker_ios_device.XXXXXX); \
@@ -127,10 +122,8 @@ ios-install: ios-build
 	  printf "No iPhone selected. Connect and trust one iPhone, or pass DEVICE=...\n" >&2; \
 	  exit 1; \
 	fi; \
-	printf "Installing %s on %s\n" "$(IOS_SIGNED_IPA)" "$$device"; \
-	install_dir=$$(mktemp -d /tmp/urlblocker_ios_install.XXXXXX); \
-	unzip -q "$(IOS_SIGNED_IPA)" -d "$$install_dir"; \
-	xcrun devicectl device install app --device "$$device" "$$install_dir/Payload/URLBlockerIOS.app"
+	printf "Installing %s on %s\n" "$(IOS_APP)" "$$device"; \
+	xcrun devicectl device install app --device "$$device" "$(IOS_APP)"
 
 macos-build:
 	xcodebuild \
