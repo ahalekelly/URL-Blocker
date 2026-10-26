@@ -52,7 +52,9 @@ class StatusActivity : Activity() {
                 addView(signOut)
             })
         })
-        if (savedInstanceState == null) handleRedirect(intent)
+        // Reopening from Recents replays the launch intent, which may be an
+        // old redirect whose single-use refresh token is already spent.
+        if (savedInstanceState == null && (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) == 0) handleRedirect(intent)
     }
 
     override fun onNewIntent(intent: Intent) {

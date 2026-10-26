@@ -21,6 +21,7 @@
   let usageDirty = false;
   let activation;
   let settingsSync;
+  let account;
   let overLimit = new Set();
   let syncing = false;
   let lastSyncStartMs = 0;
@@ -51,6 +52,8 @@
     activation = loadActivation();
     // A device that has never synced takes any remote settings as newer.
     settingsSync = sync.parseSettingsSync(readJson(SETTINGS_SYNC_FILE), () => crypto.randomUUID(), 0);
+    const sessionResult = sync.parseSession(readJson(SESSION_FILE));
+    account = sessionResult.type === "session" ? signedIn(sessionResult.session) : { type: "signedOut" };
     reportStatus();
   }
 
@@ -91,6 +94,10 @@
     return result.activation;
   }
 
+  function signedIn(session) {
+    return { type: "signedIn", session, email: sync.sessionEmail(session) };
+  }
+
   function settleActivation(nowMs) {
     const result = core.settleSettingsActivation(activation, nowMs);
 
@@ -109,7 +116,8 @@
 
   // Credits elapsedMs to the sites of the apps that were visible since the
   // last step, then decides whether any app visible now is blocked. A site
-  // newly over its limit syncs at once so other devices see it promptly.
+  // this device just put over its limit syncs at once so other devices see it
+  // promptly.
   function step(countedPackages, elapsedMs, visiblePackages, nowMs) {
     settleActivation(nowMs);
     const state = activation.activeState;
@@ -125,7 +133,7 @@
 
     const nowOverLimit = core.overLimitDomains(state, usage, nowMs);
 
-    if ([...nowOverLimit].some((domain) => !overLimit.has(domain))) {
+    if ([...domains].some((domain) => nowOverLimit.has(domain) && !overLimit.has(domain))) {
       startSync(true);
     }
 
@@ -158,19 +166,13 @@
 
   // Syncs at most once per screenTimeSyncAgeMs unless forced.
   function startSync(force) {
-    if (syncing || (!force && Date.now() - lastSyncStartMs < config.screenTimeSyncAgeMs)) {
-      return;
-    }
-
-    const sessionResult = sync.parseSession(readJson(SESSION_FILE));
-
-    if (sessionResult.type === "signedOut") {
+    if (account.type === "signedOut" || syncing || (!force && Date.now() - lastSyncStartMs < config.screenTimeSyncAgeMs)) {
       return;
     }
 
     syncing = true;
     lastSyncStartMs = Date.now();
-    syncSession(sessionResult.session)
+    syncAccount(account)
       .then(() => {
         syncError = "";
       })
@@ -184,20 +186,22 @@
       });
   }
 
-  // Pulls settings and other devices' screen time, and pushes this device's.
-  // This device never edits settings, so it never pushes them.
-  async function syncSession(storedSession) {
-    let session = storedSession;
+  // Pushes this device's screen time, pulls other devices' and pulls
+  // settings. This device never edits settings, so it never pushes them.
+  // Signing in or out mid-sync drops the rest of the sync.
+  async function syncAccount(startAccount) {
+    let session = startAccount.session;
 
     if (sync.sessionNeedsRefresh(session, Date.now())) {
       session = await sync.refreshSession(config, session, fetchJson);
+
+      if (account !== startAccount) {
+        return;
+      }
+
+      account = { ...account, session };
+      startAccount = account;
       writeJson(SESSION_FILE, session);
-    }
-
-    const remoteSettings = await sync.loadRemoteSettings(config, session, fetchJson);
-
-    if (remoteSettings && sync.remoteSettingsAreNewer(settingsSync, remoteSettings)) {
-      applyRemoteSettings(remoteSettings);
     }
 
     const dirtyBuckets = sync.dirtyScreenTimeBuckets(usage);
@@ -205,12 +209,28 @@
     if (dirtyBuckets.length > 0) {
       const savedBuckets = await sync.saveRemoteScreenTime(config, session, dirtyBuckets, fetchJson);
       sync.markScreenTimeSynced(usage, sync.normalizeSyncedScreenTimeRows(savedBuckets, core));
+      usageDirty = true;
     }
 
     const window = core.usageWindow(activation.activeState.limitReset, Date.now());
     const remoteRows = await sync.loadRemoteScreenTime(config, session, window, fetchJson);
+
+    if (account !== startAccount) {
+      return;
+    }
+
     sync.mergeRemoteScreenTimeBuckets(usage, sync.normalizeRemoteScreenTimeRows(remoteRows, core));
     usageDirty = true;
+    const remoteSettings = await sync.loadRemoteSettings(config, session, fetchJson);
+
+    if (account !== startAccount) {
+      return;
+    }
+
+    if (remoteSettings && sync.remoteSettingsAreNewer(settingsSync, remoteSettings)) {
+      applyRemoteSettings(remoteSettings);
+    }
+
     settingsSync = sync.markSuccessfulSync(settingsSync, Date.now());
     writeJson(SETTINGS_SYNC_FILE, settingsSync);
   }
@@ -246,22 +266,26 @@
   }
 
   // The redirect URL comes from outside the app, so a bad one is shown as a
-  // sync error rather than thrown.
+  // sync error rather than thrown. A sync already running for the previous
+  // account stops, and the next tick syncs the new one.
   function completeSignIn(url) {
     try {
-      writeJson(SESSION_FILE, sync.sessionFromOAuthRedirect(url, Date.now()));
+      account = signedIn(sync.sessionFromOAuthRedirect(url, Date.now()));
     } catch (error) {
       syncError = `Sign-in failed: ${error.message}`;
       reportStatus();
       return;
     }
 
+    writeJson(SESSION_FILE, account.session);
     syncError = "";
+    lastSyncStartMs = 0;
     startSync(true);
     reportStatus();
   }
 
   function signOut() {
+    account = { type: "signedOut" };
     host.remove(SESSION_FILE);
     usage.remoteBuckets = {};
     usageDirty = true;
@@ -270,10 +294,8 @@
   }
 
   function reportStatus() {
-    const sessionResult = sync.parseSession(readJson(SESSION_FILE));
-
     host.syncStatus(JSON.stringify({
-      email: sessionResult.type === "session" ? sync.sessionEmail(sessionResult.session) : null,
+      email: account.type === "signedIn" ? account.email : null,
       lastSyncMs: settingsSync.lastSuccessfulSyncMs,
       error: syncError,
       pendingSettingsAtMs: activation.pending.type === "pending" ? activation.pending.effectiveAtMs : null

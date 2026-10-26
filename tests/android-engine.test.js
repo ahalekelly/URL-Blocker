@@ -148,6 +148,29 @@ test("signs in from the redirect and reports a failed redirect", async () => {
   assert.equal(engine.status().email, null);
 });
 
+test("signing out mid-sync keeps the device signed out", async () => {
+  let finishRefresh;
+  const expiring = { ...session(startMs), expiresAtMs: startMs };
+  const engine = startEngine(
+    { "supabase-session.json": JSON.stringify(expiring) },
+    {
+      "/auth/v1/token": () => new Promise((resolve) => { finishRefresh = resolve; }),
+      "/rest/v1/user_settings": () => [],
+      "/rest/v1/screen_time_buckets": () => []
+    }
+  );
+
+  engine.call("sync", true);
+  await settle();
+  engine.call("signOut");
+  finishRefresh({ access_token: session(startMs).accessToken, refresh_token: "new", expires_in: 3600 });
+  await settle();
+
+  assert.equal(engine.files["supabase-session.json"], undefined);
+  assert.deepEqual(engine.status(), { email: null, lastSyncMs: null, error: "", pendingSettingsAtMs: null });
+  assert.deepEqual(engine.requests.map((request) => new URL(request.url).pathname), ["/auth/v1/token"]);
+});
+
 test("supabaseErrorMessage includes Supabase error details", () => {
   assert.equal(sync.supabaseErrorMessage(400, ""), "Supabase request failed: 400");
   assert.equal(sync.supabaseErrorMessage(400, JSON.stringify({ message: "bad", code: "42702" })), "Supabase request failed: 400. bad 42702");
