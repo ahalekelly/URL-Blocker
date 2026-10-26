@@ -16,7 +16,7 @@ Target device: rooted Pixel 8.
 
 ## Short-form video hiding
 
-`content.js` hides short-form video on YouTube, Instagram, Facebook, and LinkedIn on every browser platform, always on, with a toggle per site. Rules are built in and ship with the extension. YouTube Shorts stay in search results, and opening one redirects to `/watch?v=<id>` so it plays alone without a swipe feed. Native apps get whole-app blocking only.
+`content.js` hides short-form video on YouTube, Instagram, Facebook, and LinkedIn on every browser platform, always on, with a toggle per site. Rules are built in and ship with the extension. YouTube Shorts stay in search results. Links to a single short video or reel are allowed on all four sites, but open as a single video with no swipe to the next (for example `/shorts/<id>` → `/watch?v=<id>`). Native apps get whole-app blocking only.
 
 ## Android app
 
