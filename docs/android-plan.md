@@ -23,8 +23,10 @@ Target device: rooted Pixel 8.
 `URLBlockerAndroid/`, Kotlin, built with `make android-build` and `make android-install` (included in `make install`).
 
 - Runs `blocker.js` and `supabase-sync.js` in a headless WebView, so blocking decisions and limit math match the extension.
-- An accessibility service detects the foreground app. Apps in a fixed app-to-site table in `blocker.js` are covered with the block page when their site's schedule or limit applies. Notifications still arrive.
-- App foreground time counts toward the site's shared screen time limit.
+- An accessibility service detects the foreground app. Apps in a fixed app-to-site table in `blocker.js` (`APP_SITE_DOMAINS`) count as their site's home page, so they are blocked whenever the home page would be. A blocked app is covered with an accessibility overlay showing the block page HTML and reason, and the user is sent home. Apps are never stopped, so notifications still arrive.
+- The service re-checks every 15 seconds, so schedules and limits apply while an app stays open.
+- App foreground time counts toward the site's shared screen time limit, stored in the extension's `screenTimeUsage` shape.
+- Until sync lands, settings come from a JSON file pushed over adb (see `AGENTS.md`) and apply immediately, without the settings delay.
 - Signs in to Supabase with Google through the `urlblocker://` redirect and syncs settings and screen time as its own device.
 - Shows status only: sign-in, accessibility, Device Owner, extension check.
 

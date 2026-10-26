@@ -19,6 +19,10 @@ VIVALDI_BINARY ?= /Applications/Vivaldi.app/Contents/MacOS/Vivaldi
 BRAVE_APP ?= Brave Browser
 BRAVE_BINARY ?= /Applications/Brave Browser.app/Contents/MacOS/Brave Browser
 CHROME_EXTENSION_DIR := $(CURDIR)/build/chrome-extension
+ANDROID_HOME ?= $(HOME)/Library/Android/sdk
+ANDROID_JAVA_HOME ?= /opt/homebrew/opt/openjdk@21
+ANDROID_APK := $(CURDIR)/URLBlockerAndroid/app/build/outputs/apk/debug/app-debug.apk
+ADB := $(ANDROID_HOME)/platform-tools/adb
 
 MACOS_BUILD_APP := $(MACOS_DERIVED_DATA)/Build/Products/Release/URLBlockerMac.app
 MACOS_BUILD_EXTENSION := $(MACOS_BUILD_APP)/Contents/PlugIns/URLBlockerMacExtension.appex
@@ -29,7 +33,7 @@ SAFARI_EXTENSION_SDK := com.apple.Safari.web-extension
 LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister
 NPM = npm_config_script_shell="$(SHELL)" npm
 
-.PHONY: help test all build check install chrome-extension vivaldi-install brave-install ios-build ios-build-unsigned ios-devices ios-install macos-build macos-install macos-clean-registration macos-verify macos-plugin-check
+.PHONY: help test all build check install chrome-extension vivaldi-install brave-install ios-build ios-build-unsigned ios-devices ios-install macos-build macos-install macos-clean-registration macos-verify macos-plugin-check android-build android-install
 
 help:
 	@printf "Targets:\n"
@@ -43,10 +47,12 @@ help:
 	@printf "  make ios-install             Build the signed app, then install it on the connected iPhone.\n"
 	@printf "  make ios-install DEVICE=...  Build the signed app, then install it on a specific iPhone.\n"
 	@printf "  make macos-build             Build the signed macOS app.\n"
+	@printf "  make android-build           Build the Android app.\n"
+	@printf "  make android-install         Build the Android app, then install it on the connected device or emulator.\n"
 	@printf "  make all                     Build iOS, macOS, and Chrome.\n"
 	@printf "  make build                   Build iOS, macOS, and Chrome.\n"
 	@printf "  make check                   Run tests, then build iOS, macOS, and Chrome.\n"
-	@printf "  make install                 Install iOS, macOS, and Vivaldi in parallel.\n"
+	@printf "  make install                 Install iOS, macOS, Vivaldi, and Android in parallel.\n"
 	@printf "  make macos-install           Build, install to /Applications, and verify Safari registration.\n"
 	@printf "  make macos-plugin-check      Fail if Safari sees duplicate URL Blocker extensions.\n"
 
@@ -60,7 +66,7 @@ build: ios-build macos-build chrome-extension
 check: test build
 
 install:
-	$(MAKE) -j3 ios-install macos-install vivaldi-install
+	$(MAKE) -j4 ios-install macos-install vivaldi-install android-install
 
 chrome-extension:
 	$(NPM) run build-chrome-extension
@@ -74,6 +80,12 @@ brave-install:
 	node scripts/install-chromium-extension.mjs --preflight "$(BRAVE_APP)" "$(BRAVE_BINARY)" "$(CHROME_EXTENSION_DIR)"
 	$(NPM) run build-chrome-extension
 	node scripts/install-chromium-extension.mjs "$(BRAVE_APP)" "$(BRAVE_BINARY)" "$(CHROME_EXTENSION_DIR)"
+
+android-build:
+	cd URLBlockerAndroid && JAVA_HOME="$(ANDROID_JAVA_HOME)" ANDROID_HOME="$(ANDROID_HOME)" ./gradlew --quiet assembleDebug
+
+android-install: android-build
+	"$(ADB)" install -r "$(ANDROID_APK)"
 
 ios-build:
 	xcodebuild \

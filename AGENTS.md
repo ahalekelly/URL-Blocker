@@ -9,7 +9,7 @@
 
 ## Workflow
 
-- After the initial draft of changes, run `make test` and then fix any issues. Then install all platforms with `make install`. Make sure all builds succeed. If the iOS build succeeds but the device install fails it's probably just that the iPhone isn't connected so don't bother retrying. Notify the user whether all installs succeeded or the iOS install failed.
+- After the initial draft of changes, run `make test` and then fix any issues. Then install all platforms with `make install`. Make sure all builds succeed. If the iOS or Android build succeeds but the device install fails, the phone probably isn't connected, so don't bother retrying. Notify the user whether all installs succeeded or which device installs failed.
 - If you made functional or UI changes, verify them in a browser: headless Brave (see Commands) for automated checks, or Computer Use in Brave or Safari when you need the user's logged-in sites.
 - After finishing and testing the change, commit the changes for that completed work.
 
@@ -34,6 +34,7 @@
 - `ChromeExtension/`: Chrome-specific manifest and reload helpers. The Chrome build reuses `URLBlockerWebExtension/`.
 - `URLBlockerShared/`: Swift shared state validation and storage.
 - `URLBlockerMac/` and `URLBlockerExtensionMac/`: macOS targets.
+- `URLBlockerAndroid/`: Android app (Kotlin, Gradle). An accessibility service runs `blocker.js` in a headless WebView through `app/src/main/assets/engine.js` and covers apps from `APP_SITE_DOMAINS` in `blocker.js`. The build copies `blocker.js`, `supabase-sync.js`, and `default-blocked-pages.json` into the app's assets.
 - `tests/`: Node tests for extension JavaScript behavior.
 - `scripts/build-chrome-extension.mjs`: builds the unpacked Chrome extension in `build/chrome-extension`.
 - `scripts/install-chromium-extension.mjs`: updates or reloads the unpacked Chrome extension in a Chromium-based browser profile.
@@ -134,7 +135,31 @@ Build and install the signed macOS app:
 make macos-install
 ```
 
-Install iOS, macOS, and Vivaldi in parallel:
+Build the Android app (debug-signed, needs JDK 21 at `/opt/homebrew/opt/openjdk@21` and the SDK at `~/Library/Android/sdk`):
+
+```sh
+make android-build
+```
+
+Build and install the Android app on the connected device or emulator with adb:
+
+```sh
+make android-install
+```
+
+The Android app loads settings from a `blockerState` JSON file and reloads it when the file changes. Push one with:
+
+```sh
+adb push settings.json /sdcard/Android/data/com.akelly.urlblocker/files/settings.json
+```
+
+Enable the accessibility service from Settings → Accessibility, or with root (`adb root` works on `google_apis` emulator images):
+
+```sh
+adb shell settings put secure enabled_accessibility_services com.akelly.urlblocker/.BlockerService
+```
+
+Install iOS, macOS, Vivaldi, and Android in parallel:
 
 ```sh
 make install
