@@ -247,6 +247,9 @@
     <b>Hard block schedule.</b> This is a separate daily window. When it is active, URL Blocker compares the page host with the associated domain for every enabled entry. Path entries and regex entries still hard-block their whole domain during this window, and the root-URL arrival toggles are bypassed.
   </p>
   <p class="note">
+    <b>Single short videos.</b> Right after the hard block schedule, a link to one short video on a site with short video hiding on opens as a single video. YouTube <code>/shorts/&lt;id&gt;</code> redirects to <code>/watch?v=&lt;id&gt;</code> and Instagram <code>/reel/&lt;code&gt;</code> to <code>/p/&lt;code&gt;</code>; the destination then runs through this chart. A Facebook <code>/reel/&lt;id&gt;</code> page stays put with swiping to the next reel disabled, and only full-domain entries and root-URL expansion can block it. Route entries like <code>youtube.com/shorts</code> never block these links.
+  </p>
+  <p class="note">
     <b>Root-URL expansion</b> (the middle chain) is what blocks a site’s <i>feed</i> — landing on <code>reddit.com</code> — while still letting you open a specific link into it. It only fires for a bare-domain “URL” entry, and only on a qualifying arrival, governed per domain by the <b>block direct visits</b> and <b>block internal links</b> toggles. A direct match to a more specific entry (full path, subpaths, or regex) takes the express lane straight to the activation gate.
   </p>
   <p class="note">

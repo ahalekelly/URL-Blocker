@@ -86,7 +86,7 @@ test("saveState settles zero-minute settings delay through activation", async ()
     pending: { type: "none" }
   });
   assert.deepEqual(api.storageData[core.BLOCKED_PAGE_HTML_KEY], { html: response.state.blockedPageHtml });
-  assert.deepEqual(api.registeredScripts.at(-1).matches, core.permissionOriginsForState(response.state));
+  assert.deepEqual(api.registeredScripts.at(-1).matches, core.contentScriptOriginsForState(response.state));
 });
 
 test("saveState keeps matching content script registration", async () => {
@@ -387,7 +387,7 @@ test("syncWebsiteAccess registers content scripts for the saved blocklist", asyn
   const response = await controller.handleMessage({ type: "syncWebsiteAccess" }, {});
 
   assert.equal(response.type, "synced");
-  assert.deepEqual(api.registeredScripts[0].matches, ["*://*.twitter.com/*", "*://*.x.com/*"]);
+  assert.deepEqual(api.registeredScripts[0].matches, ["*://*.facebook.com/*", "*://*.instagram.com/*", "*://*.linkedin.com/*", "*://*.twitter.com/*", "*://*.x.com/*", "*://*.youtube.com/*"]);
 });
 
 test("urlChanged redirects matching sender tab to the blocked page", async () => {
@@ -430,6 +430,37 @@ test("urlChanged redirects deep links during the hard schedule", async () => {
     tabId: 7,
     url: blockedUrl("https://x.com/messages", "hardScheduleDomain")
   }]);
+});
+
+test("urlChanged opens YouTube Shorts as single videos despite a blocking Shorts entry", async () => {
+  const api = fakeApi();
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "urlWithSubpaths", value: "youtube.com/shorts" }
+  ], activeSchedule());
+  const controller = createBackgroundController(api);
+  const response = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/shorts/abc"), { tab: { id: 7 } });
+
+  assert.equal(response.type, "redirected");
+  assert.deepEqual(api.updatedTabs, [{ tabId: 7, url: "https://www.youtube.com/watch?v=abc" }]);
+});
+
+test("urlChanged reports short video hiding for allowed pages", async () => {
+  const api = fakeApi();
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "https://x.com" }
+  ], inactiveSchedule());
+  const controller = createBackgroundController(api);
+
+  assert.deepEqual(await controller.handleMessage(urlChangedMessage("https://www.facebook.com/reel/123"), { tab: { id: 7 } }), {
+    type: "allowed",
+    youtubeFocus: false,
+    shortVideo: { type: "singleVideo", site: "facebook" }
+  });
+  assert.deepEqual(await controller.handleMessage(urlChangedMessage("https://x.com/home"), { tab: { id: 7 } }), {
+    type: "allowed",
+    youtubeFocus: false,
+    shortVideo: { type: "none" }
+  });
 });
 
 test("urlChanged allows matching URLs outside the schedule", async () => {
@@ -1045,8 +1076,8 @@ test("urlChanged lets a remembered YouTube video continue after rolling usage ex
   });
   const focused = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc&t=30", sameDocumentSource), { tab: { id: 7 } });
 
-  assert.deepEqual(remembered, { type: "allowed", youtubeFocus: false });
-  assert.deepEqual(focused, { type: "allowed", youtubeFocus: true });
+  assert.deepEqual(remembered, { type: "allowed", youtubeFocus: false, shortVideo: { type: "feed", site: "youtube" } });
+  assert.deepEqual(focused, { type: "allowed", youtubeFocus: true, shortVideo: { type: "feed", site: "youtube" } });
   assert.deepEqual(api.updatedTabs, []);
 });
 
@@ -1124,7 +1155,7 @@ test("screenTimeElapsed lets the current YouTube video continue after crossing t
   const focused = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", sameDocumentSource), { tab: { id: 7 } });
 
   assert.deepEqual(response, { type: "logged", domain: "youtube.com", totalMs: 60000, limitMinutes: 1, isOverLimit: true });
-  assert.deepEqual(focused, { type: "allowed", youtubeFocus: true });
+  assert.deepEqual(focused, { type: "allowed", youtubeFocus: true, shortVideo: { type: "feed", site: "youtube" } });
   assert.deepEqual(api.updatedTabs, []);
 });
 
@@ -1680,6 +1711,7 @@ test("syncNow repairs remote settings missing added defaults", async () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: core.domainLimitsForEntries(previousEntries, [])
   };
 
@@ -1923,6 +1955,7 @@ function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits, lim
     limitReset,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: core.domainLimitsForEntries(stateEntries, domainLimits === undefined ? [] : domainLimits)
   };
 }

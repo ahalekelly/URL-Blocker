@@ -8,7 +8,12 @@
   const REFERRER_RECORD_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
   const MAX_REFERRER_RECORDS = 20;
   const YOUTUBE_FOCUS_ATTRIBUTE = "data-url-blocker-youtube-focus";
+  const SHORT_VIDEO_SITE_ATTRIBUTE = "data-url-blocker-short-video";
+  const PATH_ATTRIBUTE = "data-url-blocker-path";
+  const SINGLE_SHORT_VIDEO_ATTRIBUTE = "data-url-blocker-single-short-video";
+  const SINGLE_VIDEO_NAVIGATION_KEYS = new Set(["ArrowDown", "ArrowUp", "PageDown", "PageUp"]);
   let lastSentUrl = "";
+  let singleVideoLocked = false;
   let currentPageUrl = location.href;
   let arrival = { type: "unknown" };
   let arrivalNavigationType = currentNavigationType();
@@ -55,6 +60,7 @@
 
   function teardown() {
     stopped = true;
+    setSingleVideoLock(false);
     if (pollId !== 0) {
       root.clearInterval(pollId);
       pollId = 0;
@@ -346,6 +352,7 @@
     switch (response.type) {
       case "allowed":
         setYoutubeFocus(response.youtubeFocus === true);
+        setShortVideo(response.shortVideo);
         return;
       case "redirected":
         return;
@@ -366,6 +373,71 @@
     }
 
     document.documentElement.removeAttribute(YOUTUBE_FOCUS_ATTRIBUTE);
+  }
+
+  // content.css hides short videos with rules keyed on these attributes; the
+  // path lets a rule target one page type, like a site's home feed.
+  function setShortVideo(shortVideo) {
+    if (!isPlainObject(shortVideo) || typeof shortVideo.type !== "string") {
+      throw new Error("URL check response must include short video handling.");
+    }
+
+    const html = document.documentElement;
+
+    switch (shortVideo.type) {
+      case "none":
+        html.removeAttribute(SHORT_VIDEO_SITE_ATTRIBUTE);
+        html.removeAttribute(PATH_ATTRIBUTE);
+        setSingleVideoLock(false);
+        return;
+      case "feed":
+      case "singleVideo":
+        html.setAttribute(SHORT_VIDEO_SITE_ATTRIBUTE, shortVideo.site);
+        html.setAttribute(PATH_ATTRIBUTE, location.pathname);
+        setSingleVideoLock(shortVideo.type === "singleVideo");
+        return;
+      default:
+        throw new Error(`Unknown short video handling: ${shortVideo.type}`);
+    }
+  }
+
+  // On a single short video page, wheel, swipe, and arrow keys would move to
+  // the next video, so they are swallowed before the page sees them.
+  function setSingleVideoLock(locked) {
+    if (locked === singleVideoLocked) {
+      return;
+    }
+
+    singleVideoLocked = locked;
+
+    if (locked) {
+      document.documentElement.setAttribute(SINGLE_SHORT_VIDEO_ATTRIBUTE, "true");
+      root.addEventListener("wheel", swallowScroll, { capture: true, passive: false });
+      root.addEventListener("touchmove", swallowScroll, { capture: true, passive: false });
+      root.addEventListener("keydown", swallowNavigationKey, true);
+      return;
+    }
+
+    document.documentElement.removeAttribute(SINGLE_SHORT_VIDEO_ATTRIBUTE);
+    root.removeEventListener("wheel", swallowScroll, true);
+    root.removeEventListener("touchmove", swallowScroll, true);
+    root.removeEventListener("keydown", swallowNavigationKey, true);
+  }
+
+  function swallowScroll(event) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+
+  function swallowNavigationKey(event) {
+    const target = event.target;
+
+    if (!SINGLE_VIDEO_NAVIGATION_KEYS.has(event.key) || target.isContentEditable || ["INPUT", "TEXTAREA"].includes(target.tagName)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
   }
 
   function sendMessage(payload, onError, onResponse = null) {

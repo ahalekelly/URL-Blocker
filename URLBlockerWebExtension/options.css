@@ -324,6 +324,12 @@ input[type="checkbox"].enabled-input:checked::before {
   gap: 12px;
 }
 
+.short-video-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+}
+
 .sync-panel {
   align-items: center;
   justify-content: space-between;

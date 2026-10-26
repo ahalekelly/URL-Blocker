@@ -293,14 +293,15 @@
       const nowMs = currentTimeMs();
       const usage = await loadScreenTimeUsage();
       const match = core.findBlockedMatchingEntry(state, rawUrl, core.overLimitDomains(state, usage, nowMs), navigationSource);
+      const shortVideo = core.shortVideoPage(state, rawUrl);
 
       if (youtubeFocusAllows(state, tabId, rawUrl, match)) {
-        return { type: "allowed", youtubeFocus: true };
+        return { type: "allowed", youtubeFocus: true, shortVideo };
       }
 
       if (match.type === "none") {
         rememberAllowedYoutubeVideo(tabId, rawUrl);
-        return { type: "allowed", youtubeFocus: false };
+        return { type: "allowed", youtubeFocus: false, shortVideo };
       }
 
       return redirectFromMatch(tabId, rawUrl, match);
@@ -396,6 +397,9 @@
           return { type: "allowed" };
         case "match":
           await api.tabs.update(tabId, { url: blockedPageUrl(rawUrl, match.reason) });
+          return { type: "redirected" };
+        case "singleVideoRedirect":
+          await api.tabs.update(tabId, { url: match.url });
           return { type: "redirected" };
         default:
           throw new Error(`Unknown match type: ${match.type}`);
@@ -642,7 +646,7 @@
     }
 
     async function syncContentScripts(state) {
-      const origins = core.permissionOriginsForState(state);
+      const origins = core.contentScriptOriginsForState(state);
       const registered = await api.scripting.getRegisteredContentScripts({ ids: [CONTENT_SCRIPT_ID] });
 
       if (contentScriptAlreadyRegistered(registered, origins)) {

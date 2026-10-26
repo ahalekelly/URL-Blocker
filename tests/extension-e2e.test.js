@@ -39,7 +39,7 @@ test("options requests only missing website access for saved states", async () =
   assert.deepEqual(app.optionsApi.permissionRequests, [["*://*.example.com/*"]]);
   assert.equal(page.byId("permissionPanel").hidden, true);
   assert.equal(page.byId("editorPanel").hidden, false);
-  assert.deepEqual(app.backgroundApi.registeredScripts[0].matches, ["*://*.example.com/*"]);
+  assert.deepEqual(app.backgroundApi.registeredScripts[0].matches, ["*://*.example.com/*", "*://*.facebook.com/*", "*://*.instagram.com/*", "*://*.linkedin.com/*", "*://*.youtube.com/*"]);
 });
 
 test("options renders local data before startup sync finishes", async () => {
@@ -351,6 +351,30 @@ test("options round-trips YouTube finish setting", async () => {
   page = await openOptionsPage(app);
 
   assert.equal(page.byId("finishYouTubeVideosInput").checked, false);
+});
+
+test("options round-trips short video hiding toggles", async () => {
+  const app = createExtensionApp();
+  app.backgroundApi.storageData[core.STATE_KEY] = validState([]);
+  let page = await openOptionsPage(app);
+
+  assert.equal(page.byId("hideInstagramReelsInput").checked, true);
+
+  page.byId("hideInstagramReelsInput").checked = false;
+  await page.byId("hideInstagramReelsInput").dispatch("change");
+  await page.byId("saveButton").dispatch("click");
+
+  assert.deepEqual(app.backgroundApi.storageData[core.STATE_KEY].shortVideoHiding, {
+    youtube: true,
+    instagram: false,
+    facebook: true,
+    linkedin: true
+  });
+
+  page = await openOptionsPage(app);
+
+  assert.equal(page.byId("hideInstagramReelsInput").checked, false);
+  assert.equal(page.byId("hideYouTubeShortsInput").checked, true);
 });
 
 test("options round-trips hard schedule settings and restores saved window details", async () => {
@@ -913,6 +937,7 @@ function validState(entries, schedule = core.DEFAULT_SCHEDULE) {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: core.domainLimitsForEntries(stateEntries, [])
   };
 }
@@ -1046,6 +1071,10 @@ function optionsDocument() {
     "dailyResetHourSelect",
     "settingsDelayMinutesInput",
     "finishYouTubeVideosInput",
+    "hideYouTubeShortsInput",
+    "hideInstagramReelsInput",
+    "hideFacebookReelsInput",
+    "hideLinkedInVideosInput",
     "settingsActivationText",
     "errorSummary",
     "screenTimeRows",

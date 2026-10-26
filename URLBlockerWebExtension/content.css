@@ -19,3 +19,59 @@ html[data-url-blocker-youtube-focus="true"] .ytp-prev-button,
 html[data-url-blocker-youtube-focus="true"] button[data-tooltip-target-id="ytp-autonav-toggle-button"] {
   display: none !important;
 }
+
+/*
+  Short video hiding. content.js sets data-url-blocker-short-video to the site
+  when its toggle is on, and data-url-blocker-path to the page path. One block
+  per site; prefer tag names, hrefs, and aria labels over generated classes.
+*/
+
+/* YouTube: Shorts shelves, guide entries, and channel tabs. Search results keep Shorts. */
+html[data-url-blocker-short-video="youtube"] ytd-browse ytd-rich-shelf-renderer[is-shorts],
+html[data-url-blocker-short-video="youtube"] ytd-browse ytd-rich-section-renderer:has(ytd-rich-shelf-renderer[is-shorts]),
+html[data-url-blocker-short-video="youtube"] ytd-browse ytd-rich-section-renderer:has(ytm-shorts-lockup-view-model),
+html[data-url-blocker-short-video="youtube"] ytd-browse ytd-reel-shelf-renderer,
+html[data-url-blocker-short-video="youtube"] ytd-browse grid-shelf-view-model:has(ytm-shorts-lockup-view-model),
+html[data-url-blocker-short-video="youtube"] ytd-browse ytd-rich-item-renderer:has(a[href^="/shorts/"]),
+html[data-url-blocker-short-video="youtube"] ytd-browse ytd-grid-video-renderer:has(a[href^="/shorts/"]),
+html[data-url-blocker-short-video="youtube"] ytd-browse ytd-video-renderer:has(a[href^="/shorts/"]),
+html[data-url-blocker-short-video="youtube"] ytd-watch-flexy ytd-reel-shelf-renderer,
+html[data-url-blocker-short-video="youtube"] ytd-watch-flexy grid-shelf-view-model:has(ytm-shorts-lockup-view-model),
+html[data-url-blocker-short-video="youtube"] ytd-watch-flexy ytd-compact-video-renderer:has(a[href^="/shorts/"]),
+html[data-url-blocker-short-video="youtube"] ytd-watch-flexy yt-lockup-view-model:has(a[href^="/shorts/"]),
+html[data-url-blocker-short-video="youtube"] ytd-guide-entry-renderer:has(a[title="Shorts"]),
+html[data-url-blocker-short-video="youtube"] ytd-mini-guide-entry-renderer[aria-label="Shorts"],
+html[data-url-blocker-short-video="youtube"] yt-tab-shape[tab-title="Shorts"],
+html[data-url-blocker-short-video="youtube"] ytm-pivot-bar-item-renderer:has(.pivot-shorts),
+html[data-url-blocker-short-video="youtube"] ytm-browse ytm-reel-shelf-renderer,
+html[data-url-blocker-short-video="youtube"] ytm-browse ytm-rich-section-renderer:has(ytm-shorts-lockup-view-model),
+html[data-url-blocker-short-video="youtube"] ytm-browse grid-shelf-view-model:has(ytm-shorts-lockup-view-model),
+html[data-url-blocker-short-video="youtube"] ytm-browse ytm-rich-item-renderer:has(a[href^="/shorts/"]),
+html[data-url-blocker-short-video="youtube"] ytm-browse .single-column-browse-results-tabs a[href$="/shorts"],
+html[data-url-blocker-short-video="youtube"] ytm-single-column-watch-next-results-renderer ytm-reel-shelf-renderer,
+html[data-url-blocker-short-video="youtube"] ytm-single-column-watch-next-results-renderer grid-shelf-view-model:has(ytm-shorts-lockup-view-model) {
+  display: none !important;
+}
+
+/* Instagram: Reels nav entry, Reels in the home feed and Explore. */
+html[data-url-blocker-short-video="instagram"] a[href="/reels/"],
+html[data-url-blocker-short-video="instagram"][data-url-blocker-path="/"] article:has(a[href*="/reel/"]),
+html[data-url-blocker-short-video="instagram"][data-url-blocker-path^="/explore"] a[href*="/reel/"] {
+  display: none !important;
+}
+
+/* Facebook: Reels posts and carousels in feeds, Reels nav and shortcut entries, and next/previous controls on a single reel. */
+html[data-url-blocker-short-video="facebook"] div[role="feed"] > div:has(a[href*="/reel/"]),
+html[data-url-blocker-short-video="facebook"] div[aria-posinset]:has(a[href*="/reel/"]),
+html[data-url-blocker-short-video="facebook"] [role="navigation"] li:has(a[href*="/reel/"]),
+html[data-url-blocker-short-video="facebook"] [role="navigation"] li:has(a[href*="/reels/"]),
+html[data-url-blocker-short-video="facebook"][data-url-blocker-single-short-video] [aria-label="Next card" i],
+html[data-url-blocker-short-video="facebook"][data-url-blocker-single-short-video] [aria-label="Previous card" i] {
+  display: none !important;
+}
+
+/* LinkedIn: video carousels in the feed. */
+html[data-url-blocker-short-video="linkedin"] .feed-shared-update-v2:has([class*="video-carousel"]),
+html[data-url-blocker-short-video="linkedin"] [data-view-name*="video-carousel"] {
+  display: none !important;
+}

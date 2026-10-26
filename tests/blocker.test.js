@@ -116,6 +116,7 @@ test("keeps default entries locked but configurable", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: [domainLimit("x.com", 12)]
   }, defaultBlockedPages.slice(0, 1));
 
@@ -134,6 +135,7 @@ test("keeps default entries locked but configurable", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: [domainLimit("example.com", 30)]
   }, defaultBlockedPages.slice(0, 1));
 
@@ -149,6 +151,7 @@ test("keeps default entries locked but configurable", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: []
   }, defaultBlockedPages.slice(0, 1));
 
@@ -167,6 +170,7 @@ test("normalizes old linkedin feed default entries", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: [domainLimit("linkedin.com", 30)]
   }, [linkedinDefault]);
 
@@ -398,6 +402,7 @@ test("repairs stored current states missing added defaults", () => {
     limitReset: { type: "daily", resetHour: 6 },
     settingsDelay: { delayMinutes: 17 },
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: core.domainLimitsForEntries(previousEntries, [{ domain: "youtube.com", limitMinutes: 11 }])
   }, defaultBlockedPages);
 
@@ -439,6 +444,98 @@ test("migrates schema 17 states to default YouTube focus settings", () => {
 
   assert.equal(state.schemaVersion, core.SCHEMA_VERSION);
   assert.deepEqual(state.youtubeFocus, { finishCurrentVideo: true });
+});
+
+test("migrates schema 18 states to default short video hiding", () => {
+  const { shortVideoHiding, ...oldState } = validState([
+    { id: ids[0], kind: "domain", value: "example.com" }
+  ]);
+  const state = validStoredState({ ...oldState, schemaVersion: 18 }, []);
+
+  assert.equal(state.schemaVersion, core.SCHEMA_VERSION);
+  assert.deepEqual(state.shortVideoHiding, { youtube: true, instagram: true, facebook: true, linkedin: true });
+});
+
+test("validates short video hiding settings", () => {
+  const state = validState([]);
+  const disabled = core.validateState({ ...state, shortVideoHiding: { ...state.shortVideoHiding, facebook: false } }, []);
+  const { linkedin, ...missingSite } = state.shortVideoHiding;
+  const missing = core.validateState({ ...state, shortVideoHiding: missingSite }, []);
+  const typed = core.validateState({ ...state, shortVideoHiding: { ...state.shortVideoHiding, youtube: "yes" } }, []);
+  const unknown = core.validateState({ ...state, shortVideoHiding: { ...state.shortVideoHiding, tiktok: true } }, []);
+
+  assert.equal(disabled.type, "valid");
+  assert.equal(disabled.state.shortVideoHiding.facebook, false);
+  assert.deepEqual(missing.errors, [{ index: null, message: "Short video hiding setting for linkedin must be a boolean." }]);
+  assert.deepEqual(typed.errors, [{ index: null, message: "Short video hiding setting for youtube must be a boolean." }]);
+  assert.deepEqual(unknown.errors, [{ index: null, message: "Short video hiding settings has unknown key: tiktok." }]);
+});
+
+test("short video pages follow each site's toggle", () => {
+  const state = validState([]);
+  const youtubeOff = { ...state, shortVideoHiding: { ...state.shortVideoHiding, youtube: false } };
+
+  assert.deepEqual(core.shortVideoPage(state, "https://www.youtube.com/shorts/abc_-1"), {
+    type: "singleVideoRedirect",
+    site: "youtube",
+    url: "https://www.youtube.com/watch?v=abc_-1"
+  });
+  assert.deepEqual(core.shortVideoPage(state, "https://m.youtube.com/shorts/abc/"), {
+    type: "singleVideoRedirect",
+    site: "youtube",
+    url: "https://m.youtube.com/watch?v=abc"
+  });
+  assert.deepEqual(core.shortVideoPage(state, "https://www.instagram.com/reel/Cx1_a/"), {
+    type: "singleVideoRedirect",
+    site: "instagram",
+    url: "https://www.instagram.com/p/Cx1_a/"
+  });
+  assert.deepEqual(core.shortVideoPage(state, "https://www.instagram.com/someone/reel/Cx1/").url, "https://www.instagram.com/p/Cx1/");
+  assert.deepEqual(core.shortVideoPage(state, "https://www.instagram.com/reels/Cx1/").url, "https://www.instagram.com/p/Cx1/");
+  assert.deepEqual(core.shortVideoPage(state, "https://www.instagram.com/reels/"), { type: "feed", site: "instagram" });
+  assert.deepEqual(core.shortVideoPage(state, "https://www.facebook.com/reel/123456"), { type: "singleVideo", site: "facebook" });
+  assert.deepEqual(core.shortVideoPage(state, "https://www.linkedin.com/feed/"), { type: "feed", site: "linkedin" });
+  assert.deepEqual(core.shortVideoPage(state, "https://www.youtube.com/shorts"), { type: "feed", site: "youtube" });
+  assert.deepEqual(core.shortVideoPage(state, "https://example.com/shorts/abc"), { type: "none" });
+  assert.deepEqual(core.shortVideoPage(youtubeOff, "https://www.youtube.com/shorts/abc"), { type: "none" });
+});
+
+test("short video sites get content scripts only while hiding is on", () => {
+  const state = validState([{ id: ids[0], kind: "domain", value: "example.com" }]);
+  const allOff = { ...state, shortVideoHiding: { youtube: false, instagram: false, facebook: false, linkedin: false } };
+
+  assert.deepEqual(core.contentScriptOriginsForState(state), [
+    "*://*.example.com/*",
+    "*://*.facebook.com/*",
+    "*://*.instagram.com/*",
+    "*://*.linkedin.com/*",
+    "*://*.youtube.com/*"
+  ]);
+  assert.deepEqual(core.contentScriptOriginsForState(allOff), ["*://*.example.com/*"]);
+});
+
+test("single short videos beat route entries but not the hard schedule or full-domain entries", () => {
+  const noon = new Date(2026, 0, 2, 12);
+  const defaults = { ...core.emptyState(defaultBlockedPages), schedule: { type: "always" } };
+  const youtubeOff = { ...defaults, shortVideoHiding: { ...defaults.shortVideoHiding, youtube: false } };
+  const facebookOff = { ...defaults, shortVideoHiding: { ...defaults.shortVideoHiding, facebook: false } };
+  const hardScheduled = { ...defaults, hardSchedule: { type: "dailyWindow", startMinute: 0, endMinute: 1439 } };
+  const facebookDomain = validState([{ id: ids[0], kind: "domain", value: "facebook.com" }], { type: "always" });
+  const blocked = (state, url) => matchReason(core.findBlockedMatchingEntry(state, url, new Set(), unknownSource, noon));
+
+  assert.deepEqual(core.findBlockedMatchingEntry(defaults, "https://www.youtube.com/shorts/abc", new Set(), unknownSource, noon), {
+    type: "singleVideoRedirect",
+    url: "https://www.youtube.com/watch?v=abc"
+  });
+  assert.deepEqual(core.findBlockedMatchingEntry(defaults, "https://www.instagram.com/reel/Cx1/", new Set(), unknownSource, noon), {
+    type: "singleVideoRedirect",
+    url: "https://www.instagram.com/p/Cx1/"
+  });
+  assert.deepEqual(blocked(defaults, "https://www.facebook.com/reel/123"), { type: "none" });
+  assert.deepEqual(blocked(youtubeOff, "https://www.youtube.com/shorts/abc"), { type: "match", reason: "scheduleDirectMatch" });
+  assert.deepEqual(blocked(facebookOff, "https://www.facebook.com/reel/123"), { type: "match", reason: "scheduleDirectMatch" });
+  assert.deepEqual(blocked(hardScheduled, "https://www.youtube.com/shorts/abc"), { type: "match", reason: "hardScheduleDomain" });
+  assert.deepEqual(blocked(facebookDomain, "https://www.facebook.com/reel/123"), { type: "match", reason: "scheduleDirectMatch" });
 });
 
 test("validates YouTube focus settings", () => {
@@ -526,6 +623,7 @@ test("validates state strictly", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: [domainLimit("example.com", 30)]
   }, []);
 
@@ -541,6 +639,7 @@ test("validates state strictly", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: [domainLimit("example.com", 30)]
   }, []);
 
@@ -556,6 +655,7 @@ test("validates state strictly", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: []
   }, []);
 
@@ -574,6 +674,7 @@ test("validates state strictly", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: [domainLimit("example.com", 30)]
   }, []);
 
@@ -599,6 +700,7 @@ test("validates blocked page HTML and rejects old state", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: []
   }, []);
 
@@ -614,6 +716,7 @@ test("validates blocked page HTML and rejects old state", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: []
   }, []);
 
@@ -639,6 +742,7 @@ test("validates schedules and detects active windows", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: []
   }, []);
 
@@ -654,6 +758,7 @@ test("validates schedules and detects active windows", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: []
   }, []);
 
@@ -669,6 +774,7 @@ test("validates schedules and detects active windows", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: []
   }, []);
 
@@ -684,6 +790,7 @@ test("validates schedules and detects active windows", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: []
   }, []);
 
@@ -710,6 +817,7 @@ test("validates limit reset settings", () => {
     limitReset: { type: "daily", resetHour: 6.5 },
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: []
   }, []);
 
@@ -727,6 +835,7 @@ test("validates settings delay settings", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: { delayMinutes: 0 },
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: []
   }, []);
   const invalidDelay = core.validateState({
@@ -738,6 +847,7 @@ test("validates settings delay settings", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: { delayMinutes: -1 },
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: []
   }, []);
 
@@ -1104,6 +1214,7 @@ test("validates domain limits against associated domains", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: []
   }, []);
 
@@ -1119,6 +1230,7 @@ test("validates domain limits against associated domains", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: [domainLimit("example.com", 30)]
   }, []);
 
@@ -1152,6 +1264,7 @@ test("rejects duplicate entries after normalization", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: [domainLimit("x.com", 30)]
   }, []);
 
@@ -1390,6 +1503,7 @@ function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits, lim
     limitReset,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: core.domainLimitsForEntries(typedEntries, domainLimits === undefined ? [] : domainLimits)
   }, []);
 

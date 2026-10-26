@@ -3,7 +3,8 @@
 
   const STATE_KEY = "blockerState";
   const BLOCKED_PAGE_HTML_KEY = "blockedPageHtml";
-  const SCHEMA_VERSION = 18;
+  const SCHEMA_VERSION = 19;
+  const SHORT_VIDEO_HIDING_SCHEMA_VERSION = 18;
   const YOUTUBE_FOCUS_SCHEMA_VERSION = 17;
   const LEGACY_SCHEMA_VERSION = 6;
   const SUBREDDIT_SCHEMA_VERSION = 7;
@@ -47,6 +48,25 @@
   const DEFAULT_LIMIT_RESET = { type: "rollingWindow", windowHours: 24 };
   const DEFAULT_SETTINGS_DELAY = { delayMinutes: DEFAULT_SETTINGS_DELAY_MINUTES };
   const DEFAULT_YOUTUBE_FOCUS = { finishCurrentVideo: true };
+  const SHORT_VIDEO_SITE_DOMAINS = {
+    youtube: "youtube.com",
+    instagram: "instagram.com",
+    facebook: "facebook.com",
+    linkedin: "linkedin.com"
+  };
+  const DEFAULT_SHORT_VIDEO_HIDING = { youtube: true, instagram: true, facebook: true, linkedin: true };
+  // Single short video URLs per site. A redirect target shows the video
+  // without a swipe feed; "inPlace" pages keep their URL and content.js locks
+  // navigation to the next video.
+  const SINGLE_SHORT_VIDEO_PAGES = {
+    youtube: [{ type: "redirect", pathPattern: /^\/shorts\/([A-Za-z0-9_-]+)\/?$/, target: (id) => `/watch?v=${id}` }],
+    instagram: [
+      { type: "redirect", pathPattern: /^\/(?:[A-Za-z0-9._]+\/)?reel\/([A-Za-z0-9_-]+)\/?$/, target: (id) => `/p/${id}/` },
+      { type: "redirect", pathPattern: /^\/reels\/([A-Za-z0-9_-]+)\/?$/, target: (id) => `/p/${id}/` }
+    ],
+    facebook: [{ type: "inPlace", pathPattern: /^\/reel\/[0-9]+\/?$/ }],
+    linkedin: []
+  };
   const UNSUPPORTED_BLOCKLIST_VERSION_MESSAGE = "Unsupported blocklist version. Reset the blocklist to repair it.";
   const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const URL_ALIASES = [
@@ -88,6 +108,7 @@
       limitReset: DEFAULT_LIMIT_RESET,
       settingsDelay: DEFAULT_SETTINGS_DELAY,
       youtubeFocus: DEFAULT_YOUTUBE_FOCUS,
+      shortVideoHiding: DEFAULT_SHORT_VIDEO_HIDING,
       domainLimits: domainLimitsForEntries(entries, [])
     }, entries);
 
@@ -148,6 +169,10 @@
       errors.push({ index: null, message: "YouTube focus settings must be an object." });
     }
 
+    if (!isPlainObject(rawState.shortVideoHiding)) {
+      errors.push({ index: null, message: "Short video hiding settings must be an object." });
+    }
+
     if (!Array.isArray(rawState.domainLimits)) {
       errors.push({ index: null, message: "Domain limits must be an array." });
     }
@@ -162,6 +187,7 @@
     let limitReset = DEFAULT_LIMIT_RESET;
     let settingsDelay = DEFAULT_SETTINGS_DELAY;
     let youtubeFocus = DEFAULT_YOUTUBE_FOCUS;
+    let shortVideoHiding = DEFAULT_SHORT_VIDEO_HIDING;
 
     try {
       blockedPageHtml = normalizeBlockedPageHtml(rawState.blockedPageHtml);
@@ -207,6 +233,14 @@
       errors.push(...youtubeFocusResult.errors);
     } else {
       youtubeFocus = youtubeFocusResult.youtubeFocus;
+    }
+
+    const shortVideoHidingResult = normalizeShortVideoHiding(rawState.shortVideoHiding);
+
+    if (shortVideoHidingResult.type === "invalid") {
+      errors.push(...shortVideoHidingResult.errors);
+    } else {
+      shortVideoHiding = shortVideoHidingResult.shortVideoHiding;
     }
 
     if (rawState.entries.length > MAX_ENTRIES) {
@@ -282,6 +316,7 @@
         limitReset,
         settingsDelay,
         youtubeFocus,
+        shortVideoHiding,
         domainLimits: limitsResult.domainLimits
       }
     };
@@ -305,6 +340,7 @@
       SETTINGS_DELAY_SCHEMA_VERSION,
       SETTINGS_DELAY_MODE_SCHEMA_VERSION,
       SCHEMA_VERSION,
+      SHORT_VIDEO_HIDING_SCHEMA_VERSION,
       YOUTUBE_FOCUS_SCHEMA_VERSION,
       HARD_SCHEDULE_SCHEMA_VERSION,
       DOMAIN_NAVIGATION_SETTINGS_SCHEMA_VERSION,
@@ -365,23 +401,25 @@
     switch (rawState.schemaVersion) {
       case SCHEMA_VERSION:
         return rawState;
+      case SHORT_VIDEO_HIDING_SCHEMA_VERSION:
+        return { ...rawState, shortVideoHiding: DEFAULT_SHORT_VIDEO_HIDING };
       case YOUTUBE_FOCUS_SCHEMA_VERSION:
-        return { ...rawState, youtubeFocus: DEFAULT_YOUTUBE_FOCUS };
+        return { ...rawState, youtubeFocus: DEFAULT_YOUTUBE_FOCUS, shortVideoHiding: DEFAULT_SHORT_VIDEO_HIDING };
       case HARD_SCHEDULE_SCHEMA_VERSION:
       case DOMAIN_NAVIGATION_SETTINGS_SCHEMA_VERSION:
       case URL_SUBPATH_DEFAULTS_SCHEMA_VERSION:
       case YOUTUBE_SUBSCRIPTIONS_SCHEMA_VERSION:
-        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, youtubeFocus: DEFAULT_YOUTUBE_FOCUS };
+        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, youtubeFocus: DEFAULT_YOUTUBE_FOCUS, shortVideoHiding: DEFAULT_SHORT_VIDEO_HIDING };
       case SETTINGS_DELAY_MODE_SCHEMA_VERSION:
-        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, settingsDelay: migrateSettingsDelay(rawState.settingsDelay), youtubeFocus: DEFAULT_YOUTUBE_FOCUS };
+        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, settingsDelay: migrateSettingsDelay(rawState.settingsDelay), youtubeFocus: DEFAULT_YOUTUBE_FOCUS, shortVideoHiding: DEFAULT_SHORT_VIDEO_HIDING };
       case SETTINGS_DELAY_SCHEMA_VERSION:
-        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, settingsDelay: DEFAULT_SETTINGS_DELAY, youtubeFocus: DEFAULT_YOUTUBE_FOCUS };
+        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, settingsDelay: DEFAULT_SETTINGS_DELAY, youtubeFocus: DEFAULT_YOUTUBE_FOCUS, shortVideoHiding: DEFAULT_SHORT_VIDEO_HIDING };
       case LEGACY_SCHEMA_VERSION:
       case SUBREDDIT_SCHEMA_VERSION:
       case LIMIT_RESET_SCHEMA_VERSION:
       case FACEBOOK_HOME_SCHEMA_VERSION:
       case SOCIAL_DEFAULTS_SCHEMA_VERSION:
-        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, limitReset: DEFAULT_LIMIT_RESET, settingsDelay: DEFAULT_SETTINGS_DELAY, youtubeFocus: DEFAULT_YOUTUBE_FOCUS };
+        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, limitReset: DEFAULT_LIMIT_RESET, settingsDelay: DEFAULT_SETTINGS_DELAY, youtubeFocus: DEFAULT_YOUTUBE_FOCUS, shortVideoHiding: DEFAULT_SHORT_VIDEO_HIDING };
       default:
         throw new Error(`Unknown migratable schema version: ${rawState.schemaVersion}`);
     }
@@ -844,6 +882,32 @@
     };
   }
 
+  function normalizeShortVideoHiding(shortVideoHiding) {
+    const errors = [];
+    const sites = Object.keys(SHORT_VIDEO_SITE_DOMAINS);
+
+    if (!isPlainObject(shortVideoHiding)) {
+      return invalid([{ index: null, message: "Short video hiding settings must be an object." }]);
+    }
+
+    pushUnknownKeyErrors(errors, shortVideoHiding, sites, "Short video hiding settings");
+
+    sites.forEach((site) => {
+      if (typeof shortVideoHiding[site] !== "boolean") {
+        errors.push({ index: null, message: `Short video hiding setting for ${site} must be a boolean.` });
+      }
+    });
+
+    if (errors.length > 0) {
+      return invalid(errors);
+    }
+
+    return {
+      type: "valid",
+      shortVideoHiding: Object.fromEntries(sites.map((site) => [site, shortVideoHiding[site]]))
+    };
+  }
+
   function normalizeDomainLimits(rawDomainLimits, entries) {
     const errors = [];
 
@@ -1007,13 +1071,17 @@
   }
 
   function findMatchingEntry(state, rawUrl) {
+    return findEntryMatch(state.entries, rawUrl);
+  }
+
+  function findEntryMatch(entries, rawUrl) {
     const result = normalizePageUrl(rawUrl);
 
     if (result.type === "invalid") {
       return { type: "none" };
     }
 
-    for (const entry of state.entries) {
+    for (const entry of entries) {
       if (!entryIsEnabled(entry)) {
         continue;
       }
@@ -1026,6 +1094,10 @@
     return { type: "none" };
   }
 
+  // Precedence: the hard schedule blocks first. Single short videos come next:
+  // they redirect to a single-video page, which is then judged on its own, or
+  // stay in place where only full-domain entries and root URL arrival rules
+  // apply, so route entries like youtube.com/shorts never block them.
   function findBlockedMatchingEntry(state, rawUrl, overLimitDomains, navigationSource, date = new Date()) {
     const hardScheduleMatch = findHardScheduleMatchingEntry(state, rawUrl, date);
 
@@ -1033,7 +1105,16 @@
       return hardScheduleMatch;
     }
 
-    const match = findMatchingEntry(state, rawUrl);
+    const shortVideo = shortVideoPage(state, rawUrl);
+
+    if (shortVideo.type === "singleVideoRedirect") {
+      return { type: "singleVideoRedirect", url: shortVideo.url };
+    }
+
+    const entries = shortVideo.type === "singleVideo"
+      ? state.entries.filter((entry) => entry.kind === "domain")
+      : state.entries;
+    const match = findEntryMatch(entries, rawUrl);
 
     switch (match.type) {
       case "none":
@@ -1287,6 +1368,44 @@
     }
 
     return { type: "match", videoId };
+  }
+
+  // Short video hiding is always on for enabled sites, independent of the
+  // blocklist, schedules, and limits.
+  function shortVideoPage(state, rawUrl) {
+    const result = normalizePageUrl(rawUrl);
+
+    if (result.type === "invalid") {
+      return { type: "none" };
+    }
+
+    const site = Object.keys(SHORT_VIDEO_SITE_DOMAINS)
+      .find((candidate) => domainMatchesHost(SHORT_VIDEO_SITE_DOMAINS[candidate], result.url.host));
+
+    if (site === undefined || !state.shortVideoHiding[site]) {
+      return { type: "none" };
+    }
+
+    const url = new URL(rawUrl);
+
+    for (const page of SINGLE_SHORT_VIDEO_PAGES[site]) {
+      const match = url.pathname.match(page.pathPattern);
+
+      if (!match) {
+        continue;
+      }
+
+      switch (page.type) {
+        case "redirect":
+          return { type: "singleVideoRedirect", site, url: `${url.origin}${page.target(match[1])}` };
+        case "inPlace":
+          return { type: "singleVideo", site };
+        default:
+          throw new Error(`Unknown single short video page type: ${page.type}`);
+      }
+    }
+
+    return { type: "feed", site };
   }
 
   function screenTimeDomainForUrl(state, rawUrl) {
@@ -1570,6 +1689,16 @@
 
   function permissionOriginsForState(state) {
     return permissionOriginsForEntries(state.entries.filter(entryIsEnabled));
+  }
+
+  // Short video sites are install-time host permissions, so hiding needs no
+  // extra website access.
+  function contentScriptOriginsForState(state) {
+    const shortVideoOrigins = Object.keys(SHORT_VIDEO_SITE_DOMAINS)
+      .filter((site) => state.shortVideoHiding[site])
+      .map((site) => `*://*.${SHORT_VIDEO_SITE_DOMAINS[site]}/*`);
+
+    return [...new Set([...permissionOriginsForState(state), ...shortVideoOrigins])].sort();
   }
 
   function permissionOriginsForEntries(entries) {
@@ -1876,6 +2005,8 @@
   function stateKeys(schemaVersion) {
     switch (schemaVersion) {
       case SCHEMA_VERSION:
+        return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "hardSchedule", "limitReset", "settingsDelay", "youtubeFocus", "shortVideoHiding", "domainLimits"];
+      case SHORT_VIDEO_HIDING_SCHEMA_VERSION:
         return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "hardSchedule", "limitReset", "settingsDelay", "youtubeFocus", "domainLimits"];
       case YOUTUBE_FOCUS_SCHEMA_VERSION:
         return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "hardSchedule", "limitReset", "settingsDelay", "domainLimits"];
@@ -1904,6 +2035,7 @@
     DEFAULT_HARD_SCHEDULE,
     DEFAULT_LIMIT_RESET,
     DEFAULT_SCHEDULE,
+    DEFAULT_SHORT_VIDEO_HIDING,
     DEFAULT_YOUTUBE_FOCUS,
     BLOCKED_PAGE_HTML_KEY,
     EDITABLE_KIND_LABELS,
@@ -1918,6 +2050,7 @@
     activeDomainLimits,
     activeSettingsActivation,
     associatedDomainForEntry,
+    contentScriptOriginsForState,
     domainForEntry,
     domainForRegexEntryValue,
     domainLimitForDomain,
@@ -1943,6 +2076,7 @@
     screenTimeEntries,
     screenTimeTotalMs,
     settleSettingsActivation,
+    shortVideoPage,
     usageWindow,
     youtubeWatchVideoForUrl,
     validateSettingsActivation,

@@ -74,8 +74,8 @@ test("content script reports YouTube navigation events", async () => {
 test("content script toggles YouTube focus from URL check responses", async () => {
   const page = await runContentScript("https://www.youtube.com/watch?v=abc", {
     urlChangedResponses: [
-      { type: "allowed", youtubeFocus: true },
-      { type: "allowed", youtubeFocus: false }
+      { type: "allowed", youtubeFocus: true, shortVideo: { type: "none" } },
+      { type: "allowed", youtubeFocus: false, shortVideo: { type: "none" } }
     ]
   });
 
@@ -85,6 +85,50 @@ test("content script toggles YouTube focus from URL check responses", async () =
   await page.dispatch("popstate");
 
   assert.equal(page.documentElement.attributes["data-url-blocker-youtube-focus"], undefined);
+});
+
+test("content script marks short video pages and locks single short videos", async () => {
+  const page = await runContentScript("https://www.facebook.com/", {
+    urlChangedResponses: [
+      { type: "allowed", youtubeFocus: false, shortVideo: { type: "feed", site: "facebook" } },
+      { type: "allowed", youtubeFocus: false, shortVideo: { type: "singleVideo", site: "facebook" } },
+      { type: "allowed", youtubeFocus: false, shortVideo: { type: "none" } }
+    ]
+  });
+
+  assert.equal(page.documentElement.attributes["data-url-blocker-short-video"], "facebook");
+  assert.equal(page.documentElement.attributes["data-url-blocker-path"], "/");
+  assert.equal(page.documentElement.attributes["data-url-blocker-single-short-video"], undefined);
+
+  page.location.href = "https://www.facebook.com/reel/123";
+  page.location.pathname = "/reel/123";
+  await page.dispatch("popstate");
+
+  assert.equal(page.documentElement.attributes["data-url-blocker-path"], "/reel/123");
+  assert.equal(page.documentElement.attributes["data-url-blocker-single-short-video"], "true");
+
+  const swallowed = [];
+  const event = (key) => ({
+    key,
+    target: { tagName: "DIV", isContentEditable: false },
+    preventDefault() { swallowed.push(`${key}:prevent`); },
+    stopImmediatePropagation() { swallowed.push(`${key}:stop`); }
+  });
+
+  await page.dispatch("wheel", 0, event("wheel"));
+  await page.dispatch("keydown", 0, event("ArrowDown"));
+  await page.dispatch("keydown", 0, event("a"));
+  await page.dispatch("keydown", 0, { ...event("ArrowUp"), target: { tagName: "TEXTAREA", isContentEditable: false } });
+  assert.deepEqual(swallowed, ["wheel:prevent", "wheel:stop", "ArrowDown:prevent", "ArrowDown:stop"]);
+
+  page.location.href = "https://www.example.com/";
+  page.location.pathname = "/";
+  await page.dispatch("popstate");
+
+  assert.equal(page.documentElement.attributes["data-url-blocker-short-video"], undefined);
+  assert.equal(page.documentElement.attributes["data-url-blocker-path"], undefined);
+  assert.equal(page.documentElement.attributes["data-url-blocker-single-short-video"], undefined);
+  assert.equal(page.hasListener("wheel"), false);
 });
 
 test("content script logs elapsed time before changed URLs", async () => {
@@ -378,7 +422,7 @@ async function runContentScript(url, options = {}) {
             return urlChangedResponses.shift();
           }
 
-          return { type: "allowed" };
+          return { type: "allowed", youtubeFocus: false, shortVideo: { type: "none" } };
         }
       },
       storage: {
@@ -419,7 +463,7 @@ async function runContentScript(url, options = {}) {
     document: { hidden: false, referrer: options.referrer || "", documentElement },
     intervals: [],
     listeners: new Map(),
-    location: { href: url },
+    location: { href: url, pathname: new URL(url).pathname },
     consoleErrors: [],
     messages: [],
     storageSets: [],
@@ -440,6 +484,11 @@ async function runContentScript(url, options = {}) {
     },
     addEventListener(type, listener) {
       context.listeners.set(type, listener);
+    },
+    removeEventListener(type, listener) {
+      if (context.listeners.get(type) === listener) {
+        context.listeners.delete(type);
+      }
     },
     clearInterval() {},
     clearTimeout() {},
@@ -464,6 +513,9 @@ async function runContentScript(url, options = {}) {
     storageData,
     storageSets: context.storageSets,
     documentElement,
+    hasListener(type) {
+      return context.listeners.has(type);
+    },
     async dispatch(type, elapsedMs = 0, event = {}) {
       context.now += elapsedMs;
       context.listeners.get(type)(event);

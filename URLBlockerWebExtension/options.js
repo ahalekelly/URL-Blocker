@@ -28,6 +28,7 @@
     draftLimitReset: core.DEFAULT_LIMIT_RESET,
     draftSettingsDelay: core.DEFAULT_SETTINGS_DELAY,
     draftYoutubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    draftShortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     savedDraft: {
       entries: [],
       blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
@@ -35,7 +36,8 @@
       hardSchedule: core.DEFAULT_HARD_SCHEDULE,
       limitReset: core.DEFAULT_LIMIT_RESET,
       settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-      youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS
+      youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+      shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING
     },
     settingsActivation: { type: "active" },
     rowErrors: new Map(),
@@ -71,6 +73,12 @@
   const dailyResetHourSelect = document.getElementById("dailyResetHourSelect");
   const settingsDelayMinutesInput = document.getElementById("settingsDelayMinutesInput");
   const finishYouTubeVideosInput = document.getElementById("finishYouTubeVideosInput");
+  const shortVideoHidingInputs = {
+    youtube: document.getElementById("hideYouTubeShortsInput"),
+    instagram: document.getElementById("hideInstagramReelsInput"),
+    facebook: document.getElementById("hideFacebookReelsInput"),
+    linkedin: document.getElementById("hideLinkedInVideosInput")
+  };
   const settingsActivationText = document.getElementById("settingsActivationText");
   const errorSummary = document.getElementById("errorSummary");
   const screenTimeRows = document.getElementById("screenTimeRows");
@@ -107,6 +115,7 @@
   dailyResetHourSelect.addEventListener("change", updateDailyResetHour);
   settingsDelayMinutesInput.addEventListener("input", updateSettingsDelayMinutes);
   finishYouTubeVideosInput.addEventListener("change", updateFinishYouTubeVideos);
+  Object.values(shortVideoHidingInputs).forEach((input) => input.addEventListener("change", updateShortVideoHiding));
   resetButton.addEventListener("click", resetBlocklist);
   grantAccessButton.addEventListener("click", requestMissingWebsiteAccess);
   googleSignInButton.addEventListener("click", () => signInWithProvider("google"));
@@ -221,6 +230,9 @@
     dailyResetHourSelect.value = String(dailyResetHour());
     settingsDelayMinutesInput.value = String(state.draftSettingsDelay.delayMinutes);
     finishYouTubeVideosInput.checked = state.draftYoutubeFocus.finishCurrentVideo;
+    Object.entries(shortVideoHidingInputs).forEach(([site, input]) => {
+      input.checked = state.draftShortVideoHiding[site];
+    });
     renderSettingsActivation();
     renderSaveButton();
     grantAccessButton.disabled = state.isRequestingPermissions;
@@ -349,7 +361,8 @@
       hardSchedule: editableHardSchedule(state.draftHardSchedule),
       limitReset: editableLimitReset(state.draftLimitReset),
       settingsDelay: editableSettingsDelay(state.draftSettingsDelay),
-      youtubeFocus: editableYoutubeFocus(state.draftYoutubeFocus)
+      youtubeFocus: editableYoutubeFocus(state.draftYoutubeFocus),
+      shortVideoHiding: { ...state.draftShortVideoHiding }
     };
   }
 
@@ -835,6 +848,12 @@
     renderSaveButton();
   }
 
+  function updateShortVideoHiding() {
+    state.draftShortVideoHiding = Object.fromEntries(Object.entries(shortVideoHidingInputs).map(([site, input]) => [site, input.checked]));
+    clearMessages();
+    renderSaveButton();
+  }
+
   function updateDomainSetting(id, key, checked) {
     const entry = findDraftEntry(id);
     let domain = "";
@@ -1301,6 +1320,7 @@
         limitReset: state.draftLimitReset,
         settingsDelay: state.draftSettingsDelay,
         youtubeFocus: state.draftYoutubeFocus,
+        shortVideoHiding: state.draftShortVideoHiding,
         domainLimits: domainLimitsForDraft()
       }, state.defaultEntries);
     }
@@ -1314,6 +1334,7 @@
       limitReset: state.draftLimitReset,
       settingsDelay: state.draftSettingsDelay,
       youtubeFocus: state.draftYoutubeFocus,
+      shortVideoHiding: state.draftShortVideoHiding,
       domainLimits: domainLimitsForDraft()
     }, state.defaultEntries);
 
@@ -1325,6 +1346,7 @@
       state.draftLimitReset = editableLimitReset(result.state.limitReset);
       state.draftSettingsDelay = editableSettingsDelay(result.state.settingsDelay);
       state.draftYoutubeFocus = editableYoutubeFocus(result.state.youtubeFocus);
+      state.draftShortVideoHiding = result.state.shortVideoHiding;
     }
 
     return result;
@@ -1463,6 +1485,7 @@
     state.draftLimitReset = editableLimitReset(blockerState.limitReset);
     state.draftSettingsDelay = editableSettingsDelay(blockerState.settingsDelay);
     state.draftYoutubeFocus = editableYoutubeFocus(blockerState.youtubeFocus);
+    state.draftShortVideoHiding = blockerState.shortVideoHiding;
     state.settingsActivation = activation || { type: "active" };
     state.savedDraft = draftSnapshot();
   }
