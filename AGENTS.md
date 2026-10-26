@@ -34,7 +34,7 @@
 - `ChromeExtension/`: Chrome-specific manifest and reload helpers. The Chrome build reuses `URLBlockerWebExtension/`.
 - `URLBlockerShared/`: Swift shared state validation and storage.
 - `URLBlockerMac/` and `URLBlockerExtensionMac/`: macOS targets.
-- `URLBlockerAndroid/`: Android app (Kotlin, Gradle). An accessibility service runs `blocker.js` in a headless WebView through `app/src/main/assets/engine.js` and covers apps from `APP_SITE_DOMAINS` in `blocker.js`. The build copies `blocker.js`, `supabase-sync.js`, and `default-blocked-pages.json` into the app's assets.
+- `URLBlockerAndroid/`: Android app (Kotlin, Gradle). An accessibility service runs `blocker.js` in a headless WebView through `app/src/main/assets/engine.js` and covers apps from `APP_SITE_DOMAINS` in `blocker.js`. The build copies `blocker.js`, `supabase-sync.js`, `default-blocked-pages.json`, `blocked.html`, and `blocked.css` into the app's assets; the app's own `assets/blocked.js` fills the block page.
 - `tests/`: Node tests for extension JavaScript behavior.
 - `scripts/build-chrome-extension.mjs`: builds the unpacked Chrome extension in `build/chrome-extension`.
 - `scripts/install-chromium-extension.mjs`: updates or reloads the unpacked Chrome extension in a Chromium-based browser profile.
