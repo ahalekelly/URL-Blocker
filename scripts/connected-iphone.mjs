@@ -54,10 +54,10 @@ if (iphones.length > 1) {
 
 console.log(deviceIdentifier(iphones[0]));
 
+// devicectl also lists simulators, which the install can't target.
 function isIphone(device) {
-  return device.hardwareProperties?.productType?.startsWith("iPhone")
-    || device.hardwareProperties?.deviceType === "iPhone"
-    || device.deviceProperties?.name?.toLowerCase().includes("iphone");
+  return device.hardwareProperties?.reality === "physical"
+    && device.hardwareProperties.productType.startsWith("iPhone");
 }
 
 function deviceIdentifier(device) {
