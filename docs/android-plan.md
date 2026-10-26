@@ -14,9 +14,9 @@ Target device: rooted Pixel 8.
 - Vivaldi runs URL Blocker unpacked (Developer Mode → Load unpacked) and uBlock Origin Lite for ads, including YouTube.
 - Settings are edited in URL Blocker's options page in Vivaldi.
 
-## Element hiding
+## Short-form video hiding
 
-Each `domainLimits` entry has `hiddenSelectors: string[]`. `content.js` hides matching elements on every browser platform. Native apps get whole-app blocking only.
+`content.js` hides short-form video on YouTube, Instagram, Facebook, and LinkedIn on every browser platform, always on, with a toggle per site. Rules are built in and ship with the extension. YouTube Shorts stay in search results, and opening one redirects to `/watch?v=<id>` so it plays alone without a swipe feed. Native apps get whole-app blocking only.
 
 ## Android app
 
@@ -39,7 +39,7 @@ Each `domainLimits` entry has `hiddenSelectors: string[]`. `content.js` hides ma
 
 1. Phone setup.
 2. Verify URL Blocker in Vivaldi Android: route changes, schedules, limits, sync. Fix what breaks.
-3. Element hiding on all browser platforms.
+3. Short-form video hiding on all browser platforms.
 4. Move `overLimitDomains`, `usageWindow`, and settings-delay resolution from `background.js` into `BlockerCore`.
 5. App MVP: accessibility service, app-to-site table, schedules, block page, settings pushed over adb.
 6. App Supabase sign-in and sync, including app screen time.
