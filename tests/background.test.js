@@ -11,7 +11,7 @@ const id = "11111111-1111-4111-8111-111111111111";
 const referrerRecordPrefix = "referrerRecords:";
 const referrerRecordRetentionMs = 30 * 24 * 60 * 60 * 1000;
 const defaultDocumentSource = { type: "document", referrer: knownReferrer("https://other.example/from"), navigationType: "navigate" };
-const sameDocumentSource = { type: "sameDocument" };
+const internalYoutubeSource = { type: "document", referrer: knownReferrer("https://www.youtube.com/"), navigationType: "navigate" };
 
 function knownReferrer(url) {
   return { type: "known", url };
@@ -598,11 +598,8 @@ test("urlChanged rejects malformed document referrers", async () => {
   }
 });
 
-test("urlChanged redirects same-document root URL rechecks after reaching a domain limit", async () => {
-  const api = fakeApi({
-    now: 20 * 60 * 60 * 1000,
-    runtimeScheme: "chrome-extension"
-  });
+test("root URL rechecks after reaching a domain limit block only direct and internal arrivals", async () => {
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
   api.storageData[core.STATE_KEY] = validState([
     { id, kind: "url", value: "example.com" }
   ], inactiveSchedule(), [
@@ -612,13 +609,80 @@ test("urlChanged redirects same-document root URL rechecks after reaching a doma
     "example.com": { 20: 60000 }
   });
   const controller = createBackgroundController(api);
-  const response = await controller.handleMessage(urlChangedMessage("https://example.com/watch?v=1", sameDocumentSource), { tab: { id: 7 } });
+  const external = await controller.handleMessage(urlChangedMessage("https://example.com/watch?v=1"), { tab: { id: 7 } });
+  const internal = await controller.handleMessage(urlChangedMessage("https://example.com/watch?v=2", {
+    type: "document",
+    referrer: knownReferrer("https://example.com/"),
+    navigationType: "navigate"
+  }), { tab: { id: 8 } });
+  const direct = await controller.handleMessage(urlChangedMessage("https://example.com/watch?v=3", {
+    type: "document",
+    referrer: knownReferrer(""),
+    navigationType: "navigate"
+  }), { tab: { id: 9 } });
 
-  assert.equal(response.type, "redirected");
-  assert.deepEqual(api.updatedTabs, [{
-    tabId: 7,
-    url: blockedUrl("https://example.com/watch?v=1", "limitDirectMatch", "chrome-extension")
-  }]);
+  assert.equal(external.type, "allowed");
+  assert.equal(internal.type, "redirected");
+  assert.equal(direct.type, "redirected");
+  assert.deepEqual(api.updatedTabs, [
+    { tabId: 8, url: blockedUrl("https://example.com/watch?v=2", "limitRootSameDomainNavigation") },
+    { tabId: 9, url: blockedUrl("https://example.com/watch?v=3", "limitRootDirectNavigation") }
+  ]);
+});
+
+test("Chromium rechecks judge empty referrers by the committed transition", async () => {
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000, runtimeScheme: "chrome-extension" });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "example.com" }
+  ], inactiveSchedule(), [
+    { domain: "example.com", limitMinutes: 1 }
+  ]);
+  const controller = createBackgroundController(api);
+  const emptyReferrer = { type: "document", referrer: knownReferrer(""), navigationType: "navigate" };
+
+  await controller.redirectCommittedNavigation({ frameId: 0, tabId: 7, url: "https://example.com/typed", transitionType: "typed" });
+  await controller.redirectCommittedNavigation({ frameId: 0, tabId: 8, url: "https://example.com/linked", transitionType: "link" });
+  api.storageData.screenTimeUsage = screenTimeUsage({
+    "example.com": { 20: 60000 }
+  });
+  const typed = await controller.handleMessage(urlChangedMessage("https://example.com/typed#top", emptyReferrer), { tab: { id: 7 } });
+  const linked = await controller.handleMessage(urlChangedMessage("https://example.com/linked", emptyReferrer), { tab: { id: 8 } });
+
+  assert.equal(typed.type, "redirected");
+  assert.equal(linked.type, "allowed");
+  assert.deepEqual(api.updatedTabs, [
+    { tabId: 7, url: blockedUrl("https://example.com/typed#top", "limitRootDirectNavigation", "chrome-extension") }
+  ]);
+});
+
+test("screenTimeElapsed blocks internal arrivals but not external ones when the limit runs out", async () => {
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "example.com" }
+  ], inactiveSchedule(), [
+    { domain: "example.com", limitMinutes: 1 }
+  ]);
+  api.storageData.screenTimeUsage = screenTimeUsage({
+    "example.com": { 20: 50000 }
+  });
+  const controller = createBackgroundController(api);
+
+  await controller.handleMessage({
+    type: "screenTimeElapsed",
+    url: "https://example.com/external",
+    elapsedMs: 10000,
+    source: defaultDocumentSource
+  }, { tab: { id: 7 } });
+  await controller.handleMessage({
+    type: "screenTimeElapsed",
+    url: "https://example.com/internal",
+    elapsedMs: 1000,
+    source: { type: "document", referrer: knownReferrer("https://example.com/"), navigationType: "navigate" }
+  }, { tab: { id: 8 } });
+
+  assert.deepEqual(api.updatedTabs, [
+    { tabId: 8, url: blockedUrl("https://example.com/internal", "limitRootSameDomainNavigation") }
+  ]);
 });
 
 test("urlChanged fails closed for unknown referrers on root URL pages", async () => {
@@ -746,18 +810,21 @@ test("screenTimeElapsed logs time into the current hour bucket", async () => {
   assert.deepEqual(await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://old.reddit.com/r/safari",
-    elapsedMs: 1500
-  }, {}), { type: "logged", domain: "reddit.com", totalMs: 1500, limitMinutes: 30, isOverLimit: false });
+    elapsedMs: 1500,
+    source: defaultDocumentSource
+  }, { tab: { id: 7 } }), { type: "logged", domain: "reddit.com", totalMs: 1500, limitMinutes: 30, isOverLimit: false });
   assert.deepEqual(await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://www.example.com/path",
-    elapsedMs: 2500
-  }, {}), { type: "logged", domain: "example.com", totalMs: 2500, limitMinutes: 30, isOverLimit: false });
+    elapsedMs: 2500,
+    source: defaultDocumentSource
+  }, { tab: { id: 7 } }), { type: "logged", domain: "example.com", totalMs: 2500, limitMinutes: 30, isOverLimit: false });
   assert.deepEqual(await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://ignored.example/",
-    elapsedMs: 1000
-  }, {}), { type: "logged", domain: "ignored.example", totalMs: 1000, limitMinutes: 30, isOverLimit: false });
+    elapsedMs: 1000,
+    source: defaultDocumentSource
+  }, { tab: { id: 7 } }), { type: "logged", domain: "ignored.example", totalMs: 1000, limitMinutes: 30, isOverLimit: false });
 
   assert.deepEqual(await controller.handleMessage({ type: "getScreenTimeLog" }, {}), {
     type: "screenTimeLog",
@@ -796,8 +863,9 @@ test("screenTimeElapsed resets unsupported old screen time usage schemas", async
   assert.deepEqual(await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://www.example.com/path",
-    elapsedMs: 2500
-  }, {}), { type: "logged", domain: "example.com", totalMs: 2500, limitMinutes: 30, isOverLimit: false });
+    elapsedMs: 2500,
+    source: defaultDocumentSource
+  }, { tab: { id: 7 } }), { type: "logged", domain: "example.com", totalMs: 2500, limitMinutes: 30, isOverLimit: false });
   assert.deepEqual(api.storageData.screenTimeUsage, {
     schemaVersion: 2,
     deviceId: "11111111-1111-4111-8111-000000000001",
@@ -819,8 +887,9 @@ test("screenTimeElapsed stores usage through native storage on iOS", async () =>
   assert.deepEqual(await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://www.example.com/path",
-    elapsedMs: 2500
-  }, {}), { type: "logged", domain: "example.com", totalMs: 2500, limitMinutes: 30, isOverLimit: false });
+    elapsedMs: 2500,
+    source: defaultDocumentSource
+  }, { tab: { id: 7 } }), { type: "logged", domain: "example.com", totalMs: 2500, limitMinutes: 30, isOverLimit: false });
   assert.equal(api.storageData.screenTimeUsage, undefined);
   assert.deepEqual(api.nativeData.screenTimeUsage, {
     schemaVersion: 2,
@@ -845,13 +914,15 @@ test("screenTimeElapsed validates elapsed time", async () => {
   await assert.rejects(() => controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://reddit.com",
-    elapsedMs: 0
-  }, {}), /positive integer/);
+    elapsedMs: 0,
+    source: defaultDocumentSource
+  }, { tab: { id: 7 } }), /positive integer/);
   await assert.rejects(() => controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://reddit.com",
-    elapsedMs: 30001
-  }, {}), /no more than 30 seconds/);
+    elapsedMs: 30001,
+    source: defaultDocumentSource
+  }, { tab: { id: 7 } }), /no more than 30 seconds/);
 });
 
 test("getScreenTimeLog sums the last 24 hour buckets without pruning storage", async () => {
@@ -1020,8 +1091,9 @@ test("screenTimeElapsed keeps historical buckets when saving", async () => {
   assert.deepEqual(await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://www.example.com/path",
-    elapsedMs: 6000
-  }, {}), { type: "logged", domain: "example.com", totalMs: 16000, limitMinutes: 30, isOverLimit: false });
+    elapsedMs: 6000,
+    source: defaultDocumentSource
+  }, { tab: { id: 7 } }), { type: "logged", domain: "example.com", totalMs: 16000, limitMinutes: 30, isOverLimit: false });
   assert.deepEqual(api.storageData.screenTimeUsage, {
     schemaVersion: 2,
     deviceId: "11111111-1111-4111-8111-000000000001",
@@ -1069,12 +1141,12 @@ test("urlChanged lets a remembered YouTube video continue after rolling usage ex
     { domain: "youtube.com", limitMinutes: 1 }
   ]);
   const controller = createBackgroundController(api);
-  const remembered = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc"), { tab: { id: 7 } });
+  const remembered = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", internalYoutubeSource), { tab: { id: 7 } });
 
   api.storageData.screenTimeUsage = screenTimeUsage({
     "youtube.com": { 20: 60000 }
   });
-  const focused = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc&t=30", sameDocumentSource), { tab: { id: 7 } });
+  const focused = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc&t=30", internalYoutubeSource), { tab: { id: 7 } });
 
   assert.deepEqual(remembered, { type: "allowed", youtubeFocus: false, shortVideo: { type: "feed", site: "youtube" } });
   assert.deepEqual(focused, { type: "allowed", youtubeFocus: true, shortVideo: { type: "feed", site: "youtube" } });
@@ -1090,16 +1162,16 @@ test("urlChanged blocks other YouTube videos after rolling usage exceeds the lim
   ]);
   const controller = createBackgroundController(api);
 
-  await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc"), { tab: { id: 7 } });
+  await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", internalYoutubeSource), { tab: { id: 7 } });
   api.storageData.screenTimeUsage = screenTimeUsage({
     "youtube.com": { 20: 60000 }
   });
-  const response = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=def", sameDocumentSource), { tab: { id: 7 } });
+  const response = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=def", internalYoutubeSource), { tab: { id: 7 } });
 
   assert.equal(response.type, "redirected");
   assert.deepEqual(api.updatedTabs, [{
     tabId: 7,
-    url: blockedUrl("https://www.youtube.com/watch?v=def", "limitDirectMatch")
+    url: blockedUrl("https://www.youtube.com/watch?v=def", "limitRootSameDomainNavigation")
   }]);
 });
 
@@ -1146,13 +1218,14 @@ test("screenTimeElapsed lets the current YouTube video continue after crossing t
   });
   const controller = createBackgroundController(api);
 
-  await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc"), { tab: { id: 7 } });
+  await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", internalYoutubeSource), { tab: { id: 7 } });
   const response = await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://www.youtube.com/watch?v=abc",
-    elapsedMs: 30000
+    elapsedMs: 30000,
+    source: internalYoutubeSource
   }, { tab: { id: 7 } });
-  const focused = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", sameDocumentSource), { tab: { id: 7 } });
+  const focused = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", internalYoutubeSource), { tab: { id: 7 } });
 
   assert.deepEqual(response, { type: "logged", domain: "youtube.com", totalMs: 60000, limitMinutes: 1, isOverLimit: true });
   assert.deepEqual(focused, { type: "allowed", youtubeFocus: true, shortVideo: { type: "feed", site: "youtube" } });
@@ -1174,13 +1247,12 @@ test("disabled YouTube focus redirects the current video after crossing the limi
   });
   const controller = createBackgroundController(api);
 
-  await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc"), { tab: { id: 7 } });
-  const response = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", sameDocumentSource), { tab: { id: 7 } });
+  const response = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", internalYoutubeSource), { tab: { id: 7 } });
 
   assert.equal(response.type, "redirected");
   assert.deepEqual(api.updatedTabs, [{
     tabId: 7,
-    url: blockedUrl("https://www.youtube.com/watch?v=abc", "limitDirectMatch")
+    url: blockedUrl("https://www.youtube.com/watch?v=abc", "limitRootSameDomainNavigation")
   }]);
 });
 
@@ -1202,7 +1274,7 @@ test("hard schedule redirects remembered YouTube videos", async () => {
     activeState: blockedState,
     pending: { type: "none" }
   };
-  const response = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", sameDocumentSource), { tab: { id: 7 } });
+  const response = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc"), { tab: { id: 7 } });
 
   assert.equal(response.type, "redirected");
   assert.deepEqual(api.updatedTabs, [{
@@ -1225,13 +1297,14 @@ test("screenTimeElapsed redirects current root URL subpages after crossing the l
   const response = await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://x.com/messages",
-    elapsedMs: 30000
+    elapsedMs: 30000,
+    source: { type: "document", referrer: knownReferrer("https://x.com/home"), navigationType: "navigate" }
   }, { tab: { id: 7 } });
 
   assert.deepEqual(response, { type: "logged", domain: "x.com", totalMs: 60000, limitMinutes: 1, isOverLimit: true });
   assert.deepEqual(api.updatedTabs, [{
     tabId: 7,
-    url: blockedUrl("https://x.com/messages", "limitDirectMatch")
+    url: blockedUrl("https://x.com/messages", "limitRootSameDomainNavigation")
   }]);
 });
 
@@ -1249,7 +1322,8 @@ test("screenTimeElapsed redirects matching URLs after crossing the limit", async
   const response = await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://x.com/home",
-    elapsedMs: 30000
+    elapsedMs: 30000,
+    source: defaultDocumentSource
   }, { tab: { id: 7 } });
 
   assert.deepEqual(response, { type: "logged", domain: "x.com", totalMs: 60000, limitMinutes: 1, isOverLimit: true });
@@ -1273,7 +1347,8 @@ test("whole-domain usage counts on non-matching URLs without redirecting them", 
   const response = await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://example.com/messages",
-    elapsedMs: 30000
+    elapsedMs: 30000,
+    source: defaultDocumentSource
   }, { tab: { id: 7 } });
 
   assert.deepEqual(response, { type: "logged", domain: "example.com", totalMs: 60000, limitMinutes: 1, isOverLimit: true });
@@ -1398,8 +1473,9 @@ test("screen time sync waits until dirty data is old enough", async () => {
     await controller.handleMessage({
       type: "screenTimeElapsed",
       url: "https://example.com",
-      elapsedMs: 30000
-    }, {});
+      elapsedMs: 30000,
+      source: defaultDocumentSource
+    }, { tab: { id: 7 } });
     api.nowValue += 59000;
     await controller.handleMessage({ type: "getScreenTimeLog" }, {});
     assert.equal(posts.length, 0);
@@ -1451,14 +1527,16 @@ test("continuous screen time updates do not postpone sync forever", async () => 
     await controller.handleMessage({
       type: "screenTimeElapsed",
       url: "https://example.com",
-      elapsedMs: 30000
-    }, {});
+      elapsedMs: 30000,
+      source: defaultDocumentSource
+    }, { tab: { id: 7 } });
     api.nowValue += 30000;
     await controller.handleMessage({
       type: "screenTimeElapsed",
       url: "https://example.com",
-      elapsedMs: 30000
-    }, {});
+      elapsedMs: 30000,
+      source: defaultDocumentSource
+    }, { tab: { id: 7 } });
     api.nowValue += 30000;
     await controller.handleMessage({ type: "getScreenTimeLog" }, {});
 
@@ -1495,8 +1573,9 @@ test("Supabase failures leave screen time local and dirty", async () => {
     const response = await controller.handleMessage({
       type: "screenTimeElapsed",
       url: "https://example.com",
-      elapsedMs: 30000
-    }, {});
+      elapsedMs: 30000,
+      source: defaultDocumentSource
+    }, { tab: { id: 7 } });
 
     assert.equal(response.type, "logged");
     assert.equal(api.storageData.screenTimeUsage.dirtySinceMs, 72000000);

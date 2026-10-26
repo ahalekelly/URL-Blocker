@@ -23,7 +23,6 @@
   const REFERRER_RECORD_PREFIX = "referrerRecords:";
   const REFERRER_RECORD_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
   const UNKNOWN_NAVIGATION_SOURCE = { type: "unknown" };
-  const SAME_DOCUMENT_NAVIGATION_SOURCE = { type: "sameDocument" };
 
   function createBackgroundController(api) {
     const stateStorage = createStateStorage(api);
@@ -33,6 +32,7 @@
     const settingsSyncStorage = createSettingsSyncStorage(api);
     const sessionStorage = createSupabaseSessionStorage(api);
     const youtubeVideosByTab = new Map();
+    const committedNavigationsByTab = new Map();
     let configPromise;
     let lastSyncError = "";
     let activationTimer = 0;
@@ -73,8 +73,8 @@
           requireKeys(message, ["type", "url", "source"], "urlChanged message");
           return urlChanged(message.url, message.source, sender);
         case "screenTimeElapsed":
-          requireKeys(message, ["type", "url", "elapsedMs"], "screenTimeElapsed message");
-          return logScreenTime(message.url, message.elapsedMs, sender);
+          requireKeys(message, ["type", "url", "elapsedMs", "source"], "screenTimeElapsed message");
+          return logScreenTime(message.url, message.elapsedMs, message.source, sender);
         case "getScreenTimeLog":
           requireKeys(message, ["type"], "getScreenTimeLog message");
           return getScreenTimeLog();
@@ -211,10 +211,31 @@
         throw codedError("MissingSenderTab", "urlChanged message must come from a tab.");
       }
 
-      return redirectBlockedUrl(sender.tab.id, rawUrl, urlChangedNavigationSource(api, rawSource));
+      return redirectBlockedUrl(sender.tab.id, rawUrl, contentNavigationSource(sender.tab.id, rawUrl, rawSource));
     }
 
-    async function logScreenTime(rawUrl, elapsedMs, sender = {}) {
+    // Chromium leaves document.referrer empty for typed URLs and bookmarks as
+    // well as for some links, so the page's committed transition tells them apart.
+    function contentNavigationSource(tabId, rawUrl, rawSource) {
+      const source = documentNavigationSource(api, rawSource);
+      const committed = committedNavigationsByTab.get(tabId);
+
+      if (source.type === "document"
+        && source.referrer.type === "known"
+        && source.referrer.url === ""
+        && committed !== undefined
+        && core.pageChangeKey(committed.url) === core.pageChangeKey(rawUrl)) {
+        return { type: "chromiumCommitted", transitionType: committed.transitionType };
+      }
+
+      return source;
+    }
+
+    async function logScreenTime(rawUrl, elapsedMs, rawSource, sender) {
+      if (!sender.tab || typeof sender.tab.id !== "number") {
+        throw codedError("MissingSenderTab", "screenTimeElapsed message must come from a tab.");
+      }
+
       if (typeof rawUrl !== "string" || rawUrl.trim() === "") {
         throw codedError("ScreenTimeUrlInvalid", "Screen time URL must be a string.");
       }
@@ -227,6 +248,7 @@
         throw codedError("ScreenTimeElapsedInvalid", "Screen time elapsed time must be no more than 30 seconds.");
       }
 
+      const source = contentNavigationSource(sender.tab.id, rawUrl, rawSource);
       const state = await loadState();
       const match = core.screenTimeDomainForUrl(state, rawUrl);
 
@@ -234,7 +256,7 @@
         case "none":
           return { type: "ignored" };
         case "match":
-          return saveScreenTimeAndRedirect(state, match.domain, rawUrl, elapsedMs, sender);
+          return saveScreenTimeAndRedirect(state, match.domain, rawUrl, elapsedMs, source, sender.tab.id);
         default:
           throw new Error(`Unknown screen time match type: ${match.type}`);
       }
@@ -331,6 +353,8 @@
       if (typeof details.transitionType !== "string") {
         throw codedError("CommittedNavigationInvalid", "Committed navigation transition type must be a string.");
       }
+
+      committedNavigationsByTab.set(details.tabId, { url: details.url, transitionType: details.transitionType });
 
       return redirectBlockedUrl(details.tabId, details.url, {
         type: "chromiumCommitted",
@@ -553,7 +577,7 @@
       }
     }
 
-    async function saveScreenTimeAndRedirect(state, domain, rawUrl, elapsedMs, sender) {
+    async function saveScreenTimeAndRedirect(state, domain, rawUrl, elapsedMs, source, tabId) {
       const nowMs = currentTimeMs();
       const hour = currentHour(nowMs);
       const usage = await saveScreenTime(domain, elapsedMs, hour, nowMs);
@@ -563,11 +587,11 @@
 
       await syncScreenTimeIfReady(state, { force: isOverLimit });
 
-      if (isOverLimit && sender.tab && typeof sender.tab.id === "number") {
-        const match = core.findBlockedMatchingEntry(state, rawUrl, new Set([domain]), SAME_DOCUMENT_NAVIGATION_SOURCE);
+      if (isOverLimit) {
+        const match = core.findBlockedMatchingEntry(state, rawUrl, new Set([domain]), source);
 
-        if (!youtubeFocusAllows(state, sender.tab.id, rawUrl, match)) {
-          await redirectFromMatch(sender.tab.id, rawUrl, match);
+        if (!youtubeFocusAllows(state, tabId, rawUrl, match)) {
+          await redirectFromMatch(tabId, rawUrl, match);
         }
       }
 
@@ -1541,23 +1565,11 @@
     return canSendNativeMessage(api) && api.runtime.getURL("options.html").startsWith("safari-web-extension://");
   }
 
-  function urlChangedNavigationSource(api, source) {
-    if (!isPlainObject(source) || typeof source.type !== "string") {
-      throw codedError("NavigationSourceInvalid", "Navigation source must include a type.");
-    }
-
-    switch (source.type) {
-      case "document":
-        return documentNavigationSource(api, source);
-      case "sameDocument":
-        requireKeys(source, ["type"], "Navigation source");
-        return SAME_DOCUMENT_NAVIGATION_SOURCE;
-      default:
-        throw codedError("NavigationSourceInvalid", `Unknown navigation source type: ${source.type}.`);
-    }
-  }
-
   function documentNavigationSource(api, source) {
+    if (!isPlainObject(source) || source.type !== "document") {
+      throw codedError("NavigationSourceInvalid", "Navigation source must be a document source.");
+    }
+
     requireKeys(source, ["type", "referrer", "navigationType"], "Navigation source");
 
     if (typeof source.navigationType !== "string") {

@@ -1151,9 +1151,7 @@
       case "none":
         return { type: "none" };
       case "match":
-        // A page that only matches through root URL expansion on a same-document
-        // recheck blocks when its domain runs out of time, never on the schedule.
-        if (match.reasonType !== "currentPage" && isScheduleActive(state.schedule, date)) {
+        if (isScheduleActive(state.schedule, date)) {
           return blockedMatch(match, "schedule");
         }
 
@@ -1170,7 +1168,6 @@
   function blockedMatch(match, activation) {
     switch (match.reasonType) {
       case "directMatch":
-      case "currentPage":
         return { type: "match", entry: match.entry, reason: blockReason(activation, "scheduleDirectMatch", "limitDirectMatch") };
       case "rootDirectNavigation":
         return { type: "match", entry: match.entry, reason: blockReason(activation, "scheduleRootDirectNavigation", "limitRootDirectNavigation") };
@@ -1251,8 +1248,6 @@
     switch (source.type) {
       case "unknown":
         return { type: "none" };
-      case "sameDocument":
-        return { type: "match", reasonType: "currentPage" };
       case "document":
         if (source.navigationType === "reload") {
           return { type: "none" };
@@ -1315,7 +1310,6 @@
     switch (source.type) {
       case "unknown":
       case "chromiumCommitted":
-      case "sameDocument":
         return false;
       case "document":
       case "safariDocument":
@@ -2066,6 +2060,7 @@
     normalizeDomainEntryValue,
     normalizeBlockedPageHtml,
     normalizePageUrl,
+    pageChangeKey,
     normalizeRegexEntryValue,
     permissionOriginsForState,
     settingsDelayMinutes,

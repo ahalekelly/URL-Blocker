@@ -167,8 +167,8 @@
     <!-- E reload/SPA -->
     <foreignObject x="40" y="904" width="460" height="78">
       <div xmlns="http://www.w3.org/1999/xhtml" class="box decision">
-        <div class="t">Is it a reload or same-page (SPA) change?</div>
-        <div class="d">In-page hash/query changes and reloads never trigger expansion — they keep the page&rsquo;s original arrival</div>
+        <div class="t">Is it a same-page change, or a reload with no remembered arrival?</div>
+        <div class="d">In-page hash/query changes keep the page&rsquo;s arrival; a reload is judged by its remembered arrival and never expands without one</div>
       </div>
     </foreignObject>
 
@@ -253,6 +253,6 @@
     <b>Root-URL expansion</b> (the middle chain) is what blocks a site’s <i>feed</i> — landing on <code>reddit.com</code> — while still letting you open a specific link into it. It only fires for a bare-domain “URL” entry, and only on a qualifying arrival, governed per domain by the <b>block direct visits</b> and <b>block internal links</b> toggles. A direct match to a more specific entry (full path, subpaths, or regex) takes the express lane straight to the activation gate.
   </p>
   <p class="note">
-    <b>Arrival memory.</b> Each page’s arrival referrer is recorded in extension storage for 30 days, so Back/Forward returns and periodic re-checks re-apply the arrival that originally brought you to the page — the browser’s own referrer goes stale on SPAs, where every in-app hop keeps the document’s first referrer. A history return whose arrival can’t be determined (no record, expired record, or unreadable storage) counts as a qualifying arrival, so it blocks rather than slips through.
+    <b>Arrival memory.</b> Each page’s arrival referrer is recorded in extension storage for 30 days, so reloads, Back/Forward returns, and the re-check every 5 seconds re-apply the arrival that originally brought you to the page (the re-check is what blocks a page once its time limit runs out, and only when that arrival qualifies) — the browser’s own referrer goes stale on SPAs, where every in-app hop keeps the document’s first referrer. A history return whose arrival can’t be determined (no record, expired record, or unreadable storage) counts as a qualifying arrival, so it blocks rather than slips through.
   </p>
 </div>

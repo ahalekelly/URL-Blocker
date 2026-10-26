@@ -6,7 +6,6 @@ const defaultBlockedPages = require("../URLBlockerWebExtension/default-blocked-p
 const manifest = require("../URLBlockerWebExtension/manifest.json");
 
 const unknownSource = { type: "unknown" };
-const sameDocumentSource = { type: "sameDocument" };
 const safariEmptySource = { type: "safariDocument", referrer: knownReferrer(""), navigationType: "navigate" };
 const safariReloadSource = { type: "safariDocument", referrer: knownReferrer(""), navigationType: "reload" };
 const sameDomainSource = { type: "document", referrer: knownReferrer("https://example.com/start"), navigationType: "navigate" };
@@ -984,21 +983,6 @@ test("explains root URL expansion from same-domain navigation", () => {
   });
 });
 
-test("explains root URL expansion from same-document rechecks", () => {
-  const state = validState(
-    [{ id: ids[0], kind: "url", value: "example.com" }],
-    { type: "always" }
-  );
-
-  assert.deepEqual(core.findBlockedMatchingEntry(state, "https://www.example.com/path", new Set(), sameDocumentSource), {
-    type: "none"
-  });
-  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://www.example.com", new Set(), sameDocumentSource)), {
-    type: "match",
-    reason: "scheduleDirectMatch"
-  });
-});
-
 test("explains root URL expansion after reaching a domain limit", () => {
   const state = validState(
     [{ id: ids[0], kind: "url", value: "example.com" }],
@@ -1013,9 +997,8 @@ test("explains root URL expansion after reaching a domain limit", () => {
     type: "match",
     reason: "limitRootSameDomainNavigation"
   });
-  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://www.example.com/path", new Set(["example.com"]), sameDocumentSource)), {
-    type: "match",
-    reason: "limitDirectMatch"
+  assert.deepEqual(core.findBlockedMatchingEntry(state, "https://www.example.com/path", new Set(["example.com"]), unrelatedSource), {
+    type: "none"
   });
 });
 

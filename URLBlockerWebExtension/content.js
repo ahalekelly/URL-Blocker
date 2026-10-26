@@ -18,7 +18,6 @@
   let arrival = { type: "unknown" };
   let arrivalNavigationType = currentNavigationType();
   const initPromise = initializeArrival();
-  let queuedCheck = 0;
   let screenTimeUrl = "";
   let screenTimeStartedAt = 0;
   let pollId = 0;
@@ -34,16 +33,18 @@
   function watchPage() {
     root.addEventListener("pageshow", pageShown);
     root.addEventListener("pagehide", stopScreenTime);
-    root.addEventListener("popstate", checkCurrentUrl);
-    root.addEventListener("hashchange", checkCurrentUrl);
-    root.addEventListener("yt-navigate-finish", checkCurrentUrl);
-    root.addEventListener("yt-page-data-updated", checkCurrentUrl);
     root.addEventListener("visibilitychange", syncVisibility);
-    root.addEventListener("focus", checkCurrentUrl);
-    root.addEventListener("click", queueCheck, true);
-    root.addEventListener("submit", queueCheck, true);
-    root.addEventListener("keydown", queueKeyboardCheck, true);
 
+    // The Navigation API reports every same-document URL change, including
+    // pushState and replaceState calls from the page's own scripts.
+    if (root.navigation) {
+      root.navigation.addEventListener("currententrychange", checkCurrentUrl);
+    } else {
+      console.error("URL Blocker needs the Navigation API to check in-page URL changes immediately. They are checked every 5 seconds instead.");
+    }
+
+    // The poll logs screen time and rechecks the page so it blocks soon after
+    // a time limit runs out.
     pollId = root.setInterval(() => {
       if (document.hidden) {
         return;
@@ -65,10 +66,6 @@
       root.clearInterval(pollId);
       pollId = 0;
     }
-    if (queuedCheck !== 0) {
-      root.clearTimeout(queuedCheck);
-      queuedCheck = 0;
-    }
   }
 
   function syncVisibility() {
@@ -77,23 +74,6 @@
     } else {
       checkCurrentUrl();
     }
-  }
-
-  function queueKeyboardCheck(event) {
-    if (event.key === "Enter" || event.key === " ") {
-      queueCheck();
-    }
-  }
-
-  function queueCheck() {
-    if (queuedCheck !== 0) {
-      root.clearTimeout(queuedCheck);
-    }
-
-    queuedCheck = root.setTimeout(() => {
-      queuedCheck = 0;
-      checkCurrentUrl();
-    }, 75);
   }
 
   function checkCurrentUrl() {
@@ -106,7 +86,7 @@
 
     updateScreenTimeUrl(now);
     sendScreenTime(now);
-    sendCurrentUrl("sameDocument");
+    sendCurrentUrl("document");
   }
 
   function updateScreenTimeUrl(now) {
@@ -154,10 +134,14 @@
     }
 
     const url = screenTimeUrl;
-    sendMessage(
-      { type: "screenTimeElapsed", url, elapsedMs },
+
+    // The arrival lets the worker block the page right away if this time runs
+    // out its limit. It is read after initialization and before a pending URL
+    // change replaces it.
+    initPromise.then(() => sendMessage(
+      { type: "screenTimeElapsed", url, elapsedMs, source: documentNavigationSource() },
       (error) => console.error(`URL Blocker could not log screen time. ${errorLogText(error)}`),
-    );
+    ));
   }
 
   async function sendCurrentUrl(sourceMode) {
@@ -206,8 +190,6 @@
         return { type: "none" };
       case "document":
         return documentNavigationSource();
-      case "sameDocument":
-        return { type: "sameDocument" };
       default:
         throw new Error(`Unknown URL check source: ${sourceMode}`);
     }
@@ -229,7 +211,16 @@
         recordReferrer(currentPageUrl, arrival.url);
         return;
       case "reload":
-        arrival = await storedArrivalOrDocumentReferrer(currentPageUrl);
+        // A stored record is the page's real arrival, so the reload is judged
+        // like that arrival. Without one the reload never expands root URLs.
+        arrival = await storedArrivalOrUnknown(currentPageUrl);
+
+        if (arrival.type === "known") {
+          arrivalNavigationType = "navigate";
+        } else {
+          arrival = { type: "known", url: documentReferrer() };
+        }
+
         return;
       case "back_forward":
         arrival = await storedArrivalOrUnknown(currentPageUrl);
@@ -239,22 +230,6 @@
         // reporting, so an unrecognized navigation type fails closed instead.
         arrival = { type: "unknown" };
         return;
-    }
-  }
-
-  async function storedArrivalOrDocumentReferrer(rawUrl) {
-    try {
-      const record = await newestReferrerRecord(rawUrl);
-
-      if (record === null) {
-        return { type: "known", url: documentReferrer() };
-      }
-
-      return { type: "known", url: record.referrer };
-    } catch (error) {
-      console.error(`URL Blocker could not read referrer records. ${errorLogText(error)}`);
-
-      return { type: "unknown" };
     }
   }
 
