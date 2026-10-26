@@ -655,6 +655,52 @@ test("Chromium rechecks judge empty referrers by the committed transition", asyn
   ]);
 });
 
+test("Chromium reloads keep the committed transition until the tab closes", async () => {
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000, runtimeScheme: "chrome-extension" });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "example.com" }
+  ], inactiveSchedule(), [
+    { domain: "example.com", limitMinutes: 1 }
+  ]);
+  const controller = createBackgroundController(api);
+  const emptyReferrer = { type: "document", referrer: knownReferrer(""), navigationType: "navigate" };
+
+  await controller.redirectCommittedNavigation({ frameId: 0, tabId: 7, url: "https://example.com/typed", transitionType: "typed" });
+  await controller.redirectCommittedNavigation({ frameId: 0, tabId: 7, url: "https://example.com/typed", transitionType: "reload" });
+  api.storageData.screenTimeUsage = screenTimeUsage({
+    "example.com": { 20: 60000 }
+  });
+  const reloaded = await controller.handleMessage(urlChangedMessage("https://example.com/typed", emptyReferrer), { tab: { id: 7 } });
+
+  controller.forgetTab(7);
+  const forgotten = await controller.handleMessage(urlChangedMessage("https://example.com/typed", emptyReferrer), { tab: { id: 7 } });
+
+  assert.equal(reloaded.type, "redirected");
+  assert.equal(forgotten.type, "allowed");
+});
+
+test("urlChanged blocks a Short instead of redirecting when the watch page would be blocked", async () => {
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "youtube.com" }
+  ], inactiveSchedule(), [
+    { domain: "youtube.com", limitMinutes: 1 }
+  ]);
+  api.storageData.screenTimeUsage = screenTimeUsage({
+    "youtube.com": { 20: 60000 }
+  });
+  const controller = createBackgroundController(api);
+  const blocked = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/shorts/abc", internalYoutubeSource), { tab: { id: 7 } });
+  const redirected = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/shorts/def"), { tab: { id: 8 } });
+
+  assert.equal(blocked.type, "redirected");
+  assert.equal(redirected.type, "redirected");
+  assert.deepEqual(api.updatedTabs, [
+    { tabId: 7, url: blockedUrl("https://www.youtube.com/shorts/abc", "limitRootSameDomainNavigation") },
+    { tabId: 8, url: "https://www.youtube.com/watch?v=def" }
+  ]);
+});
+
 test("screenTimeElapsed blocks internal arrivals but not external ones when the limit runs out", async () => {
   const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
   api.storageData[core.STATE_KEY] = validState([

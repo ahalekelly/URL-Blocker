@@ -315,15 +315,14 @@
       const nowMs = currentTimeMs();
       const usage = await loadScreenTimeUsage();
       const match = core.findBlockedMatchingEntry(state, rawUrl, core.overLimitDomains(state, usage, nowMs), navigationSource);
-      const shortVideo = core.shortVideoPage(state, rawUrl);
 
       if (youtubeFocusAllows(state, tabId, rawUrl, match)) {
-        return { type: "allowed", youtubeFocus: true, shortVideo };
+        return { type: "allowed", youtubeFocus: true, shortVideo: match.shortVideo };
       }
 
       if (match.type === "none") {
         rememberAllowedYoutubeVideo(tabId, rawUrl);
-        return { type: "allowed", youtubeFocus: false, shortVideo };
+        return { type: "allowed", youtubeFocus: false, shortVideo: match.shortVideo };
       }
 
       return redirectFromMatch(tabId, rawUrl, match);
@@ -354,7 +353,15 @@
         throw codedError("CommittedNavigationInvalid", "Committed navigation transition type must be a string.");
       }
 
-      committedNavigationsByTab.set(details.tabId, { url: details.url, transitionType: details.transitionType });
+      const previous = committedNavigationsByTab.get(details.tabId);
+
+      // A reload keeps the page's original transition, the way content.js
+      // keeps a reloaded page's remembered arrival.
+      if (details.transitionType !== "reload"
+        || previous === undefined
+        || core.pageChangeKey(previous.url) !== core.pageChangeKey(details.url)) {
+        committedNavigationsByTab.set(details.tabId, { url: details.url, transitionType: details.transitionType });
+      }
 
       return redirectBlockedUrl(details.tabId, details.url, {
         type: "chromiumCommitted",
@@ -1196,11 +1203,17 @@
         && record.recordedAt >= expiresBefore);
     }
 
+    function forgetTab(tabId) {
+      youtubeVideosByTab.delete(tabId);
+      committedNavigationsByTab.delete(tabId);
+    }
+
     sweepReferrerRecords().catch((error) => {
       console.error(`URL Blocker could not sweep referrer records. ${errorLogText(error)}`);
     });
 
     return {
+      forgetTab,
       getLocalScreenTimeLog,
       getBlockedPageHtml,
       getLocalState,
@@ -1661,6 +1674,10 @@
         controller.redirectBlockedUrl(tabId, changeInfo.url, UNKNOWN_NAVIGATION_SOURCE)
           .catch((error) => console.error(`URL Blocker could not redirect updated tab. ${errorLogText(error)}`));
       });
+    }
+
+    if (api.tabs.onRemoved) {
+      api.tabs.onRemoved.addListener((tabId) => controller.forgetTab(tabId));
     }
 
     if (api.webNavigation && api.webNavigation.onCommitted) {

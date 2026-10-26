@@ -1095,20 +1095,30 @@
   }
 
   // Precedence: the hard schedule blocks first. Single short videos come next:
-  // they redirect to a single-video page, which is then judged on its own, or
+  // they redirect to a single-video page unless that page would be blocked, or
   // stay in place where only full-domain entries and root URL arrival rules
   // apply, so route entries like youtube.com/shorts never block them.
+  //
+  // Every result carries the page's short video handling for content.js.
   function findBlockedMatchingEntry(state, rawUrl, overLimitDomains, navigationSource, date = new Date()) {
+    const shortVideo = shortVideoPage(state, rawUrl);
+
+    return { ...blockedMatchForPage(state, rawUrl, shortVideo, overLimitDomains, navigationSource, date), shortVideo };
+  }
+
+  function blockedMatchForPage(state, rawUrl, shortVideo, overLimitDomains, navigationSource, date) {
     const hardScheduleMatch = findHardScheduleMatchingEntry(state, rawUrl, date);
 
     if (hardScheduleMatch.type === "match") {
       return hardScheduleMatch;
     }
 
-    const shortVideo = shortVideoPage(state, rawUrl);
-
+    // The redirect starts a new document that loses this navigation's
+    // arrival, so the target is judged with the current arrival first.
     if (shortVideo.type === "singleVideoRedirect") {
-      return { type: "singleVideoRedirect", url: shortVideo.url };
+      const targetMatch = blockedMatchForPage(state, shortVideo.url, shortVideoPage(state, shortVideo.url), overLimitDomains, navigationSource, date);
+
+      return targetMatch.type === "match" ? targetMatch : { type: "singleVideoRedirect", url: shortVideo.url };
     }
 
     const entries = shortVideo.type === "singleVideo"

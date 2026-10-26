@@ -176,7 +176,7 @@
         lastSentUrl = "";
         console.error(`URL Blocker could not check the current URL. ${errorLogText(error)}`);
       },
-      applyUrlChangedResponse,
+      (response) => applyUrlChangedResponse(response, currentUrl),
     );
   }
 
@@ -319,15 +319,21 @@
     return rawUrl.split(/[&#]/, 1)[0];
   }
 
-  function applyUrlChangedResponse(response) {
+  function applyUrlChangedResponse(response, checkedUrl) {
     if (!isPlainObject(response) || typeof response.type !== "string") {
       throw new Error("URL check response must include a type.");
     }
 
     switch (response.type) {
       case "allowed":
+        // A newer check covers the current URL, so a response for an earlier
+        // URL would tag the page with stale settings.
+        if (checkedUrl !== location.href) {
+          return;
+        }
+
         setYoutubeFocus(response.youtubeFocus === true);
-        setShortVideo(response.shortVideo);
+        setShortVideo(response.shortVideo, new URL(checkedUrl).pathname);
         return;
       case "redirected":
         return;
@@ -352,7 +358,7 @@
 
   // content.css hides short videos with rules keyed on these attributes; the
   // path lets a rule target one page type, like a site's home feed.
-  function setShortVideo(shortVideo) {
+  function setShortVideo(shortVideo, path) {
     if (!isPlainObject(shortVideo) || typeof shortVideo.type !== "string") {
       throw new Error("URL check response must include short video handling.");
     }
@@ -368,7 +374,7 @@
       case "feed":
       case "singleVideo":
         html.setAttribute(SHORT_VIDEO_SITE_ATTRIBUTE, shortVideo.site);
-        html.setAttribute(PATH_ATTRIBUTE, location.pathname);
+        html.setAttribute(PATH_ATTRIBUTE, path);
         setSingleVideoLock(shortVideo.type === "singleVideo");
         return;
       default:

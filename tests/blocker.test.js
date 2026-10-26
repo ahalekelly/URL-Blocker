@@ -524,17 +524,39 @@ test("single short videos beat route entries but not the hard schedule or full-d
 
   assert.deepEqual(core.findBlockedMatchingEntry(defaults, "https://www.youtube.com/shorts/abc", new Set(), unknownSource, noon), {
     type: "singleVideoRedirect",
-    url: "https://www.youtube.com/watch?v=abc"
+    url: "https://www.youtube.com/watch?v=abc",
+    shortVideo: { type: "singleVideoRedirect", site: "youtube", url: "https://www.youtube.com/watch?v=abc" }
   });
   assert.deepEqual(core.findBlockedMatchingEntry(defaults, "https://www.instagram.com/reel/Cx1/", new Set(), unknownSource, noon), {
     type: "singleVideoRedirect",
-    url: "https://www.instagram.com/p/Cx1/"
+    url: "https://www.instagram.com/p/Cx1/",
+    shortVideo: { type: "singleVideoRedirect", site: "instagram", url: "https://www.instagram.com/p/Cx1/" }
   });
   assert.deepEqual(blocked(defaults, "https://www.facebook.com/reel/123"), { type: "none" });
   assert.deepEqual(blocked(youtubeOff, "https://www.youtube.com/shorts/abc"), { type: "match", reason: "scheduleDirectMatch" });
   assert.deepEqual(blocked(facebookOff, "https://www.facebook.com/reel/123"), { type: "match", reason: "scheduleDirectMatch" });
   assert.deepEqual(blocked(hardScheduled, "https://www.youtube.com/shorts/abc"), { type: "match", reason: "hardScheduleDomain" });
   assert.deepEqual(blocked(facebookDomain, "https://www.facebook.com/reel/123"), { type: "match", reason: "scheduleDirectMatch" });
+});
+
+test("single short video redirects are judged with the current arrival first", () => {
+  const noon = new Date(2026, 0, 2, 12);
+  const state = { ...core.emptyState(defaultBlockedPages), schedule: { type: "dailyWindow", startMinute: 0, endMinute: 60 } };
+  const overLimit = new Set(["youtube.com", "instagram.com"]);
+  const fromSearch = { type: "document", referrer: knownReferrer("https://www.youtube.com/results?search_query=x"), navigationType: "navigate" };
+  const fromInstagram = { type: "safariDocument", referrer: knownReferrer("https://www.instagram.com/"), navigationType: "navigate" };
+  const decide = (url, source) => core.findBlockedMatchingEntry(state, url, overLimit, source, noon);
+
+  assert.deepEqual(matchReason(decide("https://www.youtube.com/shorts/abc", fromSearch)), {
+    type: "match",
+    reason: "limitRootSameDomainNavigation"
+  });
+  assert.deepEqual(matchReason(decide("https://www.instagram.com/reel/Cx1/", fromInstagram)), {
+    type: "match",
+    reason: "limitRootSameDomainNavigation"
+  });
+  assert.equal(decide("https://www.youtube.com/shorts/abc", unrelatedSource).type, "singleVideoRedirect");
+  assert.equal(decide("https://www.instagram.com/reel/Cx1/", unrelatedSource).type, "singleVideoRedirect");
 });
 
 test("validates YouTube focus settings", () => {
@@ -997,9 +1019,7 @@ test("explains root URL expansion after reaching a domain limit", () => {
     type: "match",
     reason: "limitRootSameDomainNavigation"
   });
-  assert.deepEqual(core.findBlockedMatchingEntry(state, "https://www.example.com/path", new Set(["example.com"]), unrelatedSource), {
-    type: "none"
-  });
+  assert.equal(core.findBlockedMatchingEntry(state, "https://www.example.com/path", new Set(["example.com"]), unrelatedSource).type, "none");
 });
 
 test("uses domain settings for root URL expansion", () => {

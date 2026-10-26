@@ -88,7 +88,6 @@ test("content script marks short video pages and locks single short videos", asy
   assert.equal(page.documentElement.attributes["data-url-blocker-single-short-video"], undefined);
 
   page.location.href = "https://www.facebook.com/reel/123";
-  page.location.pathname = "/reel/123";
   await page.dispatch("currententrychange");
 
   assert.equal(page.documentElement.attributes["data-url-blocker-path"], "/reel/123");
@@ -109,13 +108,33 @@ test("content script marks short video pages and locks single short videos", asy
   assert.deepEqual(swallowed, ["wheel:prevent", "wheel:stop", "ArrowDown:prevent", "ArrowDown:stop"]);
 
   page.location.href = "https://www.example.com/";
-  page.location.pathname = "/";
   await page.dispatch("currententrychange");
 
   assert.equal(page.documentElement.attributes["data-url-blocker-short-video"], undefined);
   assert.equal(page.documentElement.attributes["data-url-blocker-path"], undefined);
   assert.equal(page.documentElement.attributes["data-url-blocker-single-short-video"], undefined);
   assert.equal(page.hasListener("wheel"), false);
+});
+
+test("content script ignores URL check responses for an earlier URL", async () => {
+  let respond;
+  const page = await runContentScript("https://www.instagram.com/", {
+    urlChangedResponses: [
+      new Promise((resolve) => { respond = resolve; }),
+      { type: "allowed", youtubeFocus: false, shortVideo: { type: "feed", site: "instagram" } }
+    ]
+  });
+
+  page.location.href = "https://www.instagram.com/explore/";
+  respond({ type: "allowed", youtubeFocus: false, shortVideo: { type: "feed", site: "instagram" } });
+  await page.flush();
+
+  assert.equal(page.documentElement.attributes["data-url-blocker-short-video"], undefined);
+
+  await page.dispatch("currententrychange");
+
+  assert.equal(page.documentElement.attributes["data-url-blocker-short-video"], "instagram");
+  assert.equal(page.documentElement.attributes["data-url-blocker-path"], "/explore/");
 });
 
 test("content script logs elapsed time before changed URLs", async () => {
@@ -466,7 +485,8 @@ async function runContentScript(url, options = {}) {
     document: { hidden: false, referrer: options.referrer || "", documentElement },
     intervals: [],
     listeners: new Map(),
-    location: { href: url, pathname: new URL(url).pathname },
+    URL,
+    location: { href: url },
     navigation: options.navigationApi === false ? undefined : {
       addEventListener(type, listener) {
         context.listeners.set(type, listener);
