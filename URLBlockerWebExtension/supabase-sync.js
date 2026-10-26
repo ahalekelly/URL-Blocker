@@ -397,6 +397,16 @@
     return payload.sub;
   }
 
+  function sessionEmail(session) {
+    const payload = jwtPayload(session.accessToken);
+
+    if (typeof payload.email !== "string" || payload.email === "") {
+      throw new Error("Supabase access token is missing an email.");
+    }
+
+    return payload.email;
+  }
+
   function sessionNeedsRefresh(session, nowMs) {
     return session.expiresAtMs - nowMs <= CLOCK_SKEW_MS;
   }
@@ -524,6 +534,25 @@
       authorization: `Bearer ${session.accessToken}`,
       "content-type": "application/json"
     };
+  }
+
+  function supabaseErrorMessage(status, body) {
+    if (body === "") {
+      return `Supabase request failed: ${status}`;
+    }
+
+    try {
+      const json = JSON.parse(body);
+      const detail = [json.message, json.msg, json.details, json.hint, json.code].filter((value) => typeof value === "string" && value !== "");
+
+      if (detail.length > 0) {
+        return `Supabase request failed: ${status}. ${detail.join(" ")}`;
+      }
+    } catch {
+      return `Supabase request failed: ${status}. ${body}`;
+    }
+
+    return `Supabase request failed: ${status}. ${body}`;
   }
 
   function normalizeRemoteScreenTimeRows(rows, core) {
@@ -679,9 +708,11 @@
     saveRemoteSettings,
     screenTimeSyncDelayMs,
     sessionFromOAuthRedirect,
+    sessionEmail,
     sessionNeedsRefresh,
     sessionUserId,
-    shouldSyncScreenTime
+    shouldSyncScreenTime,
+    supabaseErrorMessage
   };
 
   if (typeof module !== "undefined") {
