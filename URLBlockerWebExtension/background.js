@@ -14,13 +14,11 @@
   const CONTENT_SCRIPT_ID = "url-blocker-content";
   const CONTENT_SCRIPT_JS = ["content.js"];
   const CONTENT_SCRIPT_CSS = ["content.css"];
-  const MINUTE_MS = 60 * 1000;
   const HOUR_MS = 60 * 60 * 1000;
   const MAX_SCREEN_TIME_ELAPSED_MS = 30 * 1000;
   const SCREEN_TIME_USAGE_KEY = "screenTimeUsage";
   const SETTINGS_SYNC_KEY = "settingsSync";
   const SETTINGS_ACTIVATION_KEY = "settingsActivation";
-  const SETTINGS_ACTIVATION_SCHEMA_VERSION = 1;
   const SUPABASE_SESSION_KEY = "supabaseSession";
   const REFERRER_RECORD_PREFIX = "referrerRecords:";
   const REFERRER_RECORD_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -249,7 +247,7 @@
 
       return {
         type: "screenTimeLog",
-        entries: screenTimeEntries(state, await loadScreenTimeUsage(), nowMs)
+        entries: core.screenTimeEntries(state, await loadScreenTimeUsage(), nowMs)
       };
     }
 
@@ -258,7 +256,7 @@
 
       return {
         type: "screenTimeLog",
-        entries: screenTimeEntries(state, await loadScreenTimeUsage(), currentTimeMs())
+        entries: core.screenTimeEntries(state, await loadScreenTimeUsage(), currentTimeMs())
       };
     }
 
@@ -294,7 +292,7 @@
       const state = await loadState();
       const nowMs = currentTimeMs();
       const usage = await loadScreenTimeUsage();
-      const match = core.findBlockedMatchingEntry(state, rawUrl, overLimitDomains(state, usage, nowMs), navigationSource);
+      const match = core.findBlockedMatchingEntry(state, rawUrl, core.overLimitDomains(state, usage, nowMs), navigationSource);
 
       if (youtubeFocusAllows(state, tabId, rawUrl, match)) {
         return { type: "allowed", youtubeFocus: true };
@@ -343,7 +341,7 @@
       const tabs = await api.tabs.query({});
       const nowMs = currentTimeMs();
       const usage = await loadScreenTimeUsage();
-      const limitedDomains = overLimitDomains(state, usage, nowMs);
+      const limitedDomains = core.overLimitDomains(state, usage, nowMs);
 
       await Promise.all(tabs.map((tab) => {
         if (typeof tab.id !== "number" || typeof tab.url !== "string") {
@@ -438,20 +436,16 @@
     }
 
     async function loadSettledSettingsActivation() {
-      const activation = await loadSettingsActivation();
+      const result = core.settleSettingsActivation(await loadSettingsActivation(), currentTimeMs());
 
-      switch (activation.pending.type) {
-        case "none":
-          return activation;
-        case "pending":
-          if (activation.pending.effectiveAtMs > currentTimeMs()) {
-            scheduleSettingsActivation(activation);
-            return activation;
-          }
-
-          return activateSettings(activation.pending.state);
+      switch (result.type) {
+        case "unchanged":
+          scheduleSettingsActivation(result.activation);
+          return result.activation;
+        case "activated":
+          return activateSettings(result.activation);
         default:
-          throw new Error(`Unknown settings activation type: ${activation.pending.type}`);
+          throw new Error(`Unknown settings activation result: ${result.type}`);
       }
     }
 
@@ -460,7 +454,7 @@
       const savedState = await loadSavedState();
 
       if (rawActivation === undefined) {
-        const activation = activeSettingsActivation(savedState);
+        const activation = core.activeSettingsActivation(savedState);
 
         await settingsActivationStorage.saveActivation(activation);
         await blockedPageHtmlStorage.saveHtml(savedState.blockedPageHtml);
@@ -468,26 +462,19 @@
         return activation;
       }
 
-      const activation = await parseSettingsActivation(rawActivation);
+      const result = core.validateSettingsActivation(rawActivation, await loadDefaultEntries());
 
-      scheduleSettingsActivation(activation);
-      return activation;
+      if (result.type === "invalid") {
+        throw codedError("SettingsActivationInvalid", result.errors.map((error) => error.message).join("\n"));
+      }
+
+      scheduleSettingsActivation(result.activation);
+      return result.activation;
     }
 
     async function saveSettingsActivation(state, currentActivation) {
       const activation = currentActivation || await loadSettledSettingsActivation();
-      const delayMinutes = core.settingsDelayMinutes(activation.activeState.settingsDelay);
-
-      const pending = {
-        type: "pending",
-        state,
-        effectiveAtMs: currentTimeMs() + delayMinutes * MINUTE_MS
-      };
-      const nextActivation = {
-        schemaVersion: SETTINGS_ACTIVATION_SCHEMA_VERSION,
-        activeState: activation.activeState,
-        pending
-      };
+      const nextActivation = core.pendingSettingsActivation(activation, state, currentTimeMs());
 
       await settingsActivationStorage.saveActivation(nextActivation);
       await blockedPageHtmlStorage.saveHtml(activation.activeState.blockedPageHtml);
@@ -496,8 +483,8 @@
       return loadSettledSettingsActivation();
     }
 
-    async function activateSettings(state) {
-      const activation = activeSettingsActivation(state);
+    async function activateSettings(activation) {
+      const state = activation.activeState;
 
       await settingsActivationStorage.saveActivation(activation);
       await blockedPageHtmlStorage.saveHtml(state.blockedPageHtml);
@@ -506,72 +493,6 @@
       await removeUnusedWebsiteAccessForStates([state]);
 
       return activation;
-    }
-
-    function activeSettingsActivation(state) {
-      return {
-        schemaVersion: SETTINGS_ACTIVATION_SCHEMA_VERSION,
-        activeState: state,
-        pending: { type: "none" }
-      };
-    }
-
-    async function parseSettingsActivation(rawActivation) {
-      if (!isPlainObject(rawActivation)) {
-        throw codedError("SettingsActivationInvalid", "Settings activation must be an object.");
-      }
-
-      requireKeys(rawActivation, ["schemaVersion", "activeState", "pending"], "Settings activation");
-
-      if (rawActivation.schemaVersion !== SETTINGS_ACTIVATION_SCHEMA_VERSION) {
-        throw codedError("SettingsActivationInvalid", "Unsupported settings activation version.");
-      }
-
-      if (!isPlainObject(rawActivation.pending) || typeof rawActivation.pending.type !== "string") {
-        throw codedError("SettingsActivationInvalid", "Settings activation pending value must include a type.");
-      }
-
-      const activeState = await normalizeStoredState(rawActivation.activeState, "Active settings");
-
-      switch (rawActivation.pending.type) {
-        case "none":
-          requireKeys(rawActivation.pending, ["type"], "Settings activation pending value");
-          return {
-            schemaVersion: SETTINGS_ACTIVATION_SCHEMA_VERSION,
-            activeState,
-            pending: { type: "none" }
-          };
-        case "pending": {
-          requireKeys(rawActivation.pending, ["type", "state", "effectiveAtMs"], "Settings activation pending value");
-
-          if (!Number.isInteger(rawActivation.pending.effectiveAtMs) || rawActivation.pending.effectiveAtMs < 0) {
-            throw codedError("SettingsActivationInvalid", "Settings activation time must be a non-negative integer.");
-          }
-
-          return {
-            schemaVersion: SETTINGS_ACTIVATION_SCHEMA_VERSION,
-            activeState,
-            pending: {
-              type: "pending",
-              state: await normalizeStoredState(rawActivation.pending.state, "Pending settings"),
-              effectiveAtMs: rawActivation.pending.effectiveAtMs
-            }
-          };
-        }
-        default:
-          throw codedError("SettingsActivationInvalid", `Unknown settings activation type: ${rawActivation.pending.type}.`);
-      }
-    }
-
-    async function normalizeStoredState(rawState, label) {
-      const defaultEntries = await loadDefaultEntries();
-      const result = core.validateStoredState(rawState, defaultEntries);
-
-      if (result.type === "valid") {
-        return result.state;
-      }
-
-      throw codedError("SettingsActivationInvalid", `${label} are invalid: ${result.errors.map((error) => error.message).join("\n")}`);
     }
 
     function settingsActivationStatus(activation) {
@@ -632,8 +553,8 @@
       const nowMs = currentTimeMs();
       const hour = currentHour(nowMs);
       const usage = await saveScreenTime(domain, elapsedMs, hour, nowMs);
-      const totalMs = sync.screenTimeTotalMs(usage, domain, usageWindow(state.limitReset, nowMs));
-      const limit = domainLimit(state, domain);
+      const totalMs = core.screenTimeTotalMs(usage, domain, core.usageWindow(state.limitReset, nowMs));
+      const limit = core.domainLimitForDomain(state, domain);
       const isOverLimit = totalMs >= limit.limitMinutes * 60 * 1000;
 
       await syncScreenTimeIfReady(state, { force: isOverLimit });
@@ -1019,7 +940,7 @@
       const dirtySync = sync.dirtySettingsSync(settingsSync, updatedAtMs, createId);
 
       await stateStorage.saveState(state);
-      await settingsActivationStorage.saveActivation(activeSettingsActivation(state));
+      await settingsActivationStorage.saveActivation(core.activeSettingsActivation(state));
       await blockedPageHtmlStorage.saveHtml(state.blockedPageHtml);
       await settingsSyncStorage.saveSync(dirtySync);
       await syncWebsiteAccessForKnownPermissions(state);
@@ -1074,7 +995,7 @@
           sync.markScreenTimeSynced(usage, syncedBuckets);
         }
 
-        const remoteRows = await sync.loadRemoteScreenTime(active.config, active.session, usageWindow(state.limitReset, currentTimeMs()), fetchJson);
+        const remoteRows = await sync.loadRemoteScreenTime(active.config, active.session, core.usageWindow(state.limitReset, currentTimeMs()), fetchJson);
 
         sync.mergeRemoteScreenTimeBuckets(usage, sync.normalizeRemoteScreenTimeRows(remoteRows, core));
         await screenTimeStorage.saveUsage(usage);
@@ -1276,27 +1197,9 @@
     };
   }
 
-  function screenTimeEntries(state, usage, nowMs) {
-    const hours = usageWindow(state.limitReset, nowMs);
-
-    return activeDomainLimits(state)
-      .map((limit) => {
-        const totalMs = sync.screenTimeTotalMs(usage, limit.domain, hours);
-
-        return {
-          domain: limit.domain,
-          totalMs,
-          limitMinutes: limit.limitMinutes,
-          isOverLimit: totalMs >= limit.limitMinutes * 60 * 1000
-        };
-      })
-      .filter((entry) => entry.totalMs > 0)
-      .sort((left, right) => right.totalMs - left.totalMs || left.domain.localeCompare(right.domain));
-  }
-
   function screenTimeStats(state, usage, nowMs) {
-    const window = usageWindow(state.limitReset, nowMs);
-    const entries = activeDomainLimits(state)
+    const window = core.usageWindow(state.limitReset, nowMs);
+    const entries = core.activeDomainLimits(state)
       .map((limit) => screenTimeStatsEntry(usage, limit, window))
       .sort((left, right) => right.totalMs - left.totalMs || left.domain.localeCompare(right.domain));
     const domains = entries.map((entry) => entry.domain);
@@ -1318,7 +1221,7 @@
 
   function screenTimeStatsEntry(usage, limit, window) {
     const limitMs = limit.limitMinutes * 60 * 1000;
-    const localMs = screenTimeBucketTotal(usage.localBuckets[limit.domain] || {}, window);
+    const localMs = core.screenTimeBucketTotalMs(usage.localBuckets[limit.domain] || {}, window);
     const remoteMs = remoteScreenTimeBucketTotal(usage.remoteBuckets, limit.domain, window);
     const totalMs = localMs + remoteMs;
 
@@ -1341,7 +1244,7 @@
       totals.push({
         hour,
         startedAtMs: hour * HOUR_MS,
-        totalMs: domains.reduce((total, domain) => total + screenTimeHourTotal(usage, domain, hour), 0)
+        totalMs: domains.reduce((total, domain) => total + core.screenTimeTotalMs(usage, domain, { startHour: hour, endHour: hour }), 0)
       });
     }
 
@@ -1352,106 +1255,19 @@
     return [
       {
         label: "This Device",
-        totalMs: domains.reduce((total, domain) => total + screenTimeBucketTotal(usage.localBuckets[domain] || {}, window), 0)
+        totalMs: domains.reduce((total, domain) => total + core.screenTimeBucketTotalMs(usage.localBuckets[domain] || {}, window), 0)
       },
       ...Object.values(usage.remoteBuckets).map((deviceBuckets, index) => ({
         label: `Other Device ${index + 1}`,
-        totalMs: domains.reduce((total, domain) => total + screenTimeBucketTotal(deviceBuckets[domain] || {}, window), 0)
+        totalMs: domains.reduce((total, domain) => total + core.screenTimeBucketTotalMs(deviceBuckets[domain] || {}, window), 0)
       }))
     ].filter((entry) => entry.totalMs > 0);
   }
 
-  function screenTimeHourTotal(usage, domain, hour) {
-    return screenTimeBucketValue(usage.localBuckets[domain] && usage.localBuckets[domain][String(hour)])
-      + Object.values(usage.remoteBuckets).reduce((total, deviceBuckets) => (
-        total + screenTimeBucketValue(deviceBuckets[domain] && deviceBuckets[domain][String(hour)])
-      ), 0);
-  }
-
   function remoteScreenTimeBucketTotal(remoteBuckets, domain, window) {
     return Object.values(remoteBuckets).reduce((total, deviceBuckets) => (
-      total + screenTimeBucketTotal(deviceBuckets[domain] || {}, window)
+      total + core.screenTimeBucketTotalMs(deviceBuckets[domain] || {}, window)
     ), 0);
-  }
-
-  function screenTimeBucketTotal(buckets, window) {
-    return Object.entries(buckets).reduce((total, [hour, bucket]) => {
-      const bucketHour = Number(hour);
-
-      if (bucketHour < window.startHour || bucketHour > window.endHour) {
-        return total;
-      }
-
-      return total + screenTimeBucketValue(bucket);
-    }, 0);
-  }
-
-  function screenTimeBucketValue(bucket) {
-    if (bucket === undefined) {
-      return 0;
-    }
-
-    return typeof bucket === "number" ? bucket : bucket.totalMs;
-  }
-
-  function activeDomainLimits(state) {
-    const activeDomains = new Set(state.entries
-      .filter(entryIsEnabled)
-      .map(core.associatedDomainForEntry));
-
-    return state.domainLimits.filter((limit) => activeDomains.has(limit.domain));
-  }
-
-  function entryIsEnabled(entry) {
-    switch (entry.type) {
-      case "custom":
-        return true;
-      case "default":
-        return entry.enabled;
-      default:
-        throw new Error(`Unknown entry type: ${entry.type}`);
-    }
-  }
-
-  function overLimitDomains(state, usage, nowMs) {
-    return new Set(screenTimeEntries(state, usage, nowMs)
-      .filter((entry) => entry.isOverLimit)
-      .map((entry) => entry.domain));
-  }
-
-  function usageWindow(limitReset, nowMs) {
-    const hour = Math.floor(nowMs / HOUR_MS);
-
-    switch (limitReset.type) {
-      case "rollingWindow":
-        return { startHour: hour - limitReset.windowHours + 1, endHour: hour };
-      case "daily":
-        return { startHour: dailyResetHour(limitReset.resetHour, nowMs), endHour: hour };
-      default:
-        throw new Error(`Unknown limit reset type: ${limitReset.type}`);
-    }
-  }
-
-  function dailyResetHour(resetHour, nowMs) {
-    const reset = new Date(nowMs);
-
-    reset.setHours(resetHour, 0, 0, 0);
-
-    if (reset.getTime() > nowMs) {
-      reset.setDate(reset.getDate() - 1);
-    }
-
-    return Math.floor(reset.getTime() / HOUR_MS);
-  }
-
-  function domainLimit(state, domain) {
-    const limit = state.domainLimits.find((candidate) => candidate.domain === domain);
-
-    if (!limit) {
-      throw new Error(`Missing domain limit: ${domain}.`);
-    }
-
-    return limit;
   }
 
   function createStateStorage(api) {

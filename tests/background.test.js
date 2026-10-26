@@ -858,30 +858,6 @@ test("getScreenTimeLog sums the last 24 hour buckets without pruning storage", a
   }));
 });
 
-test("getScreenTimeLog uses the configured rolling reset window", async () => {
-  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "domain", value: "example.com" }
-  ], core.DEFAULT_SCHEDULE, [
-    { domain: "example.com", limitMinutes: 1 }
-  ], { type: "rollingWindow", windowHours: 2 });
-  api.storageData.screenTimeUsage = screenTimeUsage({
-    "example.com": {
-      18: 1000,
-      19: 2000,
-      20: 3000
-    }
-  });
-  const controller = createBackgroundController(api);
-
-  assert.deepEqual(await controller.handleMessage({ type: "getScreenTimeLog" }, {}), {
-    type: "screenTimeLog",
-    entries: [
-      { domain: "example.com", totalMs: 5000, limitMinutes: 1, isOverLimit: false }
-    ]
-  });
-});
-
 test("getScreenTimeStats returns summary, hourly, device, and zero-domain rows", async () => {
   const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
   api.storageData[core.STATE_KEY] = validState([
@@ -994,34 +970,6 @@ test("getLocalScreenTimeStats reads cached remote buckets without syncing", asyn
   }
 });
 
-test("getScreenTimeLog uses the latest daily reset hour", async () => {
-  const now = new Date(2026, 0, 2, 10, 30).getTime();
-  const resetHour = hourNumber(new Date(2026, 0, 2, 6));
-  const api = fakeApi({ now });
-
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "domain", value: "example.com" }
-  ], core.DEFAULT_SCHEDULE, [
-    { domain: "example.com", limitMinutes: 1 }
-  ], { type: "daily", resetHour: 6 });
-  api.storageData.screenTimeUsage = screenTimeUsage({
-    "example.com": {
-      [resetHour - 1]: 1000,
-      [resetHour]: 2000,
-      [resetHour + 4]: 3000,
-      [resetHour + 5]: 4000
-    }
-  });
-  const controller = createBackgroundController(api);
-
-  assert.deepEqual(await controller.handleMessage({ type: "getScreenTimeLog" }, {}), {
-    type: "screenTimeLog",
-    entries: [
-      { domain: "example.com", totalMs: 5000, limitMinutes: 1, isOverLimit: false }
-    ]
-  });
-});
-
 test("screenTimeElapsed keeps historical buckets when saving", async () => {
   const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
   api.storageData[core.STATE_KEY] = validState([
@@ -1057,25 +1005,6 @@ test("screenTimeElapsed keeps historical buckets when saving", async () => {
       }
     },
     remoteBuckets: {}
-  });
-});
-
-test("getScreenTimeLog hides active domains with zero usage", async () => {
-  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "domain", value: "example.com" },
-    { id: "22222222-2222-4222-8222-222222222222", kind: "domain", value: "idle.example" }
-  ]);
-  api.storageData.screenTimeUsage = screenTimeUsage({
-    "example.com": { 20: 1000 }
-  });
-  const controller = createBackgroundController(api);
-
-  assert.deepEqual(await controller.handleMessage({ type: "getScreenTimeLog" }, {}), {
-    type: "screenTimeLog",
-    entries: [
-      { domain: "example.com", totalMs: 1000, limitMinutes: 30, isOverLimit: false }
-    ]
   });
 });
 
@@ -2058,10 +1987,6 @@ function currentMinute() {
   const now = new Date();
 
   return now.getHours() * 60 + now.getMinutes();
-}
-
-function hourNumber(date) {
-  return Math.floor(date.getTime() / (60 * 60 * 1000));
 }
 
 function screenTimeUsage(totalsByDomain, remoteBuckets = {}) {

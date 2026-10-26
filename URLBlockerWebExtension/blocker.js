@@ -30,6 +30,9 @@
     "10000000-0000-4000-8000-000000000019"
   ]);
   const MAX_ENTRIES = 1000;
+  const MINUTE_MS = 60 * 1000;
+  const HOUR_MS = 60 * MINUTE_MS;
+  const SETTINGS_ACTIVATION_SCHEMA_VERSION = 1;
   const MAX_BLOCKED_PAGE_HTML_LENGTH = 4000;
   const DEFAULT_LIMIT_MINUTES = 30;
   const DEFAULT_BLOCK_DIRECT_VISITS = true;
@@ -1150,7 +1153,10 @@
   }
 
   function domainLimitForEntry(state, entry) {
-    const domain = associatedDomainForEntry(entry);
+    return domainLimitForDomain(state, associatedDomainForEntry(entry));
+  }
+
+  function domainLimitForDomain(state, domain) {
     const limit = state.domainLimits.find((candidate) => candidate.domain === domain);
 
     if (!limit) {
@@ -1299,6 +1305,181 @@
     }
 
     return { type: "none" };
+  }
+
+  function screenTimeEntries(state, usage, nowMs) {
+    const window = usageWindow(state.limitReset, nowMs);
+
+    return activeDomainLimits(state)
+      .map((limit) => {
+        const totalMs = screenTimeTotalMs(usage, limit.domain, window);
+
+        return {
+          domain: limit.domain,
+          totalMs,
+          limitMinutes: limit.limitMinutes,
+          isOverLimit: totalMs >= limit.limitMinutes * MINUTE_MS
+        };
+      })
+      .filter((entry) => entry.totalMs > 0)
+      .sort((left, right) => right.totalMs - left.totalMs || left.domain.localeCompare(right.domain));
+  }
+
+  function overLimitDomains(state, usage, nowMs) {
+    return new Set(screenTimeEntries(state, usage, nowMs)
+      .filter((entry) => entry.isOverLimit)
+      .map((entry) => entry.domain));
+  }
+
+  function usageWindow(limitReset, nowMs) {
+    const hour = Math.floor(nowMs / HOUR_MS);
+
+    switch (limitReset.type) {
+      case "rollingWindow":
+        return { startHour: hour - limitReset.windowHours + 1, endHour: hour };
+      case "daily":
+        return { startHour: dailyResetHour(limitReset.resetHour, nowMs), endHour: hour };
+      default:
+        throw new Error(`Unknown limit reset type: ${limitReset.type}`);
+    }
+  }
+
+  function dailyResetHour(resetHour, nowMs) {
+    const reset = new Date(nowMs);
+
+    reset.setHours(resetHour, 0, 0, 0);
+
+    if (reset.getTime() > nowMs) {
+      reset.setDate(reset.getDate() - 1);
+    }
+
+    return Math.floor(reset.getTime() / HOUR_MS);
+  }
+
+  function screenTimeTotalMs(usage, domain, window) {
+    return screenTimeBucketTotalMs(usage.localBuckets[domain] || {}, window)
+      + Object.values(usage.remoteBuckets).reduce((total, domains) => total + screenTimeBucketTotalMs(domains[domain] || {}, window), 0);
+  }
+
+  // Local buckets store { totalMs, syncedMs }; remote buckets store totals.
+  function screenTimeBucketTotalMs(buckets, window) {
+    return Object.entries(buckets).reduce((total, [hour, bucket]) => {
+      const bucketHour = Number(hour);
+
+      if (bucketHour < window.startHour || bucketHour > window.endHour) {
+        return total;
+      }
+
+      return total + (typeof bucket === "number" ? bucket : bucket.totalMs);
+    }, 0);
+  }
+
+  function activeSettingsActivation(state) {
+    return {
+      schemaVersion: SETTINGS_ACTIVATION_SCHEMA_VERSION,
+      activeState: state,
+      pending: { type: "none" }
+    };
+  }
+
+  // Saved settings wait for the delay set by the currently active settings, so
+  // a shorter delay cannot take effect sooner than the old one allows.
+  function pendingSettingsActivation(activation, state, nowMs) {
+    return {
+      schemaVersion: SETTINGS_ACTIVATION_SCHEMA_VERSION,
+      activeState: activation.activeState,
+      pending: {
+        type: "pending",
+        state,
+        effectiveAtMs: nowMs + settingsDelayMinutes(activation.activeState.settingsDelay) * MINUTE_MS
+      }
+    };
+  }
+
+  function settleSettingsActivation(activation, nowMs) {
+    switch (activation.pending.type) {
+      case "none":
+        return { type: "unchanged", activation };
+      case "pending":
+        if (activation.pending.effectiveAtMs > nowMs) {
+          return { type: "unchanged", activation };
+        }
+
+        return { type: "activated", activation: activeSettingsActivation(activation.pending.state) };
+      default:
+        throw new Error(`Unknown settings activation type: ${activation.pending.type}`);
+    }
+  }
+
+  function validateSettingsActivation(rawActivation, defaultEntries) {
+    if (!isPlainObject(rawActivation)) {
+      return invalid([{ index: null, message: "Settings activation must be an object." }]);
+    }
+
+    const keyErrors = [];
+
+    pushUnknownKeyErrors(keyErrors, rawActivation, ["schemaVersion", "activeState", "pending"], "Settings activation");
+
+    if (keyErrors.length > 0) {
+      return invalid(keyErrors);
+    }
+
+    if (rawActivation.schemaVersion !== SETTINGS_ACTIVATION_SCHEMA_VERSION) {
+      return invalid([{ index: null, message: "Unsupported settings activation version." }]);
+    }
+
+    if (!isPlainObject(rawActivation.pending) || typeof rawActivation.pending.type !== "string") {
+      return invalid([{ index: null, message: "Settings activation pending value must include a type." }]);
+    }
+
+    const activeResult = validateStoredState(rawActivation.activeState, defaultEntries);
+
+    if (activeResult.type === "invalid") {
+      return invalid([{ index: null, message: `Active settings are invalid: ${errorMessages(activeResult.errors)}` }]);
+    }
+
+    switch (rawActivation.pending.type) {
+      case "none":
+        pushUnknownKeyErrors(keyErrors, rawActivation.pending, ["type"], "Settings activation pending value");
+
+        if (keyErrors.length > 0) {
+          return invalid(keyErrors);
+        }
+
+        return { type: "valid", activation: activeSettingsActivation(activeResult.state) };
+      case "pending": {
+        pushUnknownKeyErrors(keyErrors, rawActivation.pending, ["type", "state", "effectiveAtMs"], "Settings activation pending value");
+
+        if (keyErrors.length > 0) {
+          return invalid(keyErrors);
+        }
+
+        if (!Number.isInteger(rawActivation.pending.effectiveAtMs) || rawActivation.pending.effectiveAtMs < 0) {
+          return invalid([{ index: null, message: "Settings activation time must be a non-negative integer." }]);
+        }
+
+        const pendingResult = validateStoredState(rawActivation.pending.state, defaultEntries);
+
+        if (pendingResult.type === "invalid") {
+          return invalid([{ index: null, message: `Pending settings are invalid: ${errorMessages(pendingResult.errors)}` }]);
+        }
+
+        return {
+          type: "valid",
+          activation: {
+            schemaVersion: SETTINGS_ACTIVATION_SCHEMA_VERSION,
+            activeState: activeResult.state,
+            pending: { type: "pending", state: pendingResult.state, effectiveAtMs: rawActivation.pending.effectiveAtMs }
+          }
+        };
+      }
+      default:
+        return invalid([{ index: null, message: `Unknown settings activation type: ${rawActivation.pending.type}.` }]);
+    }
+  }
+
+  function errorMessages(errors) {
+    return errors.map((error) => error.message).join("\n");
   }
 
   function entryDomains(entries) {
@@ -1734,9 +1915,12 @@
     MAX_ENTRIES,
     SCHEMA_VERSION,
     STATE_KEY,
+    activeDomainLimits,
+    activeSettingsActivation,
     associatedDomainForEntry,
     domainForEntry,
     domainForRegexEntryValue,
+    domainLimitForDomain,
     domainLimitsForEntries,
     emptyState,
     entryMatchesUrl,
@@ -1744,6 +1928,8 @@
     findMatchingEntry,
     isScheduleActive,
     newEntry,
+    overLimitDomains,
+    pendingSettingsActivation,
     normalizeDomainEntryValue,
     normalizeBlockedPageHtml,
     normalizePageUrl,
@@ -1752,8 +1938,14 @@
     settingsDelayMinutes,
     normalizeUrlEntryValue,
     hasUnsupportedBlocklistVersion,
+    screenTimeBucketTotalMs,
     screenTimeDomainForUrl,
+    screenTimeEntries,
+    screenTimeTotalMs,
+    settleSettingsActivation,
+    usageWindow,
     youtubeWatchVideoForUrl,
+    validateSettingsActivation,
     validateStoredState,
     validateState
   };

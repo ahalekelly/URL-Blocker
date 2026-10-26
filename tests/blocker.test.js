@@ -18,6 +18,8 @@ const chromeBookmarkSource = { type: "chromiumCommitted", transitionType: "auto_
 const chromeOmniboxSource = { type: "chromiumCommitted", transitionType: "generated" };
 const chromeReloadSource = { type: "chromiumCommitted", transitionType: "reload" };
 
+const hourMs = 60 * 60 * 1000;
+
 function knownReferrer(url) {
   return { type: "known", url };
 }
@@ -1277,6 +1279,106 @@ test("matches regex entries case-insensitively without fragments", () => {
   assert.equal(core.findMatchingEntry(state, "https://not-x.com/home").type, "none");
 });
 
+test("screen time entries use the configured rolling reset window", () => {
+  const state = validState([
+    { id: ids[0], kind: "domain", value: "example.com" }
+  ], core.DEFAULT_SCHEDULE, [
+    domainLimit("example.com", 1)
+  ], { type: "rollingWindow", windowHours: 2 });
+  const usage = screenTimeUsage({ "example.com": { 18: 1000, 19: 2000, 20: 3000 } });
+
+  assert.deepEqual(core.usageWindow(state.limitReset, 20 * hourMs), { startHour: 19, endHour: 20 });
+  assert.deepEqual(core.screenTimeEntries(state, usage, 20 * hourMs), [
+    { domain: "example.com", totalMs: 5000, limitMinutes: 1, isOverLimit: false }
+  ]);
+});
+
+test("screen time entries use the latest daily reset hour", () => {
+  const now = new Date(2026, 0, 2, 10, 30).getTime();
+  const resetHour = Math.floor(new Date(2026, 0, 2, 6).getTime() / hourMs);
+  const state = validState([
+    { id: ids[0], kind: "domain", value: "example.com" }
+  ], core.DEFAULT_SCHEDULE, [
+    domainLimit("example.com", 1)
+  ], { type: "daily", resetHour: 6 });
+  const usage = screenTimeUsage({
+    "example.com": {
+      [resetHour - 1]: 1000,
+      [resetHour]: 2000,
+      [resetHour + 4]: 3000,
+      [resetHour + 5]: 4000
+    }
+  });
+
+  assert.deepEqual(core.usageWindow(state.limitReset, now), { startHour: resetHour, endHour: resetHour + 4 });
+  assert.deepEqual(core.usageWindow(state.limitReset, new Date(2026, 0, 2, 5, 30).getTime()), {
+    startHour: resetHour - 24,
+    endHour: resetHour - 1
+  });
+  assert.deepEqual(core.screenTimeEntries(state, usage, now), [
+    { domain: "example.com", totalMs: 5000, limitMinutes: 1, isOverLimit: false }
+  ]);
+});
+
+test("screen time entries hide active domains with zero usage", () => {
+  const state = validState([
+    { id: ids[0], kind: "domain", value: "example.com" },
+    { id: ids[1], kind: "domain", value: "idle.example" }
+  ]);
+  const usage = screenTimeUsage({ "example.com": { 20: 1000 } });
+
+  assert.deepEqual(core.screenTimeEntries(state, usage, 20 * hourMs), [
+    { domain: "example.com", totalMs: 1000, limitMinutes: 30, isOverLimit: false }
+  ]);
+});
+
+test("over limit domains add remote device buckets to local usage", () => {
+  const state = validState([
+    { id: ids[0], kind: "domain", value: "example.com" },
+    { id: ids[1], kind: "domain", value: "other.example" }
+  ], core.DEFAULT_SCHEDULE, [
+    domainLimit("example.com", 1),
+    domainLimit("other.example", 1)
+  ]);
+  const usage = screenTimeUsage({
+    "example.com": { 20: 30 * 1000 },
+    "other.example": { 20: 59 * 1000 }
+  }, {
+    "other-device": { "example.com": { 19: 30 * 1000 } }
+  });
+
+  assert.deepEqual(core.overLimitDomains(state, usage, 20 * hourMs), new Set(["example.com"]));
+  assert.equal(core.screenTimeTotalMs(usage, "example.com", { startHour: 20, endHour: 20 }), 30 * 1000);
+});
+
+test("pending settings wait for the active settings delay and then activate", () => {
+  const activeState = validState([{ id: ids[0], kind: "domain", value: "example.com" }]);
+  const pendingState = validState([{ id: ids[1], kind: "domain", value: "other.example" }]);
+  const activation = core.pendingSettingsActivation(core.activeSettingsActivation(activeState), pendingState, 1000);
+  const effectiveAtMs = 1000 + core.DEFAULT_SETTINGS_DELAY_MINUTES * 60 * 1000;
+
+  assert.deepEqual(activation.pending, { type: "pending", state: pendingState, effectiveAtMs });
+  assert.deepEqual(core.settleSettingsActivation(activation, effectiveAtMs - 1), { type: "unchanged", activation });
+  assert.deepEqual(core.settleSettingsActivation(activation, effectiveAtMs), {
+    type: "activated",
+    activation: core.activeSettingsActivation(pendingState)
+  });
+});
+
+test("validates stored settings activations", () => {
+  const activeState = validState([{ id: ids[0], kind: "domain", value: "example.com" }]);
+  const activation = core.pendingSettingsActivation(core.activeSettingsActivation(activeState), activeState, 1000);
+
+  assert.deepEqual(core.validateSettingsActivation(activation, []), { type: "valid", activation });
+  assert.deepEqual(core.validateSettingsActivation({ ...activation, schemaVersion: 2 }, []).errors, [
+    { index: null, message: "Unsupported settings activation version." }
+  ]);
+  assert.deepEqual(core.validateSettingsActivation({ ...activation, pending: { ...activation.pending, effectiveAtMs: -1 } }, []).errors, [
+    { index: null, message: "Settings activation time must be a non-negative integer." }
+  ]);
+  assert.match(core.validateSettingsActivation({ ...activation, activeState: {} }, []).errors[0].message, /^Active settings are invalid: /);
+});
+
 function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits, limitReset = core.DEFAULT_LIMIT_RESET, hardSchedule = core.DEFAULT_HARD_SCHEDULE) {
   const typedEntries = customEntries(entries);
   const result = core.validateState({
@@ -1323,6 +1425,19 @@ function validStoredState(rawState, defaultEntries) {
   assert.equal(result.type, "valid");
 
   return result.state;
+}
+
+function screenTimeUsage(totalsByDomain, remoteBuckets = {}) {
+  const localBuckets = {};
+
+  Object.entries(totalsByDomain).forEach(([domain, hours]) => {
+    localBuckets[domain] = {};
+    Object.entries(hours).forEach(([hour, totalMs]) => {
+      localBuckets[domain][hour] = { totalMs, syncedMs: totalMs };
+    });
+  });
+
+  return { localBuckets, remoteBuckets };
 }
 
 function customEntries(entries) {

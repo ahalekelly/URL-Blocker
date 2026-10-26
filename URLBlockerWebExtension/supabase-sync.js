@@ -157,26 +157,6 @@
     return usage.localBuckets[domain][hour];
   }
 
-  function screenTimeTotalMs(usage, domain, window) {
-    return bucketTotal(usage.localBuckets[domain] || {}, window) + remoteBucketTotal(usage.remoteBuckets, domain, window);
-  }
-
-  function remoteBucketTotal(remoteBuckets, domain, window) {
-    return Object.values(remoteBuckets).reduce((total, domains) => total + bucketTotal(domains[domain] || {}, window), 0);
-  }
-
-  function bucketTotal(buckets, window) {
-    return Object.entries(buckets).reduce((total, [hour, bucket]) => {
-      const bucketHour = Number(hour);
-
-      if (bucketHour < window.startHour || bucketHour > window.endHour) {
-        return total;
-      }
-
-      return total + (typeof bucket === "number" ? bucket : bucket.totalMs);
-    }, 0);
-  }
-
   function dirtyScreenTimeBuckets(usage) {
     const buckets = [];
 
@@ -698,7 +678,6 @@
     saveRemoteScreenTime,
     saveRemoteSettings,
     screenTimeSyncDelayMs,
-    screenTimeTotalMs,
     sessionFromOAuthRedirect,
     sessionNeedsRefresh,
     sessionUserId,
