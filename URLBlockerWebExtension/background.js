@@ -23,6 +23,9 @@
   const REFERRER_RECORD_PREFIX = "referrerRecords:";
   const REFERRER_RECORD_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
   const UNKNOWN_NAVIGATION_SOURCE = { type: "unknown" };
+  // An unknown referrer fails closed, so root URL rules block whenever they
+  // could apply.
+  const BLOCKED_PAGE_LINK_SOURCE = { type: "document", referrer: { type: "unknown" }, navigationType: "navigate" };
 
   function createBackgroundController(api) {
     const stateStorage = createStateStorage(api);
@@ -72,6 +75,9 @@
         case "urlChanged":
           requireKeys(message, ["type", "url", "source"], "urlChanged message");
           return urlChanged(message.url, message.source, sender);
+        case "openBlockedTarget":
+          requireKeys(message, ["type", "url"], "openBlockedTarget message");
+          return openBlockedTarget(message.url, sender);
         case "screenTimeElapsed":
           requireKeys(message, ["type", "url", "elapsedMs", "source"], "screenTimeElapsed message");
           return logScreenTime(message.url, message.elapsedMs, message.source, sender);
@@ -212,6 +218,26 @@
       }
 
       return redirectBlockedUrl(sender.tab.id, rawUrl, contentNavigationSource(sender.tab.id, rawUrl, rawSource));
+    }
+
+    // Chromium sends no referrer from extension pages, so a plain link on the
+    // block page would arrive as a referrer-less link that root URL rules allow.
+    async function openBlockedTarget(rawUrl, sender) {
+      if (!sender.tab || typeof sender.tab.id !== "number") {
+        throw codedError("MissingSenderTab", "openBlockedTarget message must come from a tab.");
+      }
+
+      const result = await redirectBlockedUrl(sender.tab.id, rawUrl, BLOCKED_PAGE_LINK_SOURCE);
+
+      switch (result.type) {
+        case "allowed":
+          await api.tabs.update(sender.tab.id, { url: rawUrl });
+          return { type: "opened" };
+        case "redirected":
+          return result;
+        default:
+          throw new Error(`Unknown redirect result: ${result.type}`);
+      }
     }
 
     // Chromium leaves document.referrer empty for typed URLs and bookmarks as

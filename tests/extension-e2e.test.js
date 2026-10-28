@@ -465,9 +465,15 @@ test("end-to-end options save blocks a page and renders the blocked view", async
 
   assert.equal(blocked.byId("blockedMessage").innerHTML, "<h1>Stay focused</h1>");
   assert.equal(blocked.byId("blockedReason").textContent, "This page is blocked during your schedule.");
-  assert.equal(blocked.byId("blockedTarget").href, "https://example.com/focus");
   assert.equal(blocked.byId("blockedTarget").textContent, "https://example.com/focus");
   assert.equal(blocked.byId("blockedCard").dataset.loading, undefined);
+
+  await blocked.byId("blockedTarget").dispatch("click");
+
+  assert.deepEqual(app.backgroundApi.updatedTabs.at(-1), {
+    tabId: 4,
+    url: blockedUrl("https://example.com/focus", "scheduleDirectMatch")
+  });
 });
 
 test("blocked page renders each reason body without a built-in title", async () => {
@@ -488,7 +494,6 @@ test("blocked page renders each reason body without a built-in title", async () 
 
     assert.equal(blocked.byId("blockedMessage").innerHTML, "<h1>Stay focused</h1>");
     assert.equal(blocked.byId("blockedReason").textContent, body);
-    assert.equal(blocked.byId("blockedTarget").href, "https://example.com/focus");
     assert.equal(blocked.byId("blockedTarget").textContent, "https://example.com/focus");
   }
 });
@@ -598,7 +603,7 @@ async function openBlockedPage(app, url) {
     browser: {
       runtime: {
         sendMessage(message) {
-          const result = app.controller.handleMessage(message, {});
+          const result = app.controller.handleMessage(message, { tab: { id: 4 } });
 
           pendingMessages.push(result);
           return result;

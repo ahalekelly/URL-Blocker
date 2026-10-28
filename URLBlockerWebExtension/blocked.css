@@ -76,9 +76,15 @@ p {
 }
 
 #blockedTarget {
-  margin-top: 10px;
+  min-height: 0;
+  margin: 10px auto 0;
+  border: 0;
+  padding: 0;
+  background: none;
   font-size: 13px;
+  text-decoration: underline;
   overflow-wrap: anywhere;
+  cursor: pointer;
 }
 
 #blockedTarget:not([hidden]) {

@@ -750,6 +750,33 @@ test("urlChanged fails closed for unknown referrers on root URL pages", async ()
   }]);
 });
 
+test("openBlockedTarget keeps root URL subpages blocked", async () => {
+  const api = fakeApi({ runtimeScheme: "chrome-extension" });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "example.com" }
+  ], { type: "always" });
+  const controller = createBackgroundController(api);
+  const response = await controller.handleMessage({ type: "openBlockedTarget", url: "https://example.com/path" }, { tab: { id: 7 } });
+
+  assert.equal(response.type, "redirected");
+  assert.deepEqual(api.updatedTabs, [{
+    tabId: 7,
+    url: blockedUrl("https://example.com/path", "scheduleRootSameDomainNavigation", "chrome-extension")
+  }]);
+});
+
+test("openBlockedTarget opens targets that are no longer blocked", async () => {
+  const api = fakeApi({ runtimeScheme: "chrome-extension" });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "example.com" }
+  ], { type: "always" });
+  const controller = createBackgroundController(api);
+  const response = await controller.handleMessage({ type: "openBlockedTarget", url: "https://other.example/path" }, { tab: { id: 7 } });
+
+  assert.equal(response.type, "opened");
+  assert.deepEqual(api.updatedTabs, [{ tabId: 7, url: "https://other.example/path" }]);
+});
+
 test("startup sweep removes expired referrer records and preserves fresh records", async () => {
   const api = fakeApi({ now: referrerRecordRetentionMs + 1000 });
   const mixedKey = `${referrerRecordPrefix}https://example.com/page`;

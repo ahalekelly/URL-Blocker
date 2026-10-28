@@ -12,6 +12,9 @@
   const fallbackHtml = "<h1>Blocked</h1><p>This page is on your blocklist.</p>";
 
   closeButton.addEventListener("click", closeCurrentTab);
+  blockedTarget.addEventListener("click", () => {
+    openBlockedTarget().catch((error) => console.error(`URL Blocker could not open the blocked page. ${errorLogText(error)}`));
+  });
   loadBlockedPageHtml().catch((error) => {
     renderBlockedPage(fallbackHtml);
     console.warn(`URL Blocker could not load the blocked page settings. ${errorLogText(error)}`);
@@ -39,7 +42,6 @@
     blockedMessage.hidden = html === "";
     blockedReason.textContent = reasonText;
     blockedTarget.hidden = blockedUrl === "";
-    blockedTarget.href = blockedUrl;
     blockedTarget.textContent = blockedUrl;
     blockedCard.removeAttribute("data-loading");
   }
@@ -60,6 +62,21 @@
     }
 
     return reason;
+  }
+
+  // The worker opens the target only if it is no longer blocked.
+  async function openBlockedTarget() {
+    const response = await api.runtime.sendMessage({ type: "openBlockedTarget", url: blockedUrl });
+
+    switch (response.type) {
+      case "opened":
+      case "redirected":
+        return;
+      case "error":
+        throw response;
+      default:
+        throw new Error(`Unknown openBlockedTarget response: ${response.type}`);
+    }
   }
 
   async function closeCurrentTab() {
