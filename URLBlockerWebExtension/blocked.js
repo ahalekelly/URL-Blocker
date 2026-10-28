@@ -5,7 +5,9 @@
   const blockedCard = document.getElementById("blockedCard");
   const blockedMessage = document.getElementById("blockedMessage");
   const blockedReason = document.getElementById("blockedReason");
+  const blockedTargetRow = document.getElementById("blockedTargetRow");
   const blockedTarget = document.getElementById("blockedTarget");
+  const copyTargetButton = document.getElementById("copyTargetButton");
   const closeButton = document.getElementById("closeButton");
   const blockedUrl = decodeBlockedUrl();
   const reasonText = root.BlockerCore.blockedReasonText(decodeBlockedReason());
@@ -14,6 +16,12 @@
   closeButton.addEventListener("click", closeCurrentTab);
   blockedTarget.addEventListener("click", () => {
     openBlockedTarget().catch((error) => console.error(`URL Blocker could not open the blocked page. ${errorLogText(error)}`));
+  });
+  copyTargetButton.addEventListener("click", () => {
+    root.navigator.clipboard.writeText(blockedUrl).then(
+      () => { copyTargetButton.textContent = "Copied"; },
+      (error) => console.error(`URL Blocker could not copy the blocked page link. ${errorLogText(error)}`)
+    );
   });
   loadBlockedPageHtml().catch((error) => {
     renderBlockedPage(fallbackHtml);
@@ -41,7 +49,7 @@
     blockedMessage.innerHTML = html;
     blockedMessage.hidden = html === "";
     blockedReason.textContent = reasonText;
-    blockedTarget.hidden = blockedUrl === "";
+    blockedTargetRow.hidden = blockedUrl === "";
     blockedTarget.textContent = blockedUrl;
     blockedCard.removeAttribute("data-loading");
   }

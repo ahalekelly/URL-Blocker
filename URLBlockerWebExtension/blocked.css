@@ -70,24 +70,37 @@ p {
   overflow-wrap: anywhere;
 }
 
-#blockedMessage a,
-#blockedTarget {
+#blockedMessage a {
   color: var(--muted);
 }
 
-#blockedTarget {
-  margin: 10px auto 0;
+#blockedTargetRow:not([hidden]) {
+  margin-top: 10px;
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 8px;
+}
+
+#blockedTargetRow button {
+  min-width: 0;
   border: 0;
   padding: 0;
   background: none;
+  color: var(--muted);
+  font: inherit;
   font-size: 13px;
-  text-decoration: underline;
-  overflow-wrap: anywhere;
   cursor: pointer;
 }
 
-#blockedTarget:not([hidden]) {
-  display: block;
+#blockedTarget {
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+
+#copyTargetButton {
+  flex: none;
+  font-weight: 600;
 }
 
 #closeButton {

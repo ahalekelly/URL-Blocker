@@ -474,6 +474,11 @@ test("end-to-end options save blocks a page and renders the blocked view", async
     tabId: 4,
     url: blockedUrl("https://example.com/focus", "scheduleDirectMatch")
   });
+
+  await blocked.byId("copyTargetButton").dispatch("click");
+
+  assert.deepEqual(blocked.copiedText, ["https://example.com/focus"]);
+  assert.equal(blocked.byId("copyTargetButton").textContent, "Copied");
 });
 
 test("blocked page renders each reason body without a built-in title", async () => {
@@ -599,6 +604,7 @@ async function openBlockedPage(app, url) {
   const pageUrl = new URL(url);
   const document = blockedDocument();
   const pendingMessages = [];
+  const copiedText = [];
   const context = {
     browser: {
       runtime: {
@@ -619,6 +625,13 @@ async function openBlockedPage(app, url) {
     BlockerCore: core,
     console,
     document,
+    navigator: {
+      clipboard: {
+        async writeText(text) {
+          copiedText.push(text);
+        }
+      }
+    },
     location: { hash: pageUrl.hash, search: pageUrl.search },
     URLSearchParams
   };
@@ -627,7 +640,7 @@ async function openBlockedPage(app, url) {
   await Promise.all(pendingMessages);
   await settle();
 
-  return page(document);
+  return { ...page(document), copiedText };
 }
 
 async function runContentScript(app, url, tabId) {
@@ -1107,7 +1120,7 @@ function optionsDocument() {
 }
 
 function blockedDocument() {
-  const document = testDocument(["blockedCard", "blockedMessage", "blockedReason", "blockedTarget", "closeButton"]);
+  const document = testDocument(["blockedCard", "blockedMessage", "blockedReason", "blockedTargetRow", "blockedTarget", "copyTargetButton", "closeButton"]);
 
   document.elements.blockedCard.dataset.loading = "";
   return document;
