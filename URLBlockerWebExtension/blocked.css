@@ -78,15 +78,11 @@ p {
   margin-top: 10px;
   display: flex;
   justify-content: center;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
 }
 
 #blockedTargetRow button {
-  min-width: 0;
-  border: 0;
-  padding: 0;
-  background: none;
   color: var(--muted);
   font: inherit;
   font-size: 13px;
@@ -94,13 +90,25 @@ p {
 }
 
 #blockedTarget {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: none;
   text-decoration: underline;
   overflow-wrap: anywhere;
 }
 
 #copyTargetButton {
   flex: none;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
   font-weight: 600;
+}
+
+#copyTargetButton:active {
+  transform: translateY(1px);
 }
 
 #closeButton {
