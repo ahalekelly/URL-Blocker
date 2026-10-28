@@ -603,7 +603,7 @@ async function openBlockedPage(app, url) {
     browser: {
       runtime: {
         sendMessage(message) {
-          const result = app.controller.handleMessage(message, { tab: { id: 4 } });
+          const result = app.controller.handleMessage(message, {});
 
           pendingMessages.push(result);
           return result;

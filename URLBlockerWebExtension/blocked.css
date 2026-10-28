@@ -76,7 +76,6 @@ p {
 }
 
 #blockedTarget {
-  min-height: 0;
   margin: 10px auto 0;
   border: 0;
   padding: 0;
@@ -91,7 +90,7 @@ p {
   display: block;
 }
 
-button {
+#closeButton {
   min-height: 44px;
   margin-top: 20px;
   border: 1px solid var(--accent);

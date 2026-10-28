@@ -64,9 +64,9 @@
     return reason;
   }
 
-  // The worker opens the target only if it is no longer blocked.
   async function openBlockedTarget() {
-    const response = await api.runtime.sendMessage({ type: "openBlockedTarget", url: blockedUrl });
+    const tab = await api.tabs.getCurrent();
+    const response = await api.runtime.sendMessage({ type: "openBlockedTarget", tabId: tab.id, url: blockedUrl });
 
     switch (response.type) {
       case "opened":

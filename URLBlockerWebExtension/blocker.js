@@ -1335,6 +1335,8 @@
         }
 
         return rootReferrerNavigationReason(source.referrer, limit);
+      case "blockedPage":
+        return unknownReferrerNavigationReason(limit);
       case "chromiumCommitted":
         if (source.transitionType === "reload") {
           return { type: "none" };
@@ -1381,6 +1383,7 @@
     switch (source.type) {
       case "unknown":
       case "chromiumCommitted":
+      case "blockedPage":
         return false;
       case "document":
       case "safariDocument":

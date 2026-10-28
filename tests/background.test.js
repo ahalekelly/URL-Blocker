@@ -756,7 +756,7 @@ test("openBlockedTarget keeps root URL subpages blocked", async () => {
     { id, kind: "url", value: "example.com" }
   ], { type: "always" });
   const controller = createBackgroundController(api);
-  const response = await controller.handleMessage({ type: "openBlockedTarget", url: "https://example.com/path" }, { tab: { id: 7 } });
+  const response = await controller.handleMessage({ type: "openBlockedTarget", tabId: 7, url: "https://example.com/path" }, {});
 
   assert.equal(response.type, "redirected");
   assert.deepEqual(api.updatedTabs, [{
@@ -771,7 +771,7 @@ test("openBlockedTarget opens targets that are no longer blocked", async () => {
     { id, kind: "url", value: "example.com" }
   ], { type: "always" });
   const controller = createBackgroundController(api);
-  const response = await controller.handleMessage({ type: "openBlockedTarget", url: "https://other.example/path" }, { tab: { id: 7 } });
+  const response = await controller.handleMessage({ type: "openBlockedTarget", tabId: 7, url: "https://other.example/path" }, {});
 
   assert.equal(response.type, "opened");
   assert.deepEqual(api.updatedTabs, [{ tabId: 7, url: "https://other.example/path" }]);
