@@ -3,6 +3,7 @@
   "name": "URL Blocker",
   "description": "Block websites and SPA routes from a private local blocklist.",
   "version": "1.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArBuEm8GPXV4bJxe3iRiBIuOyNnfFeCRm9tTddBDDlgR/drJPoz6s2L6zS9b1dJwzUfG402jigawc1i0ZPWgQS9MI0Ahra6J14JudA1iAD5rX2unUUxil43MC7qfqieLL/FrggQHZQV93Lb2eAf5kOSxCFGf6SvkD2AxVsnptULaNOsAv1Y83811gJpce7dlICam26Vs2x/Rwetg86ejYQVbJFb+55x9yj73hvXTDFlXg09H38CBPNQGeoX+QLNJGQi2OlHeVh6+JNxQo0FXqFoVyzQairiC8mPcvxphb7+hMs+KXZmtQItoB+Z6bfo2VY0ojpI6ldUICEk3zIV8MbwIDAQAB",
   "permissions": [
     "identity",
     "scripting",
