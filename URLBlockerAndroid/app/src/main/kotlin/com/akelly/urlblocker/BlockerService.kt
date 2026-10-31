@@ -55,6 +55,9 @@ class BlockerService : AccessibilityService() {
             }
         }
     }
+    private val packageReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) = DeviceOwner.apply(context)
+    }
     private lateinit var engine: WebView
     private var engineStarted = false
     private var engineReady = false
@@ -68,6 +71,12 @@ class BlockerService : AccessibilityService() {
     private var blockPage = JSONObject()
 
     override fun onServiceConnected() {
+        DeviceOwner.apply(this)
+        registerReceiver(
+            packageReceiver,
+            IntentFilter(Intent.ACTION_PACKAGE_ADDED).apply { addDataScheme("package") },
+            RECEIVER_NOT_EXPORTED,
+        )
         engine = WebView(this)
         engine.settings.javaScriptEnabled = true
         engine.addJavascriptInterface(EngineHost(), "AndroidHost")
@@ -238,6 +247,7 @@ class BlockerService : AccessibilityService() {
         running = null
         Status.sync = null
         handler.removeCallbacks(tick)
+        unregisterReceiver(packageReceiver)
         if (engineReady) unregisterReceiver(screenReceiver)
         closeOverlay()
         engine.destroy()

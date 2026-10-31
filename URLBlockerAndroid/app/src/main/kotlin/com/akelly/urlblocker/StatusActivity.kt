@@ -89,7 +89,10 @@ class StatusActivity : Activity() {
         val sync = Status.sync
         val email = sync?.takeUnless { it.isNull("email") }?.getString("email")
         text.text = (
-            listOf("Accessibility service: ${if (serviceEnabled) "enabled" else "disabled"}") +
+            listOf(
+                "Accessibility service: ${if (serviceEnabled) "enabled" else "disabled"}",
+                "Device Owner: ${if (DeviceOwner.isActive(this)) "yes" else "no"}",
+            ) +
                 (if (sync == null) listOf("Sync: waiting for the accessibility service") else syncLines(sync, email)) +
                 listOf("Last decision: ${Status.lastDecision}")
             ).joinToString("\n\n")

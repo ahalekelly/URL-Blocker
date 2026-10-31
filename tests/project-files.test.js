@@ -69,3 +69,11 @@ test("blocked page is not exposed to every website", () => {
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+test("Android force-installs the extension ID derived from the Chromium manifest key", () => {
+  const digest = require("node:crypto").createHash("sha256").update(Buffer.from(chromeManifest.key, "base64")).digest("hex");
+  const extensionId = [...digest.slice(0, 32)].map((char) => String.fromCharCode(97 + parseInt(char, 16))).join("");
+  const deviceOwner = fs.readFileSync(path.join(repoRoot, "URLBlockerAndroid/app/src/main/kotlin/com/akelly/urlblocker/DeviceOwner.kt"), "utf8");
+
+  assert.match(deviceOwner, new RegExp(`URL_BLOCKER_EXTENSION_ID = "${extensionId}"`));
+});

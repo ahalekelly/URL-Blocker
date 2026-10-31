@@ -13,6 +13,17 @@ android {
         versionCode = 1
         versionName = "1.0"
     }
+
+    // A Device Owner app can't be uninstalled, so every machine that installs
+    // it must sign with this one key, kept outside the repo.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("${System.getProperty("user.home")}/.config/url-blocker/android-signing.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
 }
 
 // The engine runs the extension's own scripts, copied in at build time.
