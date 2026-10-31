@@ -867,6 +867,7 @@ function messageTypes(app) {
 function fakeBackgroundApi(overrides) {
   const api = {
     storageData: {},
+    sessionData: {},
     nativeData: {},
     grantedOrigins: [...manifest.host_permissions],
     tabsData: overrides.tabs || [],
@@ -930,6 +931,19 @@ function fakeBackgroundApi(overrides) {
         },
         async set(value) {
           Object.assign(api.storageData, value);
+        }
+      },
+      session: {
+        async get(key) {
+          return { [key]: api.sessionData[key] };
+        },
+        async remove(keys) {
+          for (const key of [keys].flat()) {
+            delete api.sessionData[key];
+          }
+        },
+        async set(value) {
+          Object.assign(api.sessionData, value);
         }
       }
     },

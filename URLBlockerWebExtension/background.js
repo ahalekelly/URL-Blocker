@@ -22,6 +22,8 @@
   const SUPABASE_SESSION_KEY = "supabaseSession";
   const REFERRER_RECORD_PREFIX = "referrerRecords:";
   const REFERRER_RECORD_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+  const YOUTUBE_VIDEO_PREFIX = "youtubeVideo:";
+  const COMMITTED_NAVIGATION_PREFIX = "committedNavigation:";
   const UNKNOWN_NAVIGATION_SOURCE = { type: "unknown" };
 
   function createBackgroundController(api) {
@@ -31,8 +33,9 @@
     const screenTimeStorage = createScreenTimeStorage(api);
     const settingsSyncStorage = createSettingsSyncStorage(api);
     const sessionStorage = createSupabaseSessionStorage(api);
-    const youtubeVideosByTab = new Map();
-    const committedNavigationsByTab = new Map();
+    // Per-tab memory lives in session storage because Safari and Chromium
+    // stop the service worker when idle, such as while the phone is locked.
+    const tabStorage = api.storage.session;
     let defaultEntriesLoad;
     let configPromise;
     let lastSyncError = "";
@@ -215,7 +218,7 @@
         throw codedError("MissingSenderTab", "urlChanged message must come from a tab.");
       }
 
-      return redirectBlockedUrl(sender.tab.id, rawUrl, contentNavigationSource(sender.tab.id, rawUrl, rawSource));
+      return redirectBlockedUrl(sender.tab.id, rawUrl, await contentNavigationSource(sender.tab.id, rawUrl, rawSource));
     }
 
     // The block page opens its target through here because Chromium sends no
@@ -237,9 +240,9 @@
 
     // Chromium leaves document.referrer empty for typed URLs and bookmarks as
     // well as for some links, so the page's committed transition tells them apart.
-    function contentNavigationSource(tabId, rawUrl, rawSource) {
+    async function contentNavigationSource(tabId, rawUrl, rawSource) {
       const source = documentNavigationSource(api, rawSource);
-      const committed = committedNavigationsByTab.get(tabId);
+      const committed = await loadTabValue(COMMITTED_NAVIGATION_PREFIX, tabId);
 
       if (source.type === "document"
         && source.referrer.type === "known"
@@ -269,7 +272,7 @@
         throw codedError("ScreenTimeElapsedInvalid", "Screen time elapsed time must be no more than 30 seconds.");
       }
 
-      const source = contentNavigationSource(sender.tab.id, rawUrl, rawSource);
+      const source = await contentNavigationSource(sender.tab.id, rawUrl, rawSource);
       const state = await loadState();
       const match = core.screenTimeDomainForUrl(state, rawUrl);
 
@@ -337,12 +340,12 @@
       const usage = await loadScreenTimeUsage();
       const match = core.findBlockedMatchingEntry(state, rawUrl, core.overLimitDomains(state, usage, nowMs), navigationSource);
 
-      if (youtubeFocusAllows(state, tabId, rawUrl, match)) {
+      if (await youtubeFocusAllows(state, tabId, rawUrl, match)) {
         return { type: "allowed", youtubeFocus: true, shortVideo: match.shortVideo };
       }
 
       if (match.type === "none") {
-        rememberAllowedYoutubeVideo(tabId, rawUrl);
+        await rememberAllowedYoutubeVideo(tabId, rawUrl);
         return { type: "allowed", youtubeFocus: false, shortVideo: match.shortVideo };
       }
 
@@ -364,7 +367,7 @@
       const usage = await loadScreenTimeUsage();
       const match = core.findBlockedMatchingEntry(state, details.url, core.overLimitDomains(state, usage, currentTimeMs()), UNKNOWN_NAVIGATION_SOURCE);
 
-      if (match.type !== "match" || youtubeFocusAllows(state, details.tabId, details.url, match)) {
+      if (match.type !== "match" || await youtubeFocusAllows(state, details.tabId, details.url, match)) {
         return { type: "allowed" };
       }
 
@@ -382,14 +385,14 @@
         return { type: "ignored" };
       }
 
-      const previous = committedNavigationsByTab.get(details.tabId);
+      const previous = await loadTabValue(COMMITTED_NAVIGATION_PREFIX, details.tabId);
 
       // A reload keeps the page's original transition, the way content.js
       // keeps a reloaded page's remembered arrival.
       if (details.transitionType !== "reload"
         || previous === undefined
         || core.pageChangeKey(previous.url) !== core.pageChangeKey(details.url)) {
-        committedNavigationsByTab.set(details.tabId, { url: details.url, transitionType: details.transitionType });
+        await tabStorage.set({ [`${COMMITTED_NAVIGATION_PREFIX}${details.tabId}`]: { url: details.url, transitionType: details.transitionType } });
       }
 
       return redirectBlockedUrl(details.tabId, details.url, {
@@ -433,7 +436,7 @@
       }));
     }
 
-    function youtubeFocusAllows(state, tabId, rawUrl, match) {
+    async function youtubeFocusAllows(state, tabId, rawUrl, match) {
       if (!state.youtubeFocus.finishCurrentVideo || match.type !== "match" || match.reason === "hardScheduleDomain") {
         return false;
       }
@@ -444,25 +447,19 @@
         return false;
       }
 
-      const allowedVideoId = youtubeVideosByTab.get(tabId);
-
-      if (allowedVideoId !== video.videoId) {
-        return false;
-      }
-
-      youtubeVideosByTab.set(tabId, video.videoId);
-      return true;
+      return await loadTabValue(YOUTUBE_VIDEO_PREFIX, tabId) === video.videoId;
     }
 
-    function rememberAllowedYoutubeVideo(tabId, rawUrl) {
+    async function rememberAllowedYoutubeVideo(tabId, rawUrl) {
       const video = core.youtubeWatchVideoForUrl(rawUrl);
+      const key = `${YOUTUBE_VIDEO_PREFIX}${tabId}`;
 
       switch (video.type) {
         case "match":
-          youtubeVideosByTab.set(tabId, video.videoId);
+          await tabStorage.set({ [key]: video.videoId });
           return;
         case "none":
-          youtubeVideosByTab.delete(tabId);
+          await tabStorage.remove(key);
           return;
         default:
           throw new Error(`Unknown YouTube video match type: ${video.type}`);
@@ -642,7 +639,7 @@
       if (isOverLimit) {
         const match = core.findBlockedMatchingEntry(state, rawUrl, new Set([domain]), source);
 
-        if (!youtubeFocusAllows(state, tabId, rawUrl, match)) {
+        if (!await youtubeFocusAllows(state, tabId, rawUrl, match)) {
           await redirectFromMatch(tabId, rawUrl, match);
         }
       }
@@ -1237,9 +1234,15 @@
         && record.recordedAt >= expiresBefore);
     }
 
-    function forgetTab(tabId) {
-      youtubeVideosByTab.delete(tabId);
-      committedNavigationsByTab.delete(tabId);
+    async function loadTabValue(prefix, tabId) {
+      const key = `${prefix}${tabId}`;
+      const stored = await tabStorage.get(key);
+
+      return stored[key];
+    }
+
+    async function forgetTab(tabId) {
+      await tabStorage.remove([`${YOUTUBE_VIDEO_PREFIX}${tabId}`, `${COMMITTED_NAVIGATION_PREFIX}${tabId}`]);
     }
 
     sweepReferrerRecords().catch((error) => {
@@ -1714,7 +1717,10 @@
     }
 
     if (api.tabs.onRemoved) {
-      api.tabs.onRemoved.addListener((tabId) => controller.forgetTab(tabId));
+      api.tabs.onRemoved.addListener((tabId) => {
+        controller.forgetTab(tabId)
+          .catch((error) => console.error(`URL Blocker could not forget a closed tab. ${errorLogText(error)}`));
+      });
     }
 
     if (api.webNavigation) {

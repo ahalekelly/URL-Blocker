@@ -672,7 +672,7 @@ test("Chromium reloads keep the committed transition until the tab closes", asyn
   });
   const reloaded = await controller.handleMessage(urlChangedMessage("https://example.com/typed", emptyReferrer), { tab: { id: 7 } });
 
-  controller.forgetTab(7);
+  await controller.forgetTab(7);
   const forgotten = await controller.handleMessage(urlChangedMessage("https://example.com/typed", emptyReferrer), { tab: { id: 7 } });
 
   assert.equal(reloaded.type, "redirected");
@@ -1266,6 +1266,24 @@ test("urlChanged lets a remembered YouTube video continue after rolling usage ex
 
   assert.deepEqual(remembered, { type: "allowed", youtubeFocus: false, shortVideo: { type: "feed", site: "youtube" } });
   assert.deepEqual(focused, { type: "allowed", youtubeFocus: true, shortVideo: { type: "feed", site: "youtube" } });
+  assert.deepEqual(api.updatedTabs, []);
+});
+
+test("urlChanged lets a remembered YouTube video continue after the service worker restarts", async () => {
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "youtube.com" }
+  ], inactiveSchedule(), [
+    { domain: "youtube.com", limit: { type: "site", limitMinutes: 1 } }
+  ]);
+  await createBackgroundController(api).handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", internalYoutubeSource), { tab: { id: 7 } });
+
+  api.storageData.screenTimeUsage = screenTimeUsage({
+    "youtube.com": { 20: 60000 }
+  });
+  const focused = await createBackgroundController(api).handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", internalYoutubeSource), { tab: { id: 7 } });
+
+  assert.equal(focused.youtubeFocus, true);
   assert.deepEqual(api.updatedTabs, []);
 });
 
@@ -2301,6 +2319,7 @@ async function flushPromises() {
 function fakeApi(overrides = {}) {
   const api = {
     storageData: {},
+    sessionData: {},
     storageSets: [],
     nativeData: {},
     grantedOrigins: overrides.grantedOrigins || ["*://*.example.com/*", ...manifest.host_permissions],
@@ -2368,6 +2387,19 @@ function fakeApi(overrides = {}) {
         async set(value) {
           api.storageSets.push(JSON.parse(JSON.stringify(value)));
           Object.assign(api.storageData, value);
+        }
+      },
+      session: {
+        async get(key) {
+          return { [key]: api.sessionData[key] };
+        },
+        async remove(keys) {
+          for (const key of [keys].flat()) {
+            delete api.sessionData[key];
+          }
+        },
+        async set(value) {
+          Object.assign(api.sessionData, value);
         }
       }
     },
