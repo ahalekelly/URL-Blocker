@@ -40,6 +40,7 @@
 - `scripts/install-chromium-extension.mjs`: updates or reloads the unpacked Chrome extension in a Chromium-based browser profile.
 - `scripts/sync-default-blocked-pages.mjs`: syncs/checks default blocked pages.
 - `scripts/headless-brave.mjs`: launches muted headless Brave with a throwaway profile and the unpacked extension for automated checks.
+- `scripts/release-chromium-extension.mjs`: packs a signed CRX and uploads it with `updates.xml` to the public `chromium-extension` Supabase bucket (`supabase/002_extension_bucket.sql`), which Vivaldi on Android force-installs from.
 
 ## Commands
 
@@ -73,6 +74,12 @@ Build and update Brave with the unpacked extension:
 
 ```sh
 make brave-install
+```
+
+Release the extension to Vivaldi on Android (outside the sandbox; Vivaldi picks up the new version on its next update check, within hours):
+
+```sh
+node scripts/release-chromium-extension.mjs
 ```
 
 Use Brave as the Chromium UI verification target. Do not use Vivaldi for browser UI testing unless explicitly requested.
@@ -135,7 +142,7 @@ Build and install the signed macOS app:
 make macos-install
 ```
 
-Build the Android app (debug-signed, needs JDK 21 at `/opt/homebrew/opt/openjdk@21` and the SDK at `~/Library/Android/sdk`):
+Build the Android app (needs JDK 21 at `/opt/homebrew/opt/openjdk@21`, the SDK at `~/Library/Android/sdk`, and the shared signing key at `~/.config/url-blocker/android-signing.keystore`):
 
 ```sh
 make android-build
@@ -156,6 +163,12 @@ make android-install
 ```
 
 The Android app gets settings by signing in to Supabase (Google, via the `urlblocker://supabase-auth` redirect) from its status screen; until then it uses the default settings. Synced settings wait out the active settings delay, like in the extension. The engine keeps its session, settings, and screen time in app-private files, readable in debug builds with `adb shell run-as com.akelly.urlblocker ls files`. `adb logcat -s URLBlocker` shows each sync status.
+
+As Device Owner, the app blocks its own and Vivaldi's uninstall, sets `DISALLOW_APPS_CONTROL` and `DISALLOW_SAFE_BOOT`, hides every other browser and the YouTube app, and force-installs URL Blocker and uBlock Origin Lite in Vivaldi through managed config. Test it on the emulator, which has no accounts:
+
+```sh
+adb shell dpm set-device-owner com.akelly.urlblocker/.DeviceOwnerReceiver
+```
 
 Enable the accessibility service from Settings → Accessibility, or with root (`adb root` works on `google_apis` emulator images):
 
@@ -210,7 +223,7 @@ grant execute on function public.sync_screen_time_buckets(jsonb) to authenticate
 ```
 
 - Google sign-in is configured. Apple sign-in is intentionally not configured yet.
-- Chromium sign-in redirects to `https://<extension-id>.chromiumapp.org/supabase`. An unpacked extension's ID comes from its folder path, so each new install location needs its URL in Supabase's Redirect URLs (Authentication → URL Configuration); otherwise sign-in fails with "Authorization page could not be loaded".
+- Chromium sign-in redirects to `https://<extension-id>.chromiumapp.org/supabase`, which must be in Supabase's Redirect URLs (Authentication → URL Configuration); otherwise sign-in fails with "Authorization page could not be loaded". The `key` in `ChromeExtension/manifest.json` fixes the ID at `codockenjkigoanmejjcfnlhcfeiemhf` for every Chromium install.
 
 ## Python Scripts
 
@@ -221,4 +234,5 @@ grant execute on function public.sync_screen_time_buckets(jsonb) to authenticate
 ## Signing Hygiene
 
 - Never commit `.p12`, `.p8`, `.mobileprovision`, keychains, or signed `.ipa` files.
+- `~/.config/url-blocker/` on the Mac and akelly-desktop holds `android-signing.keystore` (signs the Android app; a Device Owner can't be reinstalled with another key) and `extension-key.pem` (signs the CRX and fixes the extension ID). Copy them to any new machine that builds; never commit them.
 - After building and copying the macOS app to `/Applications`, unregister the temporary build product's Safari extension with `pluginkit -r /tmp/.../URLBlockerMac.app/Contents/PlugIns/URLBlockerMacExtension.appex` and verify `pluginkit -m -A -D -vvv -p com.apple.Safari.web-extension` shows only the `/Applications/URLBlockerMac.app` copy. Otherwise Safari can show duplicate URL Blocker extensions.
