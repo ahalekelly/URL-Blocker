@@ -23,6 +23,7 @@ ANDROID_HOME ?= $(HOME)/Library/Android/sdk
 ANDROID_JAVA_HOME ?= /opt/homebrew/opt/openjdk@21
 ANDROID_APK := $(CURDIR)/URLBlockerAndroid/app/build/outputs/apk/debug/app-debug.apk
 ADB := $(ANDROID_HOME)/platform-tools/adb
+PIXEL_ADB := pixel-8.troodon-bigeye.ts.net:5555
 
 MACOS_BUILD_APP := $(MACOS_DERIVED_DATA)/Build/Products/Release/URLBlockerMac.app
 MACOS_BUILD_EXTENSION := $(MACOS_BUILD_APP)/Contents/PlugIns/URLBlockerMacExtension.appex
@@ -85,6 +86,7 @@ android-build:
 	cd URLBlockerAndroid && JAVA_HOME="$(ANDROID_JAVA_HOME)" ANDROID_HOME="$(ANDROID_HOME)" ./gradlew --quiet assembleDebug
 
 android-install: android-build
+	"$(ADB)" get-state >/dev/null 2>&1 || "$(ADB)" connect "$(PIXEL_ADB)"
 	"$(ADB)" install -r "$(ANDROID_APK)"
 
 ios-build:

@@ -154,9 +154,7 @@ On akelly-desktop (Linux, no zsh):
 make android-build SHELL=/bin/bash ANDROID_HOME=~/.local/opt/android-sdk ANDROID_JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 ```
 
-The Pixel 8 is reachable from both machines with `adb connect pixel-8.troodon-bigeye.ts.net:5555`; see `~/.agents/machines/pixel8.md`.
-
-Build and install the Android app on the connected device or emulator with adb:
+Build and install the Android app with adb on the connected device or emulator, or on the Pixel 8 over Tailscale when none is connected (see `~/.agents/machines/pixel8.md`):
 
 ```sh
 make android-install
