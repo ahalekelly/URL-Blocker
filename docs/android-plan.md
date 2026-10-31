@@ -12,6 +12,7 @@ Target device: rooted Pixel 8.
 
 - Vivaldi for Android is the only browser. Other browsers and the YouTube app are disabled with `pm disable-user` (see step 8 for the YouTube app alternative).
 - Vivaldi runs URL Blocker unpacked (Developer Mode → Load unpacked) and uBlock Origin Lite for ads, including YouTube. URL Blocker's APIs (`webNavigation`, `scripting`, `tabs`, `identity`, the service worker) work there.
+- Unpacked files load through Android's folder access, so each `fetch` of a packaged file takes about 300 ms (15 ms for store installs). The navigation path must not fetch packaged files.
 - Load unpacked works without Desktop Site. The Chrome Web Store needs Desktop Site only to install, so it can stay off.
 - Settings are edited in URL Blocker's options page in Vivaldi.
 
