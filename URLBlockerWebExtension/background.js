@@ -33,6 +33,7 @@
     const sessionStorage = createSupabaseSessionStorage(api);
     const youtubeVideosByTab = new Map();
     const committedNavigationsByTab = new Map();
+    let defaultEntriesLoad;
     let configPromise;
     let lastSyncError = "";
     let activationTimer = 0;
@@ -677,7 +678,15 @@
       return core.emptyState(await loadDefaultEntries());
     }
 
-    async function loadDefaultEntries() {
+    // Packaged files never change while the worker runs, and fetching one
+    // costs ~300 ms in Vivaldi Android's unpacked installs, so the list loads
+    // once per worker.
+    function loadDefaultEntries() {
+      defaultEntriesLoad ??= fetchDefaultEntries();
+      return defaultEntriesLoad;
+    }
+
+    async function fetchDefaultEntries() {
       const url = runtimeUrl("default-blocked-pages.json");
       let response;
 
