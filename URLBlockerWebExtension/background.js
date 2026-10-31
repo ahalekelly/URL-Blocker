@@ -348,29 +348,37 @@
       return redirectFromMatch(tabId, rawUrl, match);
     }
 
-    async function redirectCommittedNavigation(details) {
-      if (!isPlainObject(details)) {
-        throw codedError("CommittedNavigationInvalid", "Committed navigation details must be an object.");
-      }
-
-      if (typeof details.frameId !== "number") {
-        throw codedError("CommittedNavigationInvalid", "Committed navigation frame ID must be a number.");
-      }
+    // Before the request goes out, the arrival is unknown, so only pages
+    // blocked for every arrival redirect here, sparing the wait for the
+    // site's response. Arrival-dependent blocks and single-video redirects
+    // wait for the commit, which knows the transition.
+    async function redirectNavigationStart(details) {
+      requireTopFrameDetails(details);
 
       if (details.frameId !== 0) {
         return { type: "ignored" };
       }
 
-      if (typeof details.tabId !== "number") {
-        throw codedError("CommittedNavigationInvalid", "Committed navigation tab ID must be a number.");
+      const state = await loadState();
+      const usage = await loadScreenTimeUsage();
+      const match = core.findBlockedMatchingEntry(state, details.url, core.overLimitDomains(state, usage, currentTimeMs()), UNKNOWN_NAVIGATION_SOURCE);
+
+      if (match.type !== "match" || youtubeFocusAllows(state, details.tabId, details.url, match)) {
+        return { type: "allowed" };
       }
 
-      if (typeof details.url !== "string" || details.url.trim() === "") {
-        throw codedError("CommittedNavigationInvalid", "Committed navigation URL must be a string.");
-      }
+      return redirectFromMatch(details.tabId, details.url, match);
+    }
+
+    async function redirectCommittedNavigation(details) {
+      requireTopFrameDetails(details);
 
       if (typeof details.transitionType !== "string") {
-        throw codedError("CommittedNavigationInvalid", "Committed navigation transition type must be a string.");
+        throw codedError("NavigationDetailsInvalid", "Committed navigation transition type must be a string.");
+      }
+
+      if (details.frameId !== 0) {
+        return { type: "ignored" };
       }
 
       const previous = committedNavigationsByTab.get(details.tabId);
@@ -387,6 +395,24 @@
         type: "chromiumCommitted",
         transitionType: details.transitionType
       });
+    }
+
+    function requireTopFrameDetails(details) {
+      if (!isPlainObject(details)) {
+        throw codedError("NavigationDetailsInvalid", "Navigation details must be an object.");
+      }
+
+      if (typeof details.frameId !== "number") {
+        throw codedError("NavigationDetailsInvalid", "Navigation frame ID must be a number.");
+      }
+
+      if (typeof details.tabId !== "number") {
+        throw codedError("NavigationDetailsInvalid", "Navigation tab ID must be a number.");
+      }
+
+      if (typeof details.url !== "string" || details.url.trim() === "") {
+        throw codedError("NavigationDetailsInvalid", "Navigation URL must be a string.");
+      }
     }
 
     async function redirectOpenBlockedTabs(state) {
@@ -1229,6 +1255,7 @@
       openOptions,
       redirectBlockedUrl,
       redirectCommittedNavigation,
+      redirectNavigationStart,
       finishSavedState,
       saveState,
       signInWithProvider,
@@ -1681,7 +1708,11 @@
       api.tabs.onRemoved.addListener((tabId) => controller.forgetTab(tabId));
     }
 
-    if (api.webNavigation && api.webNavigation.onCommitted) {
+    if (api.webNavigation) {
+      api.webNavigation.onBeforeNavigate.addListener((details) => {
+        controller.redirectNavigationStart(details)
+          .catch((error) => console.error(`URL Blocker could not redirect starting navigation. ${errorLogText(error)}`));
+      });
       api.webNavigation.onCommitted.addListener((details) => {
         controller.redirectCommittedNavigation(details)
           .catch((error) => console.error(`URL Blocker could not redirect committed navigation. ${errorLogText(error)}`));

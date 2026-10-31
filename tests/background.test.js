@@ -871,6 +871,45 @@ test("committed Chromium subframe navigation is ignored", async () => {
   assert.deepEqual(api.updatedTabs, []);
 });
 
+test("starting navigation to a page blocked for every arrival redirects before the request", async () => {
+  const api = fakeApi({ runtimeScheme: "chrome-extension" });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "example.com" }
+  ], { type: "always" });
+  const controller = createBackgroundController(api);
+  const response = await controller.redirectNavigationStart({ frameId: 0, tabId: 7, url: "https://example.com/" });
+
+  assert.equal(response.type, "redirected");
+  assert.deepEqual(api.updatedTabs, [{
+    tabId: 7,
+    url: blockedUrl("https://example.com/", "scheduleDirectMatch", "chrome-extension")
+  }]);
+});
+
+test("starting navigation leaves arrival-dependent root URL blocks to the commit", async () => {
+  const api = fakeApi({ runtimeScheme: "chrome-extension" });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "example.com" }
+  ], { type: "always" });
+  const controller = createBackgroundController(api);
+  const response = await controller.redirectNavigationStart({ frameId: 0, tabId: 7, url: "https://example.com/path" });
+
+  assert.equal(response.type, "allowed");
+  assert.deepEqual(api.updatedTabs, []);
+});
+
+test("starting subframe navigation is ignored", async () => {
+  const api = fakeApi({ runtimeScheme: "chrome-extension" });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "example.com" }
+  ], { type: "always" });
+  const controller = createBackgroundController(api);
+  const response = await controller.redirectNavigationStart({ frameId: 1, tabId: 7, url: "https://example.com/" });
+
+  assert.equal(response.type, "ignored");
+  assert.deepEqual(api.updatedTabs, []);
+});
+
 test("screenTimeElapsed logs time into the current hour bucket", async () => {
   const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
   api.storageData[core.STATE_KEY] = validState([
