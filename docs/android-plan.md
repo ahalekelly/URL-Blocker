@@ -34,7 +34,7 @@ Target device: rooted Pixel 8.
 
 ### Tamper resistance
 
-- The app is Device Owner (set by temporarily removing accounts, then `dpm set-device-owner`). It blocks its own uninstall, sets `DISALLOW_APPS_CONTROL` and `DISALLOW_SAFE_BOOT`, and keeps other browsers disabled.
+- The app is Device Owner (set by temporarily removing accounts, then `dpm set-device-owner`). Android requires removing the Google account even for test-only admins. Every machine that installs the app must sign it with the same key, since a Device Owner can't be uninstalled to switch keys. It blocks its own uninstall, sets `DISALLOW_APPS_CONTROL` and `DISALLOW_SAFE_BOOT`, and keeps other browsers disabled.
 - With root, it reads Vivaldi's `Preferences` to confirm URL Blocker and uBlock Origin Lite are installed and enabled, and covers Vivaldi when they are not.
 - If Vivaldi honors `ExtensionInstallForcelist` through managed configuration, the app sets it. Vivaldi's managed-config schema lists the extension policies, but Android delivers app restrictions only from a device admin, so testing needs the Device Owner.
 - Root can still undo all of this; the goal is friction, not impossibility.
