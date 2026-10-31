@@ -5,13 +5,14 @@ Target device: rooted Pixel 8.
 ## Phone
 
 - Unlock the bootloader before setup (it wipes the phone), then root with Magisk.
-- Claude reaches the phone over adb on Tailscale, with `su` for root. A Magisk module keeps adb listening on TCP across reboots. Notes live in `~/.agents/machines/pixel8.md`.
+- Claude reaches the phone over adb on Tailscale, with `su` for root. A Magisk boot script keeps adb listening on TCP, reachable only over Tailscale. Notes live in `~/.agents/machines/pixel8.md`.
 - AdAway blocks ad domains system-wide.
 
 ## Browser
 
 - Vivaldi for Android is the only browser. Other browsers and the YouTube app are disabled with `pm disable-user` (see step 8 for the YouTube app alternative).
-- Vivaldi runs URL Blocker unpacked (Developer Mode → Load unpacked) and uBlock Origin Lite for ads, including YouTube.
+- Vivaldi runs URL Blocker unpacked (Developer Mode → Load unpacked) and uBlock Origin Lite for ads, including YouTube. URL Blocker's APIs (`webNavigation`, `scripting`, `tabs`, `identity`, the service worker) work there.
+- Load unpacked works without Desktop Site. The Chrome Web Store needs Desktop Site only to install, so it can stay off.
 - Settings are edited in URL Blocker's options page in Vivaldi.
 
 ## Short-form video hiding
@@ -49,6 +50,4 @@ Target device: rooted Pixel 8.
 
 ## Open questions
 
-- Do URL Blocker's APIs (`webNavigation`, `scripting`, service worker) work in Vivaldi Android?
-- Does Vivaldi need "Desktop Site" enabled only to install extensions, or permanently?
 - Does Vivaldi honor extension policies from managed configuration?
