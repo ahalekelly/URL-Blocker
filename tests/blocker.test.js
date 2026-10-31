@@ -18,6 +18,7 @@ const chromeOmniboxSource = { type: "chromiumCommitted", transitionType: "genera
 const chromeReloadSource = { type: "chromiumCommitted", transitionType: "reload" };
 
 const hourMs = 60 * 60 * 1000;
+const streamingGroupId = core.DEFAULT_LIMIT_GROUPS[0].id;
 
 function knownReferrer(url) {
   return { type: "known", url };
@@ -75,18 +76,23 @@ test("loads default blocked pages for new installs", () => {
     { type: "default", kind: "urlWithSubpaths", value: "youtube.com/shorts", enabled: true },
     { type: "default", kind: "url", value: "reddit.com", enabled: true },
     { type: "default", kind: "url", value: "reddit.com/r/*", enabled: true },
-    { type: "default", kind: "url", value: "ycombinator.com", enabled: true }
+    { type: "default", kind: "url", value: "ycombinator.com", enabled: true },
+    { type: "default", kind: "urlWithSubpaths", value: "netflix.com", enabled: true },
+    { type: "default", kind: "urlWithSubpaths", value: "hbomax.com", enabled: true }
   ]);
   assert.deepEqual(state.schedule, { type: "dailyWindow", startMinute: 1380, endMinute: 1140 });
   assert.deepEqual(state.hardSchedule, { type: "off" });
   assert.deepEqual(state.limitReset, { type: "rollingWindow", windowHours: 24 });
   assert.deepEqual(state.settingsDelay, { delayMinutes: 60 });
   assert.deepEqual(state.youtubeFocus, { finishCurrentVideo: true });
+  assert.deepEqual(state.limitGroups, [{ id: streamingGroupId, name: "Streaming", limitMinutes: 60 }]);
   assert.deepEqual(state.domainLimits, [
     domainLimit("bsky.app"),
     domainLimit("facebook.com"),
+    groupDomainLimit("hbomax.com", streamingGroupId),
     domainLimit("instagram.com"),
     domainLimit("linkedin.com"),
+    groupDomainLimit("netflix.com", streamingGroupId),
     domainLimit("pinterest.com"),
     domainLimit("reddit.com"),
     domainLimit("threads.com"),
@@ -116,6 +122,7 @@ test("keeps default entries locked but configurable", () => {
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("x.com", 12)]
   }, defaultBlockedPages.slice(0, 1));
 
@@ -135,6 +142,7 @@ test("keeps default entries locked but configurable", () => {
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("example.com", 30)]
   }, defaultBlockedPages.slice(0, 1));
 
@@ -151,6 +159,7 @@ test("keeps default entries locked but configurable", () => {
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, defaultBlockedPages.slice(0, 1));
 
@@ -170,6 +179,7 @@ test("normalizes old linkedin feed default entries", () => {
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("linkedin.com", 30)]
   }, [linkedinDefault]);
 
@@ -215,7 +225,7 @@ test("migrates schema 7 states to split subreddit feeds from reddit", () => {
     entries: oldDefaultEntries,
     blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     schedule: core.DEFAULT_SCHEDULE,
-    domainLimits: core.domainLimitsForEntries(oldDefaultEntries, [{ domain: "reddit.com", limitMinutes: 12 }])
+    domainLimits: legacyDomainLimits(core.domainLimitsForEntries(oldDefaultEntries, [{ domain: "reddit.com", limit: { type: "site", limitMinutes: 12 } }], []))
   }, defaultBlockedPages);
   const redditEntry = state.entries.find((entry) => entry.value === "reddit.com");
   const subredditEntry = state.entries.find((entry) => entry.value === "reddit.com/r/*");
@@ -243,7 +253,7 @@ test("migrates schema 9 states to drop the removed facebook.com/home.php default
     schedule: core.DEFAULT_SCHEDULE,
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
-    domainLimits: core.domainLimitsForEntries(previousEntries, [])
+    domainLimits: legacyDomainLimits(core.domainLimitsForEntries(previousEntries, [], []))
   }, defaultBlockedPages);
 
   assert.equal(state.schemaVersion, core.SCHEMA_VERSION);
@@ -280,7 +290,7 @@ test("migrates schema 10 states to current social defaults", () => {
     schedule: core.DEFAULT_SCHEDULE,
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
-    domainLimits: core.domainLimitsForEntries(previousEntries, [])
+    domainLimits: legacyDomainLimits(core.domainLimitsForEntries(previousEntries, [], []))
   }, defaultBlockedPages);
 
   assert.equal(state.schemaVersion, core.SCHEMA_VERSION);
@@ -299,7 +309,7 @@ test("migrates schema 8 states to default rolling limit resets", () => {
     entries: oldState.entries,
     blockedPageHtml: oldState.blockedPageHtml,
     schedule: oldState.schedule,
-    domainLimits: oldState.domainLimits
+    domainLimits: legacyDomainLimits(oldState.domainLimits)
   }, []);
 
   assert.deepEqual(state.limitReset, core.DEFAULT_LIMIT_RESET);
@@ -317,7 +327,7 @@ test("migrates schema 12 settings delay modes to minute values", () => {
     schedule: core.DEFAULT_SCHEDULE,
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: { type: "daily", resetHour: 6 },
-    domainLimits: core.domainLimitsForEntries(previousDefaults, [{ domain: "youtube.com", limitMinutes: 11 }])
+    domainLimits: legacyDomainLimits(core.domainLimitsForEntries(previousDefaults, [{ domain: "youtube.com", limit: { type: "site", limitMinutes: 11 } }], []))
   };
   const immediate = validStoredState({
     ...oldState,
@@ -352,7 +362,7 @@ test("migrates schema 13 states to add YouTube subscriptions", () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    domainLimits: core.domainLimitsForEntries(previousEntries, [])
+    domainLimits: legacyDomainLimits(core.domainLimitsForEntries(previousEntries, [], []))
   }, defaultBlockedPages);
 
   assert.equal(state.schemaVersion, core.SCHEMA_VERSION);
@@ -376,7 +386,7 @@ test("migrates schema 14 states to current path defaults", () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    domainLimits: core.domainLimitsForEntries(previousEntries, [])
+    domainLimits: legacyDomainLimits(core.domainLimitsForEntries(previousEntries, [], []))
   }, defaultBlockedPages);
   const reelEntry = state.entries.find((entry) => entry.id === "10000000-0000-4000-8000-000000000018");
   const subredditEntry = state.entries.find((entry) => entry.id === "10000000-0000-4000-8000-000000000029");
@@ -402,7 +412,8 @@ test("repairs stored current states missing added defaults", () => {
     settingsDelay: { delayMinutes: 17 },
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
-    domainLimits: core.domainLimitsForEntries(previousEntries, [{ domain: "youtube.com", limitMinutes: 11 }])
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
+    domainLimits: core.domainLimitsForEntries(previousEntries, [{ domain: "youtube.com", limit: { type: "site", limitMinutes: 11 } }], core.DEFAULT_LIMIT_GROUPS)
   }, defaultBlockedPages);
 
   assert.equal(state.entries.find((entry) => entry.value === "youtube.com/feed/subscriptions").enabled, true);
@@ -419,7 +430,7 @@ test("migrates schema 16 states to default hard schedule", () => {
     schedule: core.DEFAULT_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    domainLimits: [domainLimit("example.com", 30)]
+    domainLimits: legacyDomainLimits([domainLimit("example.com", 30)])
   }, []);
 
   assert.equal(state.schemaVersion, core.SCHEMA_VERSION);
@@ -438,7 +449,7 @@ test("migrates schema 17 states to default YouTube focus settings", () => {
     hardSchedule: oldState.hardSchedule,
     limitReset: oldState.limitReset,
     settingsDelay: oldState.settingsDelay,
-    domainLimits: oldState.domainLimits
+    domainLimits: legacyDomainLimits(oldState.domainLimits)
   }, []);
 
   assert.equal(state.schemaVersion, core.SCHEMA_VERSION);
@@ -446,13 +457,96 @@ test("migrates schema 17 states to default YouTube focus settings", () => {
 });
 
 test("migrates schema 18 states to default short video hiding", () => {
-  const { shortVideoHiding, ...oldState } = validState([
+  const { shortVideoHiding, limitGroups, ...oldState } = validState([
     { id: ids[0], kind: "domain", value: "example.com" }
   ]);
-  const state = validStoredState({ ...oldState, schemaVersion: 18 }, []);
+  const state = validStoredState({ ...oldState, schemaVersion: 18, domainLimits: legacyDomainLimits(oldState.domainLimits) }, []);
 
   assert.equal(state.schemaVersion, core.SCHEMA_VERSION);
   assert.deepEqual(state.shortVideoHiding, { youtube: true, instagram: true, facebook: true, linkedin: true });
+});
+
+test("migrates schema 19 states to the default limit groups", () => {
+  const previousEntries = defaultBlockedPages
+    .filter((entry) => !["netflix.com", "hbomax.com"].includes(entry.value))
+    .map((entry) => ({ ...entry, enabled: true }));
+  const state = validStoredState({
+    schemaVersion: 19,
+    entries: previousEntries,
+    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
+    schedule: core.DEFAULT_SCHEDULE,
+    hardSchedule: core.DEFAULT_HARD_SCHEDULE,
+    limitReset: core.DEFAULT_LIMIT_RESET,
+    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
+    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
+    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    domainLimits: legacyDomainLimits(core.domainLimitsForEntries(previousEntries, [{ domain: "youtube.com", limit: { type: "site", limitMinutes: 11 } }], []))
+  }, defaultBlockedPages);
+  const limitFor = (domain) => state.domainLimits.find((limit) => limit.domain === domain);
+
+  assert.equal(state.schemaVersion, core.SCHEMA_VERSION);
+  assert.deepEqual(state.limitGroups, core.DEFAULT_LIMIT_GROUPS);
+  assert.deepEqual(limitFor("youtube.com"), domainLimit("youtube.com", 11));
+  assert.deepEqual(limitFor("reddit.com"), domainLimit("reddit.com"));
+  assert.deepEqual(limitFor("netflix.com"), groupDomainLimit("netflix.com", streamingGroupId));
+  assert.deepEqual(limitFor("hbomax.com"), groupDomainLimit("hbomax.com", streamingGroupId));
+  assert.equal(state.entries.find((entry) => entry.value === "netflix.com").enabled, false);
+});
+
+test("validates limit groups and group references", () => {
+  const state = validState([{ id: ids[0], kind: "domain", value: "example.com" }]);
+  const social = { id: ids[1], name: "Social", limitMinutes: 20 };
+  const errors = (limitGroups, domainLimits = state.domainLimits) => core.validateState({ ...state, limitGroups, domainLimits }, []).errors;
+  const grouped = core.validateState({
+    ...state,
+    limitGroups: [...core.DEFAULT_LIMIT_GROUPS, { ...social, name: " Social " }],
+    domainLimits: [groupDomainLimit("example.com", ids[1])]
+  }, []);
+
+  assert.equal(grouped.type, "valid");
+  assert.deepEqual(grouped.state.limitGroups, [social, ...core.DEFAULT_LIMIT_GROUPS]);
+  assert.deepEqual(grouped.state.domainLimits, [groupDomainLimit("example.com", ids[1])]);
+  assert.deepEqual(errors([{ ...social, id: "not-a-uuid" }]), [{ index: null, message: "Limit group ID must be a lowercase UUID." }]);
+  assert.deepEqual(errors([{ ...social, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".toUpperCase() }]), [{ index: null, message: "Limit group ID must be a lowercase UUID." }]);
+  assert.deepEqual(errors([social, { ...social, name: "Other" }]), [{ index: null, message: "Duplicate limit group ID." }]);
+  assert.deepEqual(errors([social, { ...social, id: ids[2], name: "social" }]), [{ index: null, message: "Duplicate limit group name: social." }]);
+  assert.deepEqual(errors([{ ...social, name: "  " }]), [{ index: null, message: `Limit group names must be 1 to ${core.MAX_LIMIT_GROUP_NAME_LENGTH} characters.` }]);
+  assert.deepEqual(errors([{ ...social, limitMinutes: 0 }]), [{ index: null, message: `Limit group minutes must be between 1 and ${core.MAX_LIMIT_MINUTES}.` }]);
+  assert.deepEqual(errors([social], [groupDomainLimit("example.com", ids[2])]), [
+    { index: null, message: "Domain limit group does not exist." },
+    { index: null, message: "Missing domain limit: example.com." }
+  ]);
+  assert.deepEqual(errors([social], [{ ...domainLimit("example.com"), limit: { type: "app", limitMinutes: 5 } }]), [
+    { index: null, message: "Domain limit type must be site or group." },
+    { index: null, message: "Missing domain limit: example.com." }
+  ]);
+  assert.deepEqual(errors([social], [{ ...domainLimit("example.com"), limitMinutes: 5 }]), [{ index: null, message: "Domain limit has unknown key: limitMinutes." }]);
+});
+
+test("limit groups sum usage across members and block every member once over", () => {
+  const evening = new Date(2026, 0, 1, 17, 0);
+  const state = validState([
+    { id: ids[0], kind: "domain", value: "netflix.com" },
+    { id: ids[1], kind: "domain", value: "hbomax.com" },
+    { id: ids[2], kind: "domain", value: "example.com" }
+  ], { type: "dailyWindow", startMinute: 540, endMinute: 1020 }, [
+    groupDomainLimit("netflix.com", streamingGroupId),
+    groupDomainLimit("hbomax.com", streamingGroupId),
+    domainLimit("example.com", 1)
+  ]);
+  const underLimit = screenTimeUsage({ "netflix.com": { 20: 30 * 60000 }, "hbomax.com": { 20: 29 * 60000 }, "example.com": { 20: 1000 } });
+  const overLimit = screenTimeUsage({ "netflix.com": { 20: 30 * 60000 }, "hbomax.com": { 20: 30 * 60000 } });
+  const overLimitDomains = core.overLimitDomains(state, overLimit, 20 * hourMs);
+
+  assert.deepEqual(core.screenTimeEntries(state, underLimit, 20 * hourMs), [
+    { type: "group", type: "group", name: "Streaming", domains: ["hbomax.com", "netflix.com"], totalMs: 59 * 60000, limitMinutes: 60, isOverLimit: false },
+    { type: "site", name: "example.com", domains: ["example.com"], totalMs: 1000, limitMinutes: 1, isOverLimit: false }
+  ]);
+  assert.deepEqual(core.overLimitDomains(state, underLimit, 20 * hourMs), new Set());
+  assert.deepEqual(overLimitDomains, new Set(["hbomax.com", "netflix.com"]));
+  assert.equal(core.findBlockedMatchingEntry(state, "https://www.netflix.com/browse", overLimitDomains, unknownSource, evening).type, "match");
+  assert.equal(core.findBlockedMatchingEntry(state, "https://www.hbomax.com/", overLimitDomains, unknownSource, evening).type, "match");
+  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/", overLimitDomains, unknownSource, evening).type, "none");
 });
 
 test("validates short video hiding settings", () => {
@@ -645,6 +739,7 @@ test("validates state strictly", () => {
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("example.com", 30)]
   }, []);
 
@@ -661,6 +756,7 @@ test("validates state strictly", () => {
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("example.com", 30)]
   }, []);
 
@@ -677,6 +773,7 @@ test("validates state strictly", () => {
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, []);
 
@@ -696,6 +793,7 @@ test("validates state strictly", () => {
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("example.com", 30)]
   }, []);
 
@@ -722,6 +820,7 @@ test("validates blocked page HTML and rejects old state", () => {
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, []);
 
@@ -738,6 +837,7 @@ test("validates blocked page HTML and rejects old state", () => {
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, []);
 
@@ -764,6 +864,7 @@ test("validates schedules and detects active windows", () => {
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, []);
 
@@ -780,6 +881,7 @@ test("validates schedules and detects active windows", () => {
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, []);
 
@@ -796,6 +898,7 @@ test("validates schedules and detects active windows", () => {
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, []);
 
@@ -812,6 +915,7 @@ test("validates schedules and detects active windows", () => {
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, []);
 
@@ -839,6 +943,7 @@ test("validates limit reset settings", () => {
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, []);
 
@@ -857,6 +962,7 @@ test("validates settings delay settings", () => {
     settingsDelay: { delayMinutes: 0 },
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, []);
   const invalidDelay = core.validateState({
@@ -869,6 +975,7 @@ test("validates settings delay settings", () => {
     settingsDelay: { delayMinutes: -1 },
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, []);
 
@@ -1199,8 +1306,8 @@ test("validates domain limits against associated domains", () => {
     { id: ids[1], kind: "urlWithSubpaths", value: "https://example.com/other" },
     { id: ids[2], kind: "domain", value: "news.example.com" }
   ], core.DEFAULT_SCHEDULE, [
-    { domain: "example.com", limitMinutes: 45 },
-    { domain: "news.example.com", limitMinutes: 10 }
+    { domain: "example.com", limit: { type: "site", limitMinutes: 45 } },
+    { domain: "news.example.com", limit: { type: "site", limitMinutes: 10 } }
   ]);
 
   assert.deepEqual(state.domainLimits, [
@@ -1218,6 +1325,7 @@ test("validates domain limits against associated domains", () => {
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, []);
 
@@ -1234,6 +1342,7 @@ test("validates domain limits against associated domains", () => {
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("example.com", 30)]
   }, []);
 
@@ -1268,6 +1377,7 @@ test("rejects duplicate entries after normalization", () => {
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("x.com", 30)]
   }, []);
 
@@ -1405,7 +1515,7 @@ test("screen time entries use the configured rolling reset window", () => {
 
   assert.deepEqual(core.usageWindow(state.limitReset, 20 * hourMs), { startHour: 19, endHour: 20 });
   assert.deepEqual(core.screenTimeEntries(state, usage, 20 * hourMs), [
-    { domain: "example.com", totalMs: 5000, limitMinutes: 1, isOverLimit: false }
+    { type: "site", name: "example.com", domains: ["example.com"], totalMs: 5000, limitMinutes: 1, isOverLimit: false }
   ]);
 });
 
@@ -1432,7 +1542,7 @@ test("screen time entries use the latest daily reset hour", () => {
     endHour: resetHour - 1
   });
   assert.deepEqual(core.screenTimeEntries(state, usage, now), [
-    { domain: "example.com", totalMs: 5000, limitMinutes: 1, isOverLimit: false }
+    { type: "site", name: "example.com", domains: ["example.com"], totalMs: 5000, limitMinutes: 1, isOverLimit: false }
   ]);
 });
 
@@ -1444,7 +1554,7 @@ test("screen time entries hide active domains with zero usage", () => {
   const usage = screenTimeUsage({ "example.com": { 20: 1000 } });
 
   assert.deepEqual(core.screenTimeEntries(state, usage, 20 * hourMs), [
-    { domain: "example.com", totalMs: 1000, limitMinutes: 30, isOverLimit: false }
+    { type: "site", name: "example.com", domains: ["example.com"], totalMs: 1000, limitMinutes: 30, isOverLimit: false }
   ]);
 });
 
@@ -1507,7 +1617,8 @@ function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits, lim
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
-    domainLimits: core.domainLimitsForEntries(typedEntries, domainLimits === undefined ? [] : domainLimits)
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
+    domainLimits: core.domainLimitsForEntries(typedEntries, domainLimits === undefined ? [] : domainLimits, core.DEFAULT_LIMIT_GROUPS)
   }, []);
 
   assert.equal(result.type, "valid");
@@ -1529,11 +1640,19 @@ function matchReason(match) {
 function domainLimit(domain, limitMinutes = core.DEFAULT_LIMIT_MINUTES, overrides = {}) {
   return {
     domain,
-    limitMinutes,
+    limit: { type: "site", limitMinutes },
     blockDirectVisits: true,
     blockInternalLinks: true,
     ...overrides
   };
+}
+
+function groupDomainLimit(domain, groupId) {
+  return { domain, limit: { type: "group", groupId }, blockDirectVisits: true, blockInternalLinks: true };
+}
+
+function legacyDomainLimits(domainLimits) {
+  return domainLimits.map(({ limit, ...rest }) => ({ ...rest, limitMinutes: limit.limitMinutes }));
 }
 
 function validStoredState(rawState, defaultEntries) {

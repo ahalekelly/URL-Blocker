@@ -177,6 +177,12 @@
         </div>
       </section>
 
+      <section id="limitGroupsPanel" class="settings-panel">
+        <h2>Limit Groups</h2>
+        <div id="limitGroupRows" class="limit-group-rows"></div>
+        <button id="addLimitGroupButton" type="button">Add Group</button>
+      </section>
+
       <section class="settings-panel">
         <h2>Settings Delay</h2>
         <label>
@@ -211,10 +217,7 @@
       <label>
         <input class="value-input" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="Block rule">
       </label>
-      <label class="row-limit">
-        Limit minutes
-        <input class="limit-input" type="number" min="1" max="960" step="1" inputmode="numeric" aria-label="Limit minutes">
-      </label>
+      <div class="row-limit"></div>
       <div class="domain-settings">
         <label class="choice-label domain-setting-label">
           <input class="block-direct-visits-input" type="checkbox" aria-label="Block all pages except via links">

@@ -3,7 +3,8 @@
 
   const STATE_KEY = "blockerState";
   const BLOCKED_PAGE_HTML_KEY = "blockedPageHtml";
-  const SCHEMA_VERSION = 19;
+  const SCHEMA_VERSION = 20;
+  const LIMIT_GROUPS_SCHEMA_VERSION = 19;
   const SHORT_VIDEO_HIDING_SCHEMA_VERSION = 18;
   const YOUTUBE_FOCUS_SCHEMA_VERSION = 17;
   const LEGACY_SCHEMA_VERSION = 6;
@@ -48,6 +49,14 @@
   const DEFAULT_LIMIT_RESET = { type: "rollingWindow", windowHours: 24 };
   const DEFAULT_SETTINGS_DELAY = { delayMinutes: DEFAULT_SETTINGS_DELAY_MINUTES };
   const DEFAULT_YOUTUBE_FOCUS = { finishCurrentVideo: true };
+  const STREAMING_LIMIT_GROUP_ID = "20000000-0000-4000-8000-000000000001";
+  const DEFAULT_LIMIT_GROUPS = [{ id: STREAMING_LIMIT_GROUP_ID, name: "Streaming", limitMinutes: 60 }];
+  // New domains listed here join their default group while it exists.
+  const DEFAULT_DOMAIN_LIMIT_GROUP_IDS = {
+    "hbomax.com": STREAMING_LIMIT_GROUP_ID,
+    "netflix.com": STREAMING_LIMIT_GROUP_ID
+  };
+  const MAX_LIMIT_GROUP_NAME_LENGTH = 40;
   const SHORT_VIDEO_SITE_DOMAINS = {
     youtube: "youtube.com",
     instagram: "instagram.com",
@@ -80,7 +89,9 @@
     "com.pinterest": "pinterest.com",
     "com.linkedin.android": "linkedin.com",
     "com.google.android.youtube": "youtube.com",
-    "com.reddit.frontpage": "reddit.com"
+    "com.reddit.frontpage": "reddit.com",
+    "com.netflix.mediaclient": "netflix.com",
+    "com.wbd.stream": "hbomax.com"
   };
   const UNSUPPORTED_BLOCKLIST_VERSION_MESSAGE = "Unsupported blocklist version. Reset the blocklist to repair it.";
   const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -124,7 +135,8 @@
       settingsDelay: DEFAULT_SETTINGS_DELAY,
       youtubeFocus: DEFAULT_YOUTUBE_FOCUS,
       shortVideoHiding: DEFAULT_SHORT_VIDEO_HIDING,
-      domainLimits: domainLimitsForEntries(entries, [])
+      limitGroups: DEFAULT_LIMIT_GROUPS,
+      domainLimits: domainLimitsForEntries(entries, [], DEFAULT_LIMIT_GROUPS)
     }, entries);
 
     if (result.type === "invalid") {
@@ -186,6 +198,10 @@
 
     if (!isPlainObject(rawState.shortVideoHiding)) {
       errors.push({ index: null, message: "Short video hiding settings must be an object." });
+    }
+
+    if (!Array.isArray(rawState.limitGroups)) {
+      errors.push({ index: null, message: "Limit groups must be an array." });
     }
 
     if (!Array.isArray(rawState.domainLimits)) {
@@ -310,7 +326,13 @@
       return invalid(errors);
     }
 
-    const limitsResult = normalizeDomainLimits(rawState.domainLimits, entries);
+    const groupsResult = normalizeLimitGroups(rawState.limitGroups);
+
+    if (groupsResult.type === "invalid") {
+      return invalid(groupsResult.errors);
+    }
+
+    const limitsResult = normalizeDomainLimits(rawState.domainLimits, entries, groupsResult.limitGroups);
 
     if (limitsResult.type === "invalid") {
       errors.push(...limitsResult.errors);
@@ -332,6 +354,7 @@
         settingsDelay,
         youtubeFocus,
         shortVideoHiding,
+        limitGroups: groupsResult.limitGroups,
         domainLimits: limitsResult.domainLimits
       }
     };
@@ -355,6 +378,7 @@
       SETTINGS_DELAY_SCHEMA_VERSION,
       SETTINGS_DELAY_MODE_SCHEMA_VERSION,
       SCHEMA_VERSION,
+      LIMIT_GROUPS_SCHEMA_VERSION,
       SHORT_VIDEO_HIDING_SCHEMA_VERSION,
       YOUTUBE_FOCUS_SCHEMA_VERSION,
       HARD_SCHEDULE_SCHEMA_VERSION,
@@ -408,13 +432,41 @@
       ...migratedState,
       schemaVersion: SCHEMA_VERSION,
       entries,
-      domainLimits: domainLimitsForEntries(entries, Array.isArray(rawState.domainLimits) ? rawState.domainLimits : [])
+      domainLimits: domainLimitsForEntries(
+        entries,
+        Array.isArray(migratedState.domainLimits) ? migratedState.domainLimits : [],
+        Array.isArray(migratedState.limitGroups) ? migratedState.limitGroups : []
+      )
     };
   }
 
   function storedStateWithCurrentShape(rawState) {
+    if (rawState.schemaVersion === SCHEMA_VERSION) {
+      return rawState;
+    }
+
+    const state = storedStateWithLimitGroupsVersionShape(rawState);
+
+    return {
+      ...state,
+      limitGroups: DEFAULT_LIMIT_GROUPS,
+      domainLimits: Array.isArray(state.domainLimits) ? state.domainLimits.map(siteDomainLimit) : state.domainLimits
+    };
+  }
+
+  function siteDomainLimit(domainLimit) {
+    if (!isPlainObject(domainLimit)) {
+      return domainLimit;
+    }
+
+    const { limitMinutes, ...rest } = domainLimit;
+
+    return { ...rest, limit: { type: "site", limitMinutes } };
+  }
+
+  function storedStateWithLimitGroupsVersionShape(rawState) {
     switch (rawState.schemaVersion) {
-      case SCHEMA_VERSION:
+      case LIMIT_GROUPS_SCHEMA_VERSION:
         return rawState;
       case SHORT_VIDEO_HIDING_SCHEMA_VERSION:
         return { ...rawState, shortVideoHiding: DEFAULT_SHORT_VIDEO_HIDING };
@@ -923,7 +975,60 @@
     };
   }
 
-  function normalizeDomainLimits(rawDomainLimits, entries) {
+  function normalizeLimitGroups(rawLimitGroups) {
+    const errors = [];
+    const seenIds = new Set();
+    const seenNames = new Set();
+    const limitGroups = [];
+
+    rawLimitGroups.forEach((group) => {
+      if (!isPlainObject(group)) {
+        errors.push({ index: null, message: "Limit group must be an object." });
+        return;
+      }
+
+      pushUnknownKeyErrors(errors, group, ["id", "name", "limitMinutes"], "Limit group");
+
+      if (typeof group.id !== "string" || !UUID_PATTERN.test(group.id) || group.id !== group.id.toLowerCase()) {
+        errors.push({ index: null, message: "Limit group ID must be a lowercase UUID." });
+        return;
+      }
+
+      if (seenIds.has(group.id)) {
+        errors.push({ index: null, message: "Duplicate limit group ID." });
+        return;
+      }
+
+      if (typeof group.name !== "string" || group.name.trim() === "" || group.name.trim().length > MAX_LIMIT_GROUP_NAME_LENGTH) {
+        errors.push({ index: null, message: `Limit group names must be 1 to ${MAX_LIMIT_GROUP_NAME_LENGTH} characters.` });
+        return;
+      }
+
+      const name = group.name.trim();
+
+      if (seenNames.has(name.toLowerCase())) {
+        errors.push({ index: null, message: `Duplicate limit group name: ${name}.` });
+        return;
+      }
+
+      if (!isLimitMinutes(group.limitMinutes)) {
+        errors.push({ index: null, message: `Limit group minutes must be between 1 and ${MAX_LIMIT_MINUTES}.` });
+        return;
+      }
+
+      seenIds.add(group.id);
+      seenNames.add(name.toLowerCase());
+      limitGroups.push({ id: group.id, name, limitMinutes: group.limitMinutes });
+    });
+
+    if (errors.length > 0) {
+      return invalid(errors);
+    }
+
+    return { type: "valid", limitGroups: limitGroups.sort((left, right) => left.name.localeCompare(right.name)) };
+  }
+
+  function normalizeDomainLimits(rawDomainLimits, entries, limitGroups) {
     const errors = [];
 
     if (!Array.isArray(rawDomainLimits)) {
@@ -940,7 +1045,7 @@
         return;
       }
 
-      pushUnknownKeyErrors(errors, limit, ["domain", "limitMinutes", "blockDirectVisits", "blockInternalLinks"], "Domain limit");
+      pushUnknownKeyErrors(errors, limit, ["domain", "limit", "blockDirectVisits", "blockInternalLinks"], "Domain limit");
 
       if (typeof limit.domain !== "string") {
         errors.push({ index: null, message: "Domain limit domain must be a string." });
@@ -966,8 +1071,10 @@
         return;
       }
 
-      if (!Number.isInteger(limit.limitMinutes) || limit.limitMinutes < 1 || limit.limitMinutes > MAX_LIMIT_MINUTES) {
-        errors.push({ index: null, message: `Domain limit minutes must be between 1 and ${MAX_LIMIT_MINUTES}.` });
+      const limitResult = normalizeDomainLimitValue(limit.limit, limitGroups);
+
+      if (limitResult.type === "invalid") {
+        errors.push(...limitResult.errors);
         return;
       }
 
@@ -984,7 +1091,7 @@
       seen.add(domain);
       domainLimits.push({
         domain,
-        limitMinutes: limit.limitMinutes,
+        limit: limitResult.limit,
         blockDirectVisits: limit.blockDirectVisits,
         blockInternalLinks: limit.blockInternalLinks
       });
@@ -1012,12 +1119,49 @@
     };
   }
 
-  function domainLimitsForEntries(entries, existingDomainLimits) {
+  function normalizeDomainLimitValue(limit, limitGroups) {
+    if (!isPlainObject(limit)) {
+      return invalid([{ index: null, message: "Domain limit must include a limit object." }]);
+    }
+
+    switch (limit.type) {
+      case "site": {
+        const errors = [];
+
+        pushUnknownKeyErrors(errors, limit, ["type", "limitMinutes"], "Site limit");
+
+        if (!isLimitMinutes(limit.limitMinutes)) {
+          errors.push({ index: null, message: `Domain limit minutes must be between 1 and ${MAX_LIMIT_MINUTES}.` });
+        }
+
+        return errors.length > 0 ? invalid(errors) : { type: "valid", limit: { type: "site", limitMinutes: limit.limitMinutes } };
+      }
+      case "group": {
+        const errors = [];
+
+        pushUnknownKeyErrors(errors, limit, ["type", "groupId"], "Group limit");
+
+        if (!limitGroups.some((group) => group.id === limit.groupId)) {
+          errors.push({ index: null, message: "Domain limit group does not exist." });
+        }
+
+        return errors.length > 0 ? invalid(errors) : { type: "valid", limit: { type: "group", groupId: limit.groupId } };
+      }
+      default:
+        return invalid([{ index: null, message: "Domain limit type must be site or group." }]);
+    }
+  }
+
+  function isLimitMinutes(value) {
+    return Number.isInteger(value) && value >= 1 && value <= MAX_LIMIT_MINUTES;
+  }
+
+  function domainLimitsForEntries(entries, existingDomainLimits, limitGroups) {
     const existing = new Map(existingDomainLimits.map((limit) => [limit.domain, limit]));
 
     return rawEntryDomains(entries).map((domain) => ({
       domain,
-      limitMinutes: existing.has(domain) ? existing.get(domain).limitMinutes : DEFAULT_LIMIT_MINUTES,
+      limit: existing.has(domain) ? existing.get(domain).limit : defaultDomainLimit(domain, limitGroups),
       blockDirectVisits: existing.has(domain) && typeof existing.get(domain).blockDirectVisits === "boolean"
         ? existing.get(domain).blockDirectVisits
         : DEFAULT_BLOCK_DIRECT_VISITS,
@@ -1025,6 +1169,16 @@
         ? existing.get(domain).blockInternalLinks
         : DEFAULT_BLOCK_INTERNAL_LINKS
     }));
+  }
+
+  function defaultDomainLimit(domain, limitGroups) {
+    const groupId = DEFAULT_DOMAIN_LIMIT_GROUP_IDS[domain];
+
+    if (limitGroups.some((group) => group.id === groupId)) {
+      return { type: "group", groupId };
+    }
+
+    return { type: "site", limitMinutes: DEFAULT_LIMIT_MINUTES };
   }
 
   function normalizeBlockedPageHtml(rawValue) {
@@ -1497,25 +1651,52 @@
   function screenTimeEntries(state, usage, nowMs) {
     const window = usageWindow(state.limitReset, nowMs);
 
-    return activeDomainLimits(state)
+    return activeLimits(state)
       .map((limit) => {
-        const totalMs = screenTimeTotalMs(usage, limit.domain, window);
+        const totalMs = limit.domains.reduce((total, domain) => total + screenTimeTotalMs(usage, domain, window), 0);
 
         return {
-          domain: limit.domain,
+          type: limit.type,
+          name: limit.name,
+          domains: limit.domains,
           totalMs,
           limitMinutes: limit.limitMinutes,
           isOverLimit: totalMs >= limit.limitMinutes * MINUTE_MS
         };
       })
       .filter((entry) => entry.totalMs > 0)
-      .sort((left, right) => right.totalMs - left.totalMs || left.domain.localeCompare(right.domain));
+      .sort((left, right) => right.totalMs - left.totalMs || left.name.localeCompare(right.name));
   }
 
   function overLimitDomains(state, usage, nowMs) {
     return new Set(screenTimeEntries(state, usage, nowMs)
       .filter((entry) => entry.isOverLimit)
-      .map((entry) => entry.domain));
+      .flatMap((entry) => entry.domains));
+  }
+
+  // One limit per site with its own limit, and one per group with an active site.
+  function activeLimits(state) {
+    const siteLimits = [];
+    const groupDomains = new Map();
+
+    activeDomainLimits(state).forEach((domainLimit) => {
+      switch (domainLimit.limit.type) {
+        case "site":
+          siteLimits.push({ type: "site", name: domainLimit.domain, domains: [domainLimit.domain], limitMinutes: domainLimit.limit.limitMinutes });
+          return;
+        case "group":
+          groupDomains.set(domainLimit.limit.groupId, [...(groupDomains.get(domainLimit.limit.groupId) || []), domainLimit.domain]);
+          return;
+        default:
+          throw new Error(`Unknown domain limit type: ${domainLimit.limit.type}`);
+      }
+    });
+
+    const groupLimits = state.limitGroups
+      .filter((group) => groupDomains.has(group.id))
+      .map((group) => ({ type: "group", name: group.name, domains: groupDomains.get(group.id), limitMinutes: group.limitMinutes }));
+
+    return [...siteLimits, ...groupLimits];
   }
 
   function usageWindow(limitReset, nowMs) {
@@ -2073,6 +2254,8 @@
   function stateKeys(schemaVersion) {
     switch (schemaVersion) {
       case SCHEMA_VERSION:
+        return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "hardSchedule", "limitReset", "settingsDelay", "youtubeFocus", "shortVideoHiding", "limitGroups", "domainLimits"];
+      case LIMIT_GROUPS_SCHEMA_VERSION:
         return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "hardSchedule", "limitReset", "settingsDelay", "youtubeFocus", "shortVideoHiding", "domainLimits"];
       case SHORT_VIDEO_HIDING_SCHEMA_VERSION:
         return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "hardSchedule", "limitReset", "settingsDelay", "youtubeFocus", "domainLimits"];
@@ -2096,7 +2279,9 @@
   const BlockerCore = {
     DEFAULT_SETTINGS_DELAY,
     DEFAULT_SETTINGS_DELAY_MINUTES,
+    DEFAULT_LIMIT_GROUPS,
     DEFAULT_LIMIT_MINUTES,
+    MAX_LIMIT_GROUP_NAME_LENGTH,
     DEFAULT_BLOCK_DIRECT_VISITS,
     DEFAULT_BLOCK_INTERNAL_LINKS,
     DEFAULT_BLOCKED_PAGE_HTML,
@@ -2116,7 +2301,7 @@
     MAX_ENTRIES,
     SCHEMA_VERSION,
     STATE_KEY,
-    activeDomainLimits,
+    activeLimits,
     activeSettingsActivation,
     associatedDomainForEntry,
     blockedReasonText,

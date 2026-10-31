@@ -634,9 +634,7 @@
       const nowMs = currentTimeMs();
       const hour = currentHour(nowMs);
       const usage = await saveScreenTime(domain, elapsedMs, hour, nowMs);
-      const totalMs = core.screenTimeTotalMs(usage, domain, core.usageWindow(state.limitReset, nowMs));
-      const limit = core.domainLimitForDomain(state, domain);
-      const isOverLimit = totalMs >= limit.limitMinutes * 60 * 1000;
+      const isOverLimit = core.overLimitDomains(state, usage, nowMs).has(domain);
 
       await syncScreenTimeIfReady(state, { force: isOverLimit });
 
@@ -648,7 +646,7 @@
         }
       }
 
-      return { type: "logged", domain, totalMs, limitMinutes: limit.limitMinutes, isOverLimit };
+      return { type: "logged", domain, isOverLimit };
     }
 
     async function saveScreenTime(domain, elapsedMs, hour, nowMs) {
@@ -1268,10 +1266,10 @@
 
   function screenTimeStats(state, usage, nowMs) {
     const window = core.usageWindow(state.limitReset, nowMs);
-    const entries = core.activeDomainLimits(state)
+    const entries = core.activeLimits(state)
       .map((limit) => screenTimeStatsEntry(usage, limit, window))
-      .sort((left, right) => right.totalMs - left.totalMs || left.domain.localeCompare(right.domain));
-    const domains = entries.map((entry) => entry.domain);
+      .sort((left, right) => right.totalMs - left.totalMs || left.name.localeCompare(right.name));
+    const domains = entries.flatMap((entry) => entry.domains);
 
     return {
       generatedAtMs: nowMs,
@@ -1290,12 +1288,14 @@
 
   function screenTimeStatsEntry(usage, limit, window) {
     const limitMs = limit.limitMinutes * 60 * 1000;
-    const localMs = core.screenTimeBucketTotalMs(usage.localBuckets[limit.domain] || {}, window);
-    const remoteMs = remoteScreenTimeBucketTotal(usage.remoteBuckets, limit.domain, window);
+    const localMs = limit.domains.reduce((total, domain) => total + core.screenTimeBucketTotalMs(usage.localBuckets[domain] || {}, window), 0);
+    const remoteMs = limit.domains.reduce((total, domain) => total + remoteScreenTimeBucketTotal(usage.remoteBuckets, domain, window), 0);
     const totalMs = localMs + remoteMs;
 
     return {
-      domain: limit.domain,
+      type: limit.type,
+      name: limit.name,
+      domains: limit.domains,
       totalMs,
       localMs,
       remoteMs,

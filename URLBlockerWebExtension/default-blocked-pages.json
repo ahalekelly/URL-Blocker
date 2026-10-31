@@ -173,5 +173,19 @@
     "kind": "url",
     "value": "ycombinator.com",
     "enabled": true
+  },
+  {
+    "type": "default",
+    "id": "10000000-0000-4000-8000-000000000032",
+    "kind": "urlWithSubpaths",
+    "value": "netflix.com",
+    "enabled": true
+  },
+  {
+    "type": "default",
+    "id": "10000000-0000-4000-8000-000000000033",
+    "kind": "urlWithSubpaths",
+    "value": "hbomax.com",
+    "enabled": true
   }
 ]

@@ -47,7 +47,7 @@ test("daily schedule time controls clip native iOS input chrome", () => {
 
 test("hidden time limit controls are not displayed", () => {
   assert.match(css, /\.settings-panel\[hidden\]\s*\{[^}]*display:\s*none;/s);
-  assert.match(css, /\.default-group-limit\[hidden\],\s*\.row-limit\[hidden\]\s*\{[^}]*display:\s*none;/s);
+  assert.match(css, /\.limit-control\[hidden\],\s*\.limit-control \[hidden\]\s*\{[^}]*display:\s*none;/s);
 });
 
 function rule(selector) {

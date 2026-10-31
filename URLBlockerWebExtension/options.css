@@ -215,21 +215,44 @@ h2 {
   justify-items: end;
 }
 
-.default-group-limit {
+.limit-control {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-top: 0;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 600;
 }
 
-.default-group-limit .limit-input {
+.limit-control select {
+  width: auto;
+  min-height: 36px;
+  background-position:
+    calc(100% - 19px) 15px,
+    calc(100% - 14px) 15px;
+}
+
+.limit-control .limit-input,
+.limit-group-row .limit-input {
   width: 64px;
   min-height: 36px;
   padding: 0 8px;
   text-align: center;
+}
+
+.limit-group-rows {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.limit-group-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.limit-group-row .limit-group-name-input,
+.limit-group-row .delete-button {
+  min-height: 36px;
 }
 
 .limit-prefix,
@@ -431,8 +454,8 @@ input[type="checkbox"].enabled-input:checked::before {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.default-group-limit[hidden],
-.row-limit[hidden] {
+.limit-control[hidden],
+.limit-control [hidden] {
   display: none;
 }
 

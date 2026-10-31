@@ -168,9 +168,9 @@
     fill.className = "stats-progress-fill";
     detail.className = "stats-domain-detail";
 
-    name.textContent = entry.domain;
+    name.textContent = entry.name;
     used.textContent = formatDuration(entry.totalMs);
-    detail.textContent = `This device ${formatDuration(entry.localMs)} · Other devices ${formatDuration(entry.remoteMs)}`;
+    detail.textContent = `${groupMembersText(entry)}This device ${formatDuration(entry.localMs)} · Other devices ${formatDuration(entry.remoteMs)}`;
 
     values.append(used);
     if (!hideLimits) {
@@ -188,6 +188,17 @@
     row.append(detail);
 
     return row;
+  }
+
+  function groupMembersText(entry) {
+    switch (entry.type) {
+      case "site":
+        return "";
+      case "group":
+        return `${entry.domains.join(", ")} · `;
+      default:
+        throw new Error(`Unknown screen time entry type: ${entry.type}`);
+    }
   }
 
   function renderDevices(deviceTotals) {

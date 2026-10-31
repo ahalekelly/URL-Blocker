@@ -6,8 +6,10 @@
   const DEFAULT_GROUP_TITLES = {
     "bsky.app": "Bluesky",
     "facebook.com": "Facebook",
+    "hbomax.com": "HBO Max",
     "instagram.com": "Instagram",
     "linkedin.com": "LinkedIn",
+    "netflix.com": "Netflix",
     "pinterest.com": "Pinterest",
     "reddit.com": "Reddit",
     "threads.com": "Threads",
@@ -22,6 +24,7 @@
   const state = {
     defaultEntries: [],
     draftEntries: [],
+    draftLimitGroups: [],
     draftBlockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
     draftSchedule: core.DEFAULT_SCHEDULE,
     draftHardSchedule: core.DEFAULT_HARD_SCHEDULE,
@@ -53,6 +56,9 @@
   const rowTemplate = document.getElementById("rowTemplate");
   const saveButton = document.getElementById("saveButton");
   const addRowButton = document.getElementById("addRowButton");
+  const limitGroupsPanel = document.getElementById("limitGroupsPanel");
+  const limitGroupRows = document.getElementById("limitGroupRows");
+  const addLimitGroupButton = document.getElementById("addLimitGroupButton");
   const blockedPageHtmlInput = document.getElementById("blockedPageHtmlInput");
   const alwaysScheduleInput = document.getElementById("alwaysScheduleInput");
   const dailyScheduleInput = document.getElementById("dailyScheduleInput");
@@ -99,6 +105,7 @@
 
   renderDailyResetHourOptions();
   addRowButton.addEventListener("click", addRow);
+  addLimitGroupButton.addEventListener("click", addLimitGroup);
   saveButton.addEventListener("click", saveDraft);
   blockedPageHtmlInput.addEventListener("input", updateBlockedPageHtml);
   alwaysScheduleInput.addEventListener("change", () => updateScheduleType("always"));
@@ -210,6 +217,8 @@
     permissionPanel.hidden = !needsWebsiteAccess;
     editorPanel.hidden = needsWebsiteAccess;
     rowsElement.replaceChildren(...renderBlockItems());
+    limitGroupsPanel.hidden = timeLimitsAreHidden();
+    limitGroupRows.replaceChildren(...state.draftLimitGroups.map(renderLimitGroupRow));
     blockedPageHtmlInput.value = state.draftBlockedPageHtml;
     renderScreenTimeTitle();
     alwaysScheduleInput.checked = state.draftSchedule.type === "always";
@@ -306,10 +315,6 @@
     const toolbar = document.createElement("div");
     const title = document.createElement("div");
     const controls = document.createElement("div");
-    const limitLabel = document.createElement("label");
-    const limitPrefix = document.createElement("span");
-    const limitInput = document.createElement("input");
-    const limitSuffix = document.createElement("span");
     const entryList = document.createElement("div");
     const titleText = defaultGroupTitle(domain);
 
@@ -319,29 +324,85 @@
     title.className = "default-group-title";
     title.textContent = titleText;
     controls.className = "default-group-controls";
-    limitLabel.className = "default-group-limit";
-    limitLabel.hidden = timeLimitsAreHidden();
-    limitPrefix.className = "limit-prefix";
-    limitPrefix.textContent = "Limit:";
-    limitInput.className = "limit-input";
-    limitInput.type = "number";
-    limitInput.min = "1";
-    limitInput.max = "960";
-    limitInput.step = "1";
-    limitInput.inputMode = "numeric";
-    limitInput.setAttribute("aria-label", `Limit minutes for ${titleText}`);
-    limitInput.value = String(entries[0].limitMinutes);
-    limitInput.addEventListener("input", () => updateLimit(entries[0].id, limitInput.value));
-    limitSuffix.className = "limit-suffix";
-    limitSuffix.textContent = "min";
-    limitLabel.append(limitPrefix, limitInput, limitSuffix);
-    controls.append(renderDomainSettings(entries[0], titleText), limitLabel);
+    controls.append(renderDomainSettings(entries[0], titleText), renderLimitControl(entries[0], titleText));
     toolbar.append(title, controls);
     entryList.className = "default-group-entries";
     entryList.replaceChildren(...entries.map(renderDefaultGroupEntry));
     group.append(toolbar, entryList);
 
     return group;
+  }
+
+  function renderLimitControl(entry, titleText) {
+    const control = document.createElement("div");
+    const prefix = document.createElement("span");
+    const select = document.createElement("select");
+    const input = document.createElement("input");
+    const suffix = document.createElement("span");
+    const ownLimit = new Option("Own limit", "");
+    const isGroup = entry.limit.type === "group";
+
+    control.className = "limit-control";
+    control.hidden = timeLimitsAreHidden();
+    prefix.className = "limit-prefix";
+    prefix.textContent = "Limit:";
+    select.className = "limit-group-select";
+    select.setAttribute("aria-label", `Limit group for ${titleText}`);
+    select.append(ownLimit, ...state.draftLimitGroups.map((group) => new Option(group.name, group.id)));
+    select.value = isGroup ? entry.limit.groupId : "";
+    select.addEventListener("change", () => updateLimitGroup(entry.id, select.value));
+    input.className = "limit-input";
+    input.type = "number";
+    input.min = "1";
+    input.max = String(core.MAX_LIMIT_MINUTES);
+    input.step = "1";
+    input.inputMode = "numeric";
+    input.hidden = isGroup;
+    input.setAttribute("aria-label", `Limit minutes for ${titleText}`);
+    input.value = isGroup ? "" : String(entry.limit.limitMinutes);
+    input.addEventListener("input", () => updateLimit(entry.id, input.value));
+    suffix.className = "limit-suffix";
+    suffix.textContent = "min";
+    suffix.hidden = isGroup;
+    control.append(prefix, select, input, suffix);
+
+    return control;
+  }
+
+  function renderLimitGroupRow(group) {
+    const row = document.createElement("div");
+    const nameInput = document.createElement("input");
+    const minutesInput = document.createElement("input");
+    const suffix = document.createElement("span");
+    const deleteButton = document.createElement("button");
+
+    row.className = "limit-group-row";
+    nameInput.className = "limit-group-name-input";
+    nameInput.type = "text";
+    nameInput.maxLength = core.MAX_LIMIT_GROUP_NAME_LENGTH;
+    nameInput.placeholder = "Group name";
+    nameInput.value = group.name;
+    nameInput.setAttribute("aria-label", "Limit group name");
+    nameInput.addEventListener("input", () => updateLimitGroupName(group.id, nameInput.value));
+    minutesInput.className = "limit-input";
+    minutesInput.type = "number";
+    minutesInput.min = "1";
+    minutesInput.max = String(core.MAX_LIMIT_MINUTES);
+    minutesInput.step = "1";
+    minutesInput.inputMode = "numeric";
+    minutesInput.value = String(group.limitMinutes);
+    minutesInput.setAttribute("aria-label", `Limit minutes for ${group.name}`);
+    minutesInput.addEventListener("input", () => updateLimitGroupSetting(group.id, "limitMinutes", Number(minutesInput.value)));
+    suffix.className = "limit-suffix";
+    suffix.textContent = "min";
+    deleteButton.type = "button";
+    deleteButton.className = "delete-button";
+    deleteButton.textContent = "Delete";
+    deleteButton.setAttribute("aria-label", `Delete limit group ${group.name}`);
+    deleteButton.addEventListener("click", () => deleteLimitGroup(group.id));
+    row.append(nameInput, minutesInput, suffix, deleteButton);
+
+    return row;
   }
 
   function renderSaveButton() {
@@ -356,6 +417,7 @@
   function draftSnapshot() {
     return {
       entries: state.draftEntries.map(draftEntrySnapshot),
+      limitGroups: state.draftLimitGroups.map((group) => ({ ...group })),
       blockedPageHtml: state.draftBlockedPageHtml,
       schedule: editableSchedule(state.draftSchedule),
       hardSchedule: editableHardSchedule(state.draftHardSchedule),
@@ -380,7 +442,7 @@
   function domainDraftSnapshot(snapshot, entry) {
     return {
       ...snapshot,
-      limitMinutes: entry.limitMinutes,
+      limit: { ...entry.limit },
       blockDirectVisits: entry.blockDirectVisits,
       blockInternalLinks: entry.blockInternalLinks
     };
@@ -425,8 +487,7 @@
     const row = fragment.querySelector(".block-row");
     const segments = fragment.querySelector(".segments");
     const input = fragment.querySelector(".value-input");
-    const limitLabel = fragment.querySelector(".row-limit");
-    const limitInput = fragment.querySelector(".limit-input");
+    const limitControl = fragment.querySelector(".row-limit");
     const blockDirectVisitsInput = fragment.querySelector(".block-direct-visits-input");
     const blockInternalLinksInput = fragment.querySelector(".block-internal-links-input");
     const deleteButton = fragment.querySelector(".delete-button");
@@ -438,13 +499,11 @@
     input.placeholder = placeholderFor(entry.kind);
     input.addEventListener("input", () => updateValue(entry.id, input.value));
     input.addEventListener("blur", () => normalizeUrlInput(entry.id));
-    limitInput.value = String(entry.limitMinutes);
-    limitInput.addEventListener("input", () => updateLimit(entry.id, limitInput.value));
+    limitControl.replaceWith(renderLimitControl(entry, entry.value || "this rule"));
     blockDirectVisitsInput.checked = entry.blockDirectVisits;
     blockDirectVisitsInput.addEventListener("change", () => updateBlockDirectVisits(entry.id, blockDirectVisitsInput.checked));
     blockInternalLinksInput.checked = entry.blockInternalLinks;
     blockInternalLinksInput.addEventListener("change", () => updateBlockInternalLinks(entry.id, blockInternalLinksInput.checked));
-    limitLabel.hidden = timeLimitsAreHidden();
     deleteButton.disabled = state.defaultEntries.length === 0 && customEntryCount() === 1;
     deleteButton.addEventListener("click", () => deleteRow(entry.id));
     rowError.hidden = error === "";
@@ -675,7 +734,7 @@
     row.className = entry.isOverLimit ? "screen-time-row is-over-limit" : "screen-time-row";
     domain.className = "screen-time-domain";
     total.className = "screen-time-total";
-    domain.textContent = entry.domain;
+    domain.textContent = entry.name;
     total.textContent = timeLimitsAreHidden()
       ? formatDuration(entry.totalMs)
       : `${formatDuration(entry.totalMs)} / ${entry.limitMinutes}m`;
@@ -718,7 +777,7 @@
 
   function addRow() {
     state.draftEntries.push(core.newEntry("url"));
-    state.draftEntries[state.draftEntries.length - 1].limitMinutes = core.DEFAULT_LIMIT_MINUTES;
+    state.draftEntries[state.draftEntries.length - 1].limit = { type: "site", limitMinutes: core.DEFAULT_LIMIT_MINUTES };
     state.draftEntries[state.draftEntries.length - 1].blockDirectVisits = core.DEFAULT_BLOCK_DIRECT_VISITS;
     state.draftEntries[state.draftEntries.length - 1].blockInternalLinks = core.DEFAULT_BLOCK_INTERNAL_LINKS;
     clearMessages();
@@ -738,7 +797,7 @@
         id: entry.id,
         kind,
         value: entry.value,
-        limitMinutes: entry.limitMinutes,
+        limit: entry.limit,
         blockDirectVisits: entry.blockDirectVisits,
         blockInternalLinks: entry.blockInternalLinks
       } : entry
@@ -797,49 +856,77 @@
     });
 
     if (matchingEntry) {
-      entry.limitMinutes = matchingEntry.limitMinutes;
+      entry.limit = matchingEntry.limit;
       entry.blockDirectVisits = matchingEntry.blockDirectVisits;
       entry.blockInternalLinks = matchingEntry.blockInternalLinks;
     }
   }
 
   function updateLimit(id, rawValue) {
-    const entry = findDraftEntry(id);
-    const limitMinutes = Number(rawValue);
-    let domain = "";
+    setDomainSetting(id, "limit", { type: "site", limitMinutes: Number(rawValue) });
+    renderSaveButton();
+  }
 
-    entry.limitMinutes = limitMinutes;
+  function updateLimitGroup(id, groupId) {
+    const limit = findDraftEntry(id).limit;
 
-    try {
-      domain = core.domainForEntry(entry);
-    } catch {
-      clearRowError(id);
-      clearMessages();
-      renderSaveButton();
-      return;
+    setDomainSetting(id, "limit", groupId === "" ? { type: "site", limitMinutes: limitGroupMinutes(limit) } : { type: "group", groupId });
+    render();
+  }
+
+  // A site leaving a group keeps the group's minutes as its own limit.
+  function limitGroupMinutes(limit) {
+    switch (limit.type) {
+      case "site":
+        return limit.limitMinutes;
+      case "group":
+        return state.draftLimitGroups.find((group) => group.id === limit.groupId).limitMinutes;
+      default:
+        throw new Error(`Unknown domain limit type: ${limit.type}`);
     }
+  }
 
-    state.draftEntries.forEach((candidate) => {
-      try {
-        if (core.domainForEntry(candidate) === domain) {
-          candidate.limitMinutes = limitMinutes;
-        }
-      } catch {
-        return;
-      }
+  function updateBlockDirectVisits(id, checked) {
+    setDomainSetting(id, "blockDirectVisits", checked);
+    render();
+  }
+
+  function updateBlockInternalLinks(id, checked) {
+    setDomainSetting(id, "blockInternalLinks", checked);
+    render();
+  }
+
+  function addLimitGroup() {
+    state.draftLimitGroups.push({ id: crypto.randomUUID(), name: "", limitMinutes: core.DEFAULT_LIMIT_MINUTES });
+    clearMessages();
+    render();
+  }
+
+  // Renames the group's dropdown options in place so typing keeps focus.
+  function updateLimitGroupName(id, name) {
+    updateLimitGroupSetting(id, "name", name);
+    rowsElement.querySelectorAll(".limit-group-select").forEach((select) => {
+      [...select.children].find((option) => option.value === id).textContent = name;
     });
+  }
 
-    clearRowError(id);
+  function updateLimitGroupSetting(id, key, value) {
+    state.draftLimitGroups.find((group) => group.id === id)[key] = value;
     clearMessages();
     renderSaveButton();
   }
 
-  function updateBlockDirectVisits(id, checked) {
-    updateDomainSetting(id, "blockDirectVisits", checked);
-  }
+  function deleteLimitGroup(id) {
+    const group = state.draftLimitGroups.find((candidate) => candidate.id === id);
 
-  function updateBlockInternalLinks(id, checked) {
-    updateDomainSetting(id, "blockInternalLinks", checked);
+    state.draftLimitGroups = state.draftLimitGroups.filter((candidate) => candidate.id !== id);
+    state.draftEntries.forEach((entry) => {
+      if (entry.limit.type === "group" && entry.limit.groupId === id) {
+        entry.limit = { type: "site", limitMinutes: group.limitMinutes };
+      }
+    });
+    clearMessages();
+    render();
   }
 
   function updateFinishYouTubeVideos() {
@@ -854,34 +941,30 @@
     renderSaveButton();
   }
 
-  function updateDomainSetting(id, key, checked) {
+  // Sets a domain-wide setting on every draft entry for the same domain.
+  function setDomainSetting(id, key, value) {
     const entry = findDraftEntry(id);
     let domain = "";
 
-    entry[key] = checked;
+    entry[key] = value;
+    clearRowError(id);
+    clearMessages();
 
     try {
       domain = core.domainForEntry(entry);
     } catch {
-      clearRowError(id);
-      clearMessages();
-      renderSaveButton();
       return;
     }
 
     state.draftEntries.forEach((candidate) => {
       try {
         if (core.domainForEntry(candidate) === domain) {
-          candidate[key] = checked;
+          candidate[key] = value;
         }
       } catch {
         return;
       }
     });
-
-    clearRowError(id);
-    clearMessages();
-    render();
   }
 
   function updateBlockedPageHtml() {
@@ -1321,6 +1404,7 @@
         settingsDelay: state.draftSettingsDelay,
         youtubeFocus: state.draftYoutubeFocus,
         shortVideoHiding: state.draftShortVideoHiding,
+        limitGroups: state.draftLimitGroups,
         domainLimits: domainLimitsForDraft()
       }, state.defaultEntries);
     }
@@ -1335,11 +1419,13 @@
       settingsDelay: state.draftSettingsDelay,
       youtubeFocus: state.draftYoutubeFocus,
       shortVideoHiding: state.draftShortVideoHiding,
+      limitGroups: state.draftLimitGroups,
       domainLimits: domainLimitsForDraft()
     }, state.defaultEntries);
 
     if (result.type === "valid") {
       state.draftEntries = editableEntries(result.state.entries, result.state.domainLimits);
+      state.draftLimitGroups = editableLimitGroups(result.state.limitGroups);
       state.draftBlockedPageHtml = result.state.blockedPageHtml;
       state.draftSchedule = editableSchedule(result.state.schedule);
       state.draftHardSchedule = editableHardSchedule(result.state.hardSchedule);
@@ -1387,7 +1473,7 @@
       try {
         hints.push({
           domain: core.domainForEntry(entry),
-          limitMinutes: entry.limitMinutes,
+          limit: entry.limit,
           blockDirectVisits: entry.blockDirectVisits,
           blockInternalLinks: entry.blockInternalLinks
         });
@@ -1396,7 +1482,7 @@
       }
     });
 
-    return core.domainLimitsForEntries(storedEntries(state.draftEntries), hints);
+    return core.domainLimitsForEntries(storedEntries(state.draftEntries), hints, state.draftLimitGroups);
   }
 
   async function resetBlocklist() {
@@ -1479,6 +1565,7 @@
   function setDraftState(blockerState, activation) {
     state.defaultEntries = defaultEntriesFromState(blockerState.entries);
     state.draftEntries = editableEntries(blockerState.entries, blockerState.domainLimits);
+    state.draftLimitGroups = editableLimitGroups(blockerState.limitGroups);
     state.draftBlockedPageHtml = blockerState.blockedPageHtml;
     state.draftSchedule = editableSchedule(blockerState.schedule);
     state.draftHardSchedule = editableHardSchedule(blockerState.hardSchedule);
@@ -1634,10 +1721,14 @@
   function editableDomainEntry(entry, limit) {
     return {
       ...entry,
-      limitMinutes: limit.limitMinutes,
+      limit: { ...limit.limit },
       blockDirectVisits: limit.blockDirectVisits,
       blockInternalLinks: limit.blockInternalLinks
     };
+  }
+
+  function editableLimitGroups(limitGroups) {
+    return limitGroups.map((group) => ({ ...group }));
   }
 
   function defaultEntriesFromState(entries) {
@@ -1819,7 +1910,7 @@
 
     const entry = core.newEntry("url");
 
-    entry.limitMinutes = core.DEFAULT_LIMIT_MINUTES;
+    entry.limit = { type: "site", limitMinutes: core.DEFAULT_LIMIT_MINUTES };
 
     return [entry];
   }
@@ -1853,10 +1944,18 @@
         throw new Error("Screen time entry must be an object.");
       }
 
-      requireKeys(entry, ["domain", "totalMs", "limitMinutes", "isOverLimit"], "Screen time entry");
+      requireKeys(entry, ["type", "name", "domains", "totalMs", "limitMinutes", "isOverLimit"], "Screen time entry");
 
-      if (typeof entry.domain !== "string" || entry.domain.trim() === "") {
-        throw new Error("Screen time entry domain must be a string.");
+      if (entry.type !== "site" && entry.type !== "group") {
+        throw new Error(`Unknown screen time entry type: ${entry.type}`);
+      }
+
+      if (typeof entry.name !== "string" || entry.name.trim() === "") {
+        throw new Error("Screen time entry name must be a string.");
+      }
+
+      if (!Array.isArray(entry.domains) || entry.domains.some((domain) => typeof domain !== "string")) {
+        throw new Error("Screen time entry domains must be an array of strings.");
       }
 
       if (!Number.isInteger(entry.totalMs) || entry.totalMs < 0) {
@@ -1872,7 +1971,9 @@
       }
 
       return {
-        domain: entry.domain,
+        type: entry.type,
+        name: entry.name,
+        domains: entry.domains,
         totalMs: entry.totalMs,
         limitMinutes: entry.limitMinutes,
         isOverLimit: entry.isOverLimit

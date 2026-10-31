@@ -129,7 +129,8 @@ test("options keeps stats and limit reset visible when block schedule is always"
   assert.equal(page.byId("screenTimePanel").hidden, false);
   assert.equal(page.byId("screenTimeRows").children[0].querySelector(".screen-time-total").textContent, "2m");
   assert.equal(page.byId("limitResetPanel").hidden, false);
-  assert.equal(page.customRows().at(-1).querySelector(".row-limit").hidden, true);
+  assert.equal(page.customRows().at(-1).querySelector(".limit-control").hidden, true);
+  assert.equal(page.byId("limitGroupsPanel").hidden, true);
   assert.equal(page.byId("syncStatusText").textContent, "Sign in to sync settings.");
   assert.equal(page.byId("googleSignInButton").hidden, false);
   assert.equal(page.byId("appleSignInButton").hidden, true);
@@ -138,7 +139,8 @@ test("options keeps stats and limit reset visible when block schedule is always"
 
   assert.equal(page.byId("limitResetPanel").hidden, false);
   assert.equal(page.byId("screenTimeRows").children[0].querySelector(".screen-time-total").textContent, "2m / 30m");
-  assert.equal(page.customRows().at(-1).querySelector(".row-limit").hidden, false);
+  assert.equal(page.customRows().at(-1).querySelector(".limit-control").hidden, false);
+  assert.equal(page.byId("limitGroupsPanel").hidden, false);
   assert.equal(page.byId("syncStatusText").textContent, "Sign in to sync settings and screen time limits.");
 });
 
@@ -333,6 +335,67 @@ test("options restores saved mode details after temporary mode changes", async (
   await page.byId("rollingResetInput").dispatch("change");
 
   assert.equal(page.byId("rollingWindowHoursInput").value, "16");
+});
+
+test("options round-trips assigning sites to a limit group and deleting the group", async () => {
+  const app = createExtensionApp();
+
+  app.backgroundApi.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "example.com" },
+    { id: "22222222-2222-4222-8222-222222222222", kind: "url", value: "example.com/focus" }
+  ]);
+  app.backgroundApi.grantedOrigins.push("*://*.example.com/*");
+
+  let page = await openOptionsPage(app);
+  const groupRow = (name) => page.byId("limitGroupRows").children.find((row) => row.querySelector(".limit-group-name-input").value === name);
+
+  await page.byId("addLimitGroupButton").dispatch("click");
+
+  const newGroupRow = groupRow("");
+  const nameInput = newGroupRow.querySelector(".limit-group-name-input");
+  const minutesInput = newGroupRow.querySelector(".limit-input");
+
+  nameInput.value = "Work";
+  await nameInput.dispatch("input");
+  await nameInput.dispatch("change");
+  minutesInput.value = "15";
+  await minutesInput.dispatch("input");
+
+  const select = page.customRows()[0].querySelector(".limit-group-select");
+  const groupId = select.children.find((option) => option.textContent === "Work").value;
+
+  select.value = groupId;
+  await select.dispatch("change");
+
+  page.customRows().forEach((row) => {
+    assert.equal(row.querySelector(".limit-group-select").value, groupId);
+    assert.equal(row.querySelector(".limit-input").hidden, true);
+  });
+
+  await page.byId("saveButton").dispatch("click");
+
+  let saved = app.backgroundApi.storageData[core.STATE_KEY];
+
+  assert.deepEqual(saved.limitGroups, [...core.DEFAULT_LIMIT_GROUPS, { id: groupId, name: "Work", limitMinutes: 15 }]);
+  assert.deepEqual(saved.domainLimits.find((limit) => limit.domain === "example.com").limit, { type: "group", groupId });
+
+  page = await openOptionsPage(app);
+
+  assert.equal(page.customRows()[0].querySelector(".limit-group-select").value, groupId);
+
+  await groupRow("Work").querySelector(".delete-button").dispatch("click");
+
+  page.customRows().forEach((row) => {
+    assert.equal(row.querySelector(".limit-group-select").value, "");
+    assert.equal(row.querySelector(".limit-input").hidden, false);
+    assert.equal(row.querySelector(".limit-input").value, "15");
+  });
+
+  await page.byId("saveButton").dispatch("click");
+  saved = app.backgroundApi.storageData[core.STATE_KEY];
+
+  assert.deepEqual(saved.limitGroups, core.DEFAULT_LIMIT_GROUPS);
+  assert.deepEqual(saved.domainLimits.find((limit) => limit.domain === "example.com").limit, { type: "site", limitMinutes: 15 });
 });
 
 test("options round-trips YouTube finish setting", async () => {
@@ -565,7 +628,15 @@ async function openOptionsPage(app) {
     BlockerCore: core,
     browser: app.optionsApi,
     console,
+    crypto,
     document,
+    Option: function Option(text, value) {
+      const option = new TestElement("option");
+
+      option.textContent = text;
+      option.value = value;
+      return option;
+    },
     location: {
       hash: "",
       href: "safari-web-extension://extension/options.html",
@@ -957,7 +1028,8 @@ function validState(entries, schedule = core.DEFAULT_SCHEDULE) {
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
-    domainLimits: core.domainLimitsForEntries(stateEntries, [])
+    limitGroups: core.DEFAULT_LIMIT_GROUPS,
+    domainLimits: core.domainLimitsForEntries(stateEntries, [], core.DEFAULT_LIMIT_GROUPS)
   };
 }
 
@@ -1068,6 +1140,9 @@ function optionsDocument() {
     "rowTemplate",
     "saveButton",
     "addRowButton",
+    "limitGroupsPanel",
+    "limitGroupRows",
+    "addLimitGroupButton",
     "blockedPageHtmlInput",
     "alwaysScheduleInput",
     "dailyScheduleInput",
@@ -1181,8 +1256,7 @@ function rowTemplateContent() {
   const deleteButton = new TestElement("button", "", "delete-button");
   const valueLabel = new TestElement("label");
   const valueInput = new TestElement("input", "", "value-input");
-  const limitLabel = new TestElement("label", "", "row-limit");
-  const limitInput = new TestElement("input", "", "limit-input");
+  const limitControl = new TestElement("div", "", "row-limit");
   const domainSettings = new TestElement("div", "", "domain-settings");
   const blockDirectVisitsInput = new TestElement("input", "", "block-direct-visits-input");
   const blockInternalLinksInput = new TestElement("input", "", "block-internal-links-input");
@@ -1190,9 +1264,8 @@ function rowTemplateContent() {
 
   toolbar.append(segments, deleteButton);
   valueLabel.append(valueInput);
-  limitLabel.append(limitInput);
   domainSettings.append(blockDirectVisitsInput, blockInternalLinksInput);
-  row.append(toolbar, valueLabel, limitLabel, domainSettings, rowError);
+  row.append(toolbar, valueLabel, limitControl, domainSettings, rowError);
   fragment.append(row);
 
   return fragment;
@@ -1244,11 +1317,20 @@ class TestElement {
   }
 
   append(...children) {
+    children.forEach((child) => {
+      child.parent = this;
+    });
     this.children.push(...children);
   }
 
   replaceChildren(...children) {
-    this.children = children.flatMap((child) => child.tagName === "fragment" ? child.children : [child]);
+    this.children = [];
+    this.append(...children.flatMap((child) => child.tagName === "fragment" ? child.children : [child]));
+  }
+
+  replaceWith(element) {
+    element.parent = this.parent;
+    this.parent.children[this.parent.children.indexOf(this)] = element;
   }
 
   addEventListener(type, listener) {
@@ -1285,6 +1367,20 @@ class TestElement {
     }
 
     return findByClass(this, selector.slice(1));
+  }
+
+  querySelectorAll(selector) {
+    if (!selector.startsWith(".")) {
+      throw new Error(`Unsupported selector: ${selector}`);
+    }
+
+    const className = selector.slice(1);
+    const matches = (element) => [
+      ...(element.className.split(" ").includes(className) ? [element] : []),
+      ...element.children.flatMap(matches)
+    ];
+
+    return this.children.flatMap(matches);
   }
 }
 

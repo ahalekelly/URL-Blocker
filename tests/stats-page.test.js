@@ -95,6 +95,18 @@ test("stats page hides limits when block schedule is always", async () => {
   assert.equal(row.children[1].textContent, "This device 1m · Other devices 1m");
 });
 
+test("stats page lists the member sites of limit groups", async () => {
+  const response = screenTimeStatsResponse();
+
+  response.stats.entries[0] = { ...response.stats.entries[0], type: "group", name: "Streaming", domains: ["hbomax.com", "netflix.com"] };
+
+  const { document } = await openStatsPage(response);
+  const row = document.elements.domainRows.children[0];
+
+  assert.equal(row.children[0].children[0].textContent, "Streaming");
+  assert.equal(row.children[2].textContent, "hbomax.com, netflix.com · This device 1m · Other devices 1m");
+});
+
 test("stats page shows background errors", async () => {
   const { document } = await openStatsPage({
     type: "error",
@@ -176,7 +188,9 @@ function screenTimeStatsResponse() {
       overLimitCount: 0,
       entries: [
         {
-          domain: "example.com",
+          type: "site",
+          name: "example.com",
+          domains: ["example.com"],
           totalMs: 90000,
           localMs: 60000,
           remoteMs: 30000,
@@ -186,7 +200,9 @@ function screenTimeStatsResponse() {
           isOverLimit: false
         },
         {
-          domain: "unused.example",
+          type: "site",
+          name: "unused.example",
+          domains: ["unused.example"],
           totalMs: 0,
           localMs: 0,
           remoteMs: 0,
