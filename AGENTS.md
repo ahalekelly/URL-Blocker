@@ -141,6 +141,14 @@ Build the Android app (debug-signed, needs JDK 21 at `/opt/homebrew/opt/openjdk@
 make android-build
 ```
 
+On akelly-desktop (Linux, no zsh):
+
+```sh
+make android-build SHELL=/bin/bash ANDROID_HOME=~/.local/opt/android-sdk ANDROID_JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+```
+
+The Pixel 8 is reachable from both machines with `adb connect pixel-8.troodon-bigeye.ts.net:5555`; see `~/.agents/machines/pixel8.md`.
+
 Build and install the Android app on the connected device or emulator with adb:
 
 ```sh
