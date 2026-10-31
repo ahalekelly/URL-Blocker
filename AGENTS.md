@@ -202,6 +202,7 @@ grant execute on function public.sync_screen_time_buckets(jsonb) to authenticate
 ```
 
 - Google sign-in is configured. Apple sign-in is intentionally not configured yet.
+- Chromium sign-in redirects to `https://<extension-id>.chromiumapp.org/supabase`. An unpacked extension's ID comes from its folder path, so each new install location needs its URL in Supabase's Redirect URLs (Authentication → URL Configuration); otherwise sign-in fails with "Authorization page could not be loaded".
 
 ## Python Scripts
 
