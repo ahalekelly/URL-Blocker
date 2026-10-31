@@ -13,6 +13,7 @@ Target device: rooted Pixel 8.
 - Vivaldi for Android is the only browser. Other browsers and the YouTube app are disabled with `pm disable-user` (see step 8 for the YouTube app alternative).
 - Vivaldi runs URL Blocker unpacked (Developer Mode → Load unpacked) and uBlock Origin Lite for ads, including YouTube. URL Blocker's APIs (`webNavigation`, `scripting`, `tabs`, `identity`, the service worker) work there.
 - Unpacked files load through Android's folder access, so each `fetch` of a packaged file takes about 300 ms (15 ms for store installs). The navigation path must not fetch packaged files.
+- Vivaldi saves a `.crx` opened from a website as a download instead of installing it.
 - Load unpacked works without Desktop Site. The Chrome Web Store needs Desktop Site only to install, so it can stay off.
 - Settings are edited in URL Blocker's options page in Vivaldi.
 
@@ -35,7 +36,7 @@ Target device: rooted Pixel 8.
 
 - The app is Device Owner (set by temporarily removing accounts, then `dpm set-device-owner`). It blocks its own uninstall, sets `DISALLOW_APPS_CONTROL` and `DISALLOW_SAFE_BOOT`, and keeps other browsers disabled.
 - With root, it reads Vivaldi's `Preferences` to confirm URL Blocker and uBlock Origin Lite are installed and enabled, and covers Vivaldi when they are not.
-- If Vivaldi honors `ExtensionInstallForcelist` through managed configuration, the app sets it.
+- If Vivaldi honors `ExtensionInstallForcelist` through managed configuration, the app sets it. Vivaldi's managed-config schema lists the extension policies, but Android delivers app restrictions only from a device admin, so testing needs the Device Owner.
 - Root can still undo all of this; the goal is friction, not impossibility.
 
 ## Order
