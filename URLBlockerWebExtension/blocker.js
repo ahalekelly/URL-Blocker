@@ -273,7 +273,7 @@
       }
 
       try {
-        const normalized = normalizeUrlEntryValue(value);
+        const normalized = normalizeUrlValue(value);
 
         if (allowedPages.includes(normalized)) {
           errors.push({ index: null, message: `Duplicate allowed page: ${normalized}.` });
@@ -753,6 +753,20 @@
   }
 
   function normalizeUrlEntry(rawValue) {
+    const value = normalizeUrlValue(rawValue);
+    const slash = value.indexOf("/");
+    const host = slash === -1 ? value : value.slice(0, slash);
+    const alias = storedUrlAliasTarget(host, value.slice(host.length), value);
+
+    if (alias) {
+      return { value: alias, aliased: true };
+    }
+
+    return { value, aliased: false };
+  }
+
+  // Allowed pages skip URL aliases: allowing x.com/home must not allow all of x.com.
+  function normalizeUrlValue(rawValue) {
     const url = parseUrlEntryValue(rawValue);
     const scheme = url.protocol.toLowerCase();
 
@@ -771,14 +785,7 @@
     const host = normalizeHost(url.hostname);
     const path = stripTrailingSlashes(url.pathname);
     const storedPath = path === "/" ? "" : path;
-    const value = `${host}${storedPath}`;
-    const alias = storedUrlAliasTarget(host, storedPath, value);
-
-    if (alias) {
-      return { value: alias, aliased: true };
-    }
-
-    return { value, aliased: false };
+    return `${host}${storedPath}`;
   }
 
   function normalizeHost(rawHost) {
@@ -1350,6 +1357,12 @@
       case "inside":
         return false;
       case "referrer": {
+        // Android apps open links with an android-app:// referrer. Other
+        // non-web referrers, like the block page, count as inside.
+        if (from.url.startsWith("android-app://")) {
+          return true;
+        }
+
         const result = normalizePageUrl(from.url);
 
         return result.type === "valid" && !domainMatchesHost(domain, result.url.limitHost);
@@ -1363,7 +1376,7 @@
     const result = normalizePageUrl(rawUrl);
 
     return result.type === "valid"
-      && state.allowedPages.some((value) => entryMatchesUrl({ type: "custom", kind: "urlWithSubpaths", value }, result.url));
+      && state.allowedPages.some((value) => makeContentRegex({ kind: "urlWithSubpaths", value }).test(result.url.pathUrl));
   }
 
   function findHardScheduleMatchingEntry(state, rawUrl, date) {
@@ -1875,7 +1888,8 @@
       const normalizedPath = path === "/" ? "" : path;
       const aliasHost = stripLeadingWww(host);
       const aliasTarget = pageUrlAliasTarget(aliasHost, normalizedPath);
-      const pathMatchUrl = aliasTarget ? storedUrlMatchUrl(scheme, aliasTarget) : `${base}${normalizedPath}`;
+      const pathUrl = `${base}${normalizedPath}`;
+      const pathMatchUrl = aliasTarget ? storedUrlMatchUrl(scheme, aliasTarget) : pathUrl;
       const regexMatchUrl = `${base}${url.pathname}${url.search}`;
 
       return {
@@ -1883,6 +1897,7 @@
         url: {
           host,
           limitHost: hostAliasTarget(aliasHost) || host,
+          pathUrl,
           pathMatchUrl,
           regexMatchUrl
         }

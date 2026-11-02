@@ -454,6 +454,7 @@ test("decides pages by policy, restriction, and visit", () => {
   assert.deepEqual(decide("https://x.com/messages", fromReferrer("https://mobile.twitter.com/home")), blocked);
   assert.deepEqual(decide("https://x.com/messages", fromReferrer("https://mail.example.net/")), allowed);
   assert.deepEqual(decide("https://x.com/messages", fromReferrer("chrome-extension://abc/blocked.html")), blocked);
+  assert.deepEqual(decide("https://x.com/messages", fromReferrer("android-app://com.google.android.gm/")), allowed);
   assert.deepEqual(decide("https://unlisted.example.net/", inside), allowed);
   assert.deepEqual(decide("https://x.com/home", inside, new Set()), allowed);
   assert.deepEqual(decide("https://x.com/home", inside, new Set(), validState(entries, allDay)), { type: "match", reason: "schedule" });
@@ -471,6 +472,11 @@ test("allowed pages stay open while restricted but not during the hard schedule"
   assert.equal(core.decidePage(state, "https://studio.youtube.com/channel", inside, new Set(), noon).type, "none");
   assert.equal(core.decidePage(state, "https://x.com/home", inside, new Set(), noon).type, "match");
   assert.equal(core.decidePage(hardScheduled, "https://x.com/messages", inside, new Set(), noon).reason, "hardSchedule");
+  const homeAllowed = validState(entries, { type: "always" });
+  homeAllowed.allowedPages = core.validateState({ ...homeAllowed, allowedPages: ["x.com/home"] }, []).state.allowedPages;
+  assert.deepEqual(homeAllowed.allowedPages, ["x.com/home"]);
+  assert.equal(core.decidePage(homeAllowed, "https://x.com/home", inside, new Set(), noon).type, "none");
+  assert.equal(core.decidePage(homeAllowed, "https://x.com/messages", inside, new Set(), noon).type, "match");
 });
 
 test("validates allowed pages", () => {

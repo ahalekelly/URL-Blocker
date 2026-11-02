@@ -16,6 +16,18 @@ test("content script reports the startup URL with the document referrer", async 
   assert.deepEqual(page.messages, [checkPage("https://x.com/home", "https://search.example/")]);
 });
 
+test("content script keeps the page referrer when the site replaces its URL", async () => {
+  const page = await runContentScript("https://www.reddit.com/comments/abc", { referrer: "https://search.example/" });
+
+  page.location.href = "https://www.reddit.com/comments/abc/title_slug";
+  await page.dispatch("currententrychange", 0, { navigationType: "replace" });
+
+  assert.deepEqual(page.messages, [
+    checkPage("https://www.reddit.com/comments/abc", "https://search.example/"),
+    checkPage("https://www.reddit.com/comments/abc/title_slug", "https://search.example/")
+  ]);
+});
+
 test("content script reports in-page URL changes with the previous URL as referrer", async () => {
   const page = await runContentScript("https://www.youtube.com/watch?v=abc", { referrer: "https://search.example/" });
 

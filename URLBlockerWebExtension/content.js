@@ -31,7 +31,15 @@
     // The Navigation API reports every same-document URL change, including
     // pushState and replaceState calls from the page's own scripts.
     if (root.navigation) {
-      root.navigation.addEventListener("currententrychange", checkCurrentUrl);
+      root.navigation.addEventListener("currententrychange", (event) => {
+        // Sites rewrite their own URL in place, like Reddit adding a title
+        // slug, so a replace keeps the page's referrer.
+        if (event.navigationType === "replace") {
+          currentPageUrl = location.href;
+        }
+
+        checkCurrentUrl();
+      });
     } else {
       console.error("URL Blocker needs the Navigation API to check in-page URL changes immediately. They are checked every 5 seconds instead.");
     }

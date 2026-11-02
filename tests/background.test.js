@@ -441,10 +441,11 @@ test("checkPage judges empty Chromium referrers by the committed transition", as
 
   assert.equal((await check(7, "https://example.com/linked")).type, "allowed");
   assert.equal((await check(8, "https://example.com/from-app")).type, "allowed");
-  assert.equal((await check(9, "https://example.com/no-commit")).type, "redirected");
+  assert.equal((await check(9, "https://example.com/typed")).type, "allowed");
+  assert.equal((await controller.redirectCommittedNavigation({ frameId: 0, tabId: 9, transitionType: "typed", url: "https://example.com/typed" })).type, "redirected");
 });
 
-test("committed typed and reload navigations count as inside arrivals", async () => {
+test("committed typed navigations count as inside arrivals and reloads keep the page's referrer", async () => {
   const api = fakeApi({ runtimeScheme: "chrome-extension" });
   api.storageData[core.STATE_KEY] = validState([
     { id, kind: "url", value: "example.com" }
@@ -457,7 +458,10 @@ test("committed typed and reload navigations count as inside arrivals", async ()
   assert.equal((await commit(9, "link", "https://example.com/path")).type, "allowed");
   assert.equal((await controller.handleMessage(checkPageMessage("https://example.com/path"), { tab: { id: 10 } })).type, "allowed");
   assert.equal((await commit(10, "reload", "https://example.com/path")).type, "allowed");
-  assert.equal((await commit(11, "reload", "https://example.com/path")).type, "redirected");
+  assert.equal((await commit(11, "reload", "https://example.com/path")).type, "allowed");
+  assert.equal((await controller.handleMessage(checkPageMessage("https://example.com/path", "https://example.com/"), { tab: { id: 11 } })).type, "redirected");
+  assert.equal((await commit(12, "reload", "https://example.com/path")).type, "allowed");
+  assert.equal((await controller.handleMessage(checkPageMessage("https://example.com/path"), { tab: { id: 12 } })).type, "allowed");
   assert.deepEqual(api.updatedTabs.map((tab) => tab.tabId), [7, 8, 11]);
 });
 
@@ -489,6 +493,18 @@ test("starting navigation blocks feeds and leaves other pages to their arrival",
   assert.equal((await controller.redirectNavigationStart({ frameId: 0, tabId: 8, url: "https://example.com/path" })).type, "allowed");
   assert.equal((await controller.redirectNavigationStart({ frameId: 1, tabId: 9, url: "https://example.com/" })).type, "ignored");
   assert.deepEqual(api.updatedTabs, [{ tabId: 7, url: blockedUrl("https://example.com/", "schedule", "chrome-extension") }]);
+});
+
+test("starting navigation to another page ends the tab's pass", async () => {
+  const api = fakeApi({ runtimeScheme: "chrome-extension" });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "example.com" }
+  ], { type: "always" });
+  const controller = createBackgroundController(api);
+
+  assert.equal((await controller.handleMessage(checkPageMessage("https://example.com/path"), { tab: { id: 7 } })).type, "allowed");
+  await controller.redirectNavigationStart({ frameId: 0, tabId: 7, url: "https://other.example/" });
+  assert.equal((await controller.redirectCommittedNavigation({ frameId: 0, tabId: 7, transitionType: "auto_bookmark", url: "https://example.com/path" })).type, "redirected");
 });
 
 test("checkPage redirects every page on a domain during the hard schedule", async () => {

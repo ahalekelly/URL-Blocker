@@ -222,29 +222,30 @@
         throw codedError("ReferrerInvalid", "Page referrer must be a string.");
       }
 
-      return checkTabPage(sender.tab.id, rawUrl, { type: "arrival", from: await contentArrival(sender.tab.id, rawUrl, referrer) });
+      return checkTabPage(sender.tab.id, rawUrl, await contentArrival(sender.tab.id, rawUrl, referrer));
     }
 
     // Chromium and iOS apps open some links without a referrer. Chromium's
     // committed transition tells those links apart from typed visits and
     // bookmarks; Safari has no transition, so an empty referrer counts as an
-    // outside link there.
+    // outside link there. The page can report before the commit is recorded,
+    // in which case the commit decides.
     async function contentArrival(tabId, rawUrl, referrer) {
       if (referrer !== "") {
-        return { type: "referrer", url: referrer };
+        return { type: "arrival", from: { type: "referrer", url: referrer } };
       }
 
       if (isSafariRuntime(api)) {
-        return { type: "outside" };
+        return { type: "arrival", from: { type: "outside" } };
       }
 
       const committed = await loadTabValue(COMMITTED_NAVIGATION_PREFIX, tabId);
 
-      return committed !== undefined
-        && core.pageChangeKey(committed.url) === core.pageChangeKey(rawUrl)
-        && OUTSIDE_TRANSITIONS.has(committed.transitionType)
-        ? { type: "outside" }
-        : { type: "inside" };
+      if (committed === undefined || core.pageChangeKey(committed.url) !== core.pageChangeKey(rawUrl)) {
+        return ARRIVAL_PENDING;
+      }
+
+      return { type: "arrival", from: { type: OUTSIDE_TRANSITIONS.has(committed.transitionType) ? "outside" : "inside" } };
     }
 
     // The block page opens its target through here so the target counts as
@@ -385,6 +386,11 @@
         return { type: "ignored" };
       }
 
+      // Leaving the page ends its pass, even for a page with no content script.
+      if (await loadTabValue(PAGE_PASS_PREFIX, details.tabId) !== core.pageChangeKey(details.url)) {
+        await tabStorage.remove(`${PAGE_PASS_PREFIX}${details.tabId}`);
+      }
+
       return checkTabPage(details.tabId, details.url, ARRIVAL_PENDING);
     }
 
@@ -401,7 +407,9 @@
 
       await tabStorage.set({ [`${COMMITTED_NAVIGATION_PREFIX}${details.tabId}`]: { url: details.url, transitionType: details.transitionType } });
 
-      return checkTabPage(details.tabId, details.url, OUTSIDE_TRANSITIONS.has(details.transitionType)
+      // A reload keeps the page's original referrer, which the page reports,
+      // so a restored tab is judged by how it was first opened.
+      return checkTabPage(details.tabId, details.url, OUTSIDE_TRANSITIONS.has(details.transitionType) || details.transitionType === "reload"
         ? ARRIVAL_PENDING
         : { type: "arrival", from: { type: "inside" } });
     }
