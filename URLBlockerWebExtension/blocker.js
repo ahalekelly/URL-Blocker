@@ -1273,6 +1273,10 @@
   }
 
   function pageDecision(state, rawUrl, shortVideo, visit, overLimitDomains, date) {
+    if (isAllowedPage(state, rawUrl)) {
+      return { type: "none" };
+    }
+
     const hardScheduleMatch = findHardScheduleMatchingEntry(state, rawUrl, date);
 
     if (hardScheduleMatch.type === "match") {
@@ -1283,10 +1287,6 @@
       const target = pageDecision(state, shortVideo.url, shortVideoPage(state, shortVideo.url), visit, overLimitDomains, date);
 
       return target.type === "match" || visit.type === "arrivalPending" ? target : { type: "singleVideoRedirect", url: shortVideo.url };
-    }
-
-    if (isAllowedPage(state, rawUrl)) {
-      return { type: "none" };
     }
 
     const policy = pagePolicy(state, rawUrl, shortVideo);

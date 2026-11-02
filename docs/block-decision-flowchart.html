@@ -72,14 +72,14 @@
 
   <div class="steps">
     <div class="step">
-      <div class="box decision"><div class="t">Hard block schedule active, and the page is on a blocked domain?</div><div class="d">Every enabled entry blocks its whole domain, subdomains and aliases included: <code>hardSchedule</code></div></div>
-      <div class="arrow">YES</div>
-      <div class="result"><div class="box pill block"><div class="t">BLOCKED</div></div></div>
-    </div>
-    <div class="step">
       <div class="box decision"><div class="t">Is the page on the allowed pages list?</div><div class="d">Each line matches a URL and its subpages</div></div>
       <div class="arrow no">YES</div>
       <div class="result"><div class="box pill pass"><div class="t">Not blocked</div></div></div>
+    </div>
+    <div class="step">
+      <div class="box decision"><div class="t">Hard block schedule active, and the page is on a blocked domain?</div><div class="d">Every enabled entry blocks its whole domain, subdomains and aliases included: <code>hardSchedule</code></div></div>
+      <div class="arrow">YES</div>
+      <div class="result"><div class="box pill block"><div class="t">BLOCKED</div></div></div>
     </div>
     <div class="step">
       <div class="box decision"><div class="t">Does an enabled entry cover the page?</div><div class="d"><b>Feed:</b> an exact “URL” entry match, like <code>x.com/home</code> or <code>reddit.com/r/*</code>.<br><b>Outside links only:</b> any other entry match (full domain, URL+subpaths, regex), or any other page on the site of a bare-domain “URL” entry like <code>youtube.com</code></div></div>

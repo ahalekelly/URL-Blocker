@@ -461,7 +461,7 @@ test("decides pages by policy, restriction, and visit", () => {
   assert.deepEqual(decide("https://example.com/feed", inside, overLimit, validState(entries, inactive, undefined, core.DEFAULT_LIMIT_RESET, allDay)), { type: "match", reason: "hardSchedule" });
 });
 
-test("allowed pages stay open while restricted but not during the hard schedule", () => {
+test("allowed pages stay open while restricted and during the hard schedule", () => {
   const noon = new Date(2026, 0, 1, 12, 0);
   const allDay = { type: "dailyWindow", startMinute: 0, endMinute: 1439 };
   const entries = [{ id: ids[0], kind: "url", value: "x.com" }, { id: ids[1], kind: "url", value: "youtube.com" }];
@@ -471,7 +471,8 @@ test("allowed pages stay open while restricted but not during the hard schedule"
   assert.equal(core.decidePage(state, "https://x.com/messages/123", inside, new Set(), noon).type, "none");
   assert.equal(core.decidePage(state, "https://studio.youtube.com/channel", inside, new Set(), noon).type, "none");
   assert.equal(core.decidePage(state, "https://x.com/home", inside, new Set(), noon).type, "match");
-  assert.equal(core.decidePage(hardScheduled, "https://x.com/messages", inside, new Set(), noon).reason, "hardSchedule");
+  assert.equal(core.decidePage(hardScheduled, "https://x.com/messages", inside, new Set(), noon).type, "none");
+  assert.equal(core.decidePage(hardScheduled, "https://x.com/status/1", outside, new Set(), noon).reason, "hardSchedule");
   const homeAllowed = validState(entries, { type: "always" });
   homeAllowed.allowedPages = core.validateState({ ...homeAllowed, allowedPages: ["x.com/home"] }, []).state.allowedPages;
   assert.deepEqual(homeAllowed.allowedPages, ["x.com/home"]);
