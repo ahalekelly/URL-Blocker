@@ -253,6 +253,9 @@
     <b>Root-URL expansion</b> (the middle chain) is what blocks a site’s <i>feed</i> — landing on <code>reddit.com</code> — while still letting you open a specific link into it. It only fires for a bare-domain “URL” entry, and only on a qualifying arrival, governed per domain by the <b>block direct visits</b> and <b>block internal links</b> toggles. A direct match to a more specific entry (full path, subpaths, or regex) takes the express lane straight to the activation gate.
   </p>
   <p class="note">
-    <b>Arrival memory.</b> Each page’s arrival referrer is recorded in extension storage for 30 days, so reloads, Back/Forward returns, and the re-check every 5 seconds re-apply the arrival that originally brought you to the page (the re-check is what blocks a page once its time limit runs out, and only when that arrival qualifies) — the browser’s own referrer goes stale on SPAs, where every in-app hop keeps the document’s first referrer. A history return whose arrival can’t be determined (no record, expired record, or unreadable storage) counts as a qualifying arrival, so it blocks rather than slips through.
+    <b>Open pages.</b> This chart runs when a page loads, reloads, returns through Back/Forward, or changes to another page inside a single-page app. A page that is already open stays open when its time limit runs out or the schedule starts; only the hard block schedule closes it, checked every 5 seconds. Changes to just the <code>&amp;</code> or <code>#</code> part of the URL count as the same page.
+  </p>
+  <p class="note">
+    <b>Arrival memory.</b> Each page’s arrival referrer is recorded in extension storage for 30 days, so reloads and Back/Forward returns re-apply the arrival that originally brought you to the page — the browser’s own referrer goes stale on SPAs, where every in-app hop keeps the document’s first referrer. A history return whose arrival can’t be determined (no record, expired record, or unreadable storage) counts as a qualifying arrival, so it blocks rather than slips through.
   </p>
 </div>

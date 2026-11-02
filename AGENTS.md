@@ -98,7 +98,7 @@ It builds the extension, prints the CDP URL, extension ID, and options URL as JS
 
 - Write both `blockerState` and `settingsActivation.activeState` (with `pending: { type: "none" }`), since the active state comes from the activation.
 - The default block schedule may be active at test time; set a window that excludes now. There is no `off` schedule type.
-- `youtubeFocus.finishCurrentVideo` keeps an already-open `/watch` page open past its limit; turn it off when testing limit blocking on YouTube.
+- Limits and the regular schedule only block on navigation, so reload a page after pushing it over its limit.
 
 Build the signed iOS app, signed macOS app, and unpacked Chrome extension:
 

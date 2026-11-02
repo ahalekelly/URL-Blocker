@@ -398,24 +398,6 @@ test("options round-trips assigning sites to a limit group and deleting the grou
   assert.deepEqual(saved.domainLimits.find((limit) => limit.domain === "example.com").limit, { type: "site", limitMinutes: 15 });
 });
 
-test("options round-trips YouTube finish setting", async () => {
-  const app = createExtensionApp();
-  app.backgroundApi.storageData[core.STATE_KEY] = validState([]);
-  let page = await openOptionsPage(app);
-
-  assert.equal(page.byId("finishYouTubeVideosInput").checked, true);
-
-  page.byId("finishYouTubeVideosInput").checked = false;
-  await page.byId("finishYouTubeVideosInput").dispatch("change");
-  await page.byId("saveButton").dispatch("click");
-
-  assert.deepEqual(app.backgroundApi.storageData[core.STATE_KEY].youtubeFocus, { finishCurrentVideo: false });
-
-  page = await openOptionsPage(app);
-
-  assert.equal(page.byId("finishYouTubeVideosInput").checked, false);
-});
-
 test("options round-trips short video hiding toggles", async () => {
   const app = createExtensionApp();
   app.backgroundApi.storageData[core.STATE_KEY] = validState([]);
@@ -1040,7 +1022,6 @@ function validState(entries, schedule = core.DEFAULT_SCHEDULE) {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: core.domainLimitsForEntries(stateEntries, [], core.DEFAULT_LIMIT_GROUPS)
@@ -1178,7 +1159,6 @@ function optionsDocument() {
     "rollingWindowHoursInput",
     "dailyResetHourSelect",
     "settingsDelayMinutesInput",
-    "finishYouTubeVideosInput",
     "hideYouTubeShortsInput",
     "hideInstagramReelsInput",
     "hideFacebookReelsInput",

@@ -453,12 +453,10 @@ test("urlChanged reports short video hiding for allowed pages", async () => {
 
   assert.deepEqual(await controller.handleMessage(urlChangedMessage("https://www.facebook.com/reel/123"), { tab: { id: 7 } }), {
     type: "allowed",
-    youtubeFocus: false,
     shortVideo: { type: "singleVideo", site: "facebook" }
   });
   assert.deepEqual(await controller.handleMessage(urlChangedMessage("https://x.com/home"), { tab: { id: 7 } }), {
     type: "allowed",
-    youtubeFocus: false,
     shortVideo: { type: "none" }
   });
 });
@@ -701,36 +699,6 @@ test("urlChanged blocks a Short instead of redirecting when the watch page would
   ]);
 });
 
-test("screenTimeElapsed blocks internal arrivals but not external ones when the limit runs out", async () => {
-  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "example.com" }
-  ], inactiveSchedule(), [
-    { domain: "example.com", limit: { type: "site", limitMinutes: 1 } }
-  ]);
-  api.storageData.screenTimeUsage = screenTimeUsage({
-    "example.com": { 20: 50000 }
-  });
-  const controller = createBackgroundController(api);
-
-  await controller.handleMessage({
-    type: "screenTimeElapsed",
-    url: "https://example.com/external",
-    elapsedMs: 10000,
-    source: defaultDocumentSource
-  }, { tab: { id: 7 } });
-  await controller.handleMessage({
-    type: "screenTimeElapsed",
-    url: "https://example.com/internal",
-    elapsedMs: 1000,
-    source: { type: "document", referrer: knownReferrer("https://example.com/"), navigationType: "navigate" }
-  }, { tab: { id: 8 } });
-
-  assert.deepEqual(api.updatedTabs, [
-    { tabId: 8, url: blockedUrl("https://example.com/internal", "limitRootSameDomainNavigation") }
-  ]);
-});
-
 test("urlChanged fails closed for unknown referrers on root URL pages", async () => {
   const api = fakeApi({ runtimeScheme: "chrome-extension" });
   api.storageData[core.STATE_KEY] = validState([
@@ -922,20 +890,17 @@ test("screenTimeElapsed logs time into the current hour bucket", async () => {
   assert.deepEqual(await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://old.reddit.com/r/safari",
-    elapsedMs: 1500,
-    source: defaultDocumentSource
+    elapsedMs: 1500
   }, { tab: { id: 7 } }), { type: "logged", domain: "reddit.com", isOverLimit: false });
   assert.deepEqual(await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://www.example.com/path",
-    elapsedMs: 2500,
-    source: defaultDocumentSource
+    elapsedMs: 2500
   }, { tab: { id: 7 } }), { type: "logged", domain: "example.com", isOverLimit: false });
   assert.deepEqual(await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://ignored.example/",
-    elapsedMs: 1000,
-    source: defaultDocumentSource
+    elapsedMs: 1000
   }, { tab: { id: 7 } }), { type: "logged", domain: "ignored.example", isOverLimit: false });
 
   assert.deepEqual(await controller.handleMessage({ type: "getScreenTimeLog" }, {}), {
@@ -975,8 +940,7 @@ test("screenTimeElapsed resets unsupported old screen time usage schemas", async
   assert.deepEqual(await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://www.example.com/path",
-    elapsedMs: 2500,
-    source: defaultDocumentSource
+    elapsedMs: 2500
   }, { tab: { id: 7 } }), { type: "logged", domain: "example.com", isOverLimit: false });
   assert.deepEqual(api.storageData.screenTimeUsage, {
     schemaVersion: 2,
@@ -999,8 +963,7 @@ test("screenTimeElapsed stores usage through native storage on iOS", async () =>
   assert.deepEqual(await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://www.example.com/path",
-    elapsedMs: 2500,
-    source: defaultDocumentSource
+    elapsedMs: 2500
   }, { tab: { id: 7 } }), { type: "logged", domain: "example.com", isOverLimit: false });
   assert.equal(api.storageData.screenTimeUsage, undefined);
   assert.deepEqual(api.nativeData.screenTimeUsage, {
@@ -1026,14 +989,12 @@ test("screenTimeElapsed validates elapsed time", async () => {
   await assert.rejects(() => controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://reddit.com",
-    elapsedMs: 0,
-    source: defaultDocumentSource
+    elapsedMs: 0
   }, { tab: { id: 7 } }), /positive integer/);
   await assert.rejects(() => controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://reddit.com",
-    elapsedMs: 30001,
-    source: defaultDocumentSource
+    elapsedMs: 30001
   }, { tab: { id: 7 } }), /no more than 30 seconds/);
 });
 
@@ -1207,8 +1168,7 @@ test("screenTimeElapsed keeps historical buckets when saving", async () => {
   assert.deepEqual(await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://www.example.com/path",
-    elapsedMs: 6000,
-    source: defaultDocumentSource
+    elapsedMs: 6000
   }, { tab: { id: 7 } }), { type: "logged", domain: "example.com", isOverLimit: false });
   assert.deepEqual(api.storageData.screenTimeUsage, {
     schemaVersion: 2,
@@ -1247,44 +1207,6 @@ test("urlChanged redirects matching URLs when rolling usage is over limit", asyn
     tabId: 7,
     url: blockedUrl("https://x.com/home", "limitDirectMatch")
   }]);
-});
-
-test("urlChanged lets a remembered YouTube video continue after rolling usage exceeds the limit", async () => {
-  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "youtube.com" }
-  ], inactiveSchedule(), [
-    { domain: "youtube.com", limit: { type: "site", limitMinutes: 1 } }
-  ]);
-  const controller = createBackgroundController(api);
-  const remembered = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", internalYoutubeSource), { tab: { id: 7 } });
-
-  api.storageData.screenTimeUsage = screenTimeUsage({
-    "youtube.com": { 20: 60000 }
-  });
-  const focused = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc&t=30", internalYoutubeSource), { tab: { id: 7 } });
-
-  assert.deepEqual(remembered, { type: "allowed", youtubeFocus: false, shortVideo: { type: "feed", site: "youtube" } });
-  assert.deepEqual(focused, { type: "allowed", youtubeFocus: true, shortVideo: { type: "feed", site: "youtube" } });
-  assert.deepEqual(api.updatedTabs, []);
-});
-
-test("urlChanged lets a remembered YouTube video continue after the service worker restarts", async () => {
-  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "youtube.com" }
-  ], inactiveSchedule(), [
-    { domain: "youtube.com", limit: { type: "site", limitMinutes: 1 } }
-  ]);
-  await createBackgroundController(api).handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", internalYoutubeSource), { tab: { id: 7 } });
-
-  api.storageData.screenTimeUsage = screenTimeUsage({
-    "youtube.com": { 20: 60000 }
-  });
-  const focused = await createBackgroundController(api).handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", internalYoutubeSource), { tab: { id: 7 } });
-
-  assert.equal(focused.youtubeFocus, true);
-  assert.deepEqual(api.updatedTabs, []);
 });
 
 test("urlChanged blocks other YouTube videos after rolling usage exceeds the limit", async () => {
@@ -1340,109 +1262,39 @@ test("urlChanged blocks YouTube videos started from the homepage after block tim
   }]);
 });
 
-test("screenTimeElapsed lets the current YouTube video continue after crossing the limit", async () => {
+test("recheckUrl closes open pages only during the hard schedule", async () => {
   const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
+  const limits = [{ domain: "youtube.com", limit: { type: "site", limitMinutes: 1 } }];
   api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "youtube.com" }
-  ], inactiveSchedule(), [
-    { domain: "youtube.com", limit: { type: "site", limitMinutes: 1 } }
-  ]);
-  api.storageData.screenTimeUsage = screenTimeUsage({
-    "youtube.com": { 20: 30000 }
-  });
-  const controller = createBackgroundController(api);
-
-  await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", internalYoutubeSource), { tab: { id: 7 } });
-  const response = await controller.handleMessage({
-    type: "screenTimeElapsed",
-    url: "https://www.youtube.com/watch?v=abc",
-    elapsedMs: 30000,
-    source: internalYoutubeSource
-  }, { tab: { id: 7 } });
-  const focused = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", internalYoutubeSource), { tab: { id: 7 } });
-
-  assert.deepEqual(response, { type: "logged", domain: "youtube.com", isOverLimit: true });
-  assert.deepEqual(focused, { type: "allowed", youtubeFocus: true, shortVideo: { type: "feed", site: "youtube" } });
-  assert.deepEqual(api.updatedTabs, []);
-});
-
-test("disabled YouTube focus redirects the current video after crossing the limit", async () => {
-  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
-  api.storageData[core.STATE_KEY] = {
-    ...validState([
-      { id, kind: "url", value: "youtube.com" }
-    ], inactiveSchedule(), [
-      { domain: "youtube.com", limit: { type: "site", limitMinutes: 1 } }
-    ]),
-    youtubeFocus: { finishCurrentVideo: false }
-  };
+    { id, kind: "domain", value: "youtube.com" }
+  ], activeSchedule(), limits);
   api.storageData.screenTimeUsage = screenTimeUsage({
     "youtube.com": { 20: 60000 }
   });
   const controller = createBackgroundController(api);
+  const recheck = { type: "recheckUrl", url: "https://www.youtube.com/watch?v=abc" };
 
-  const response = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", internalYoutubeSource), { tab: { id: 7 } });
+  assert.deepEqual(await controller.handleMessage(recheck, { tab: { id: 7 } }), { type: "allowed" });
 
-  assert.equal(response.type, "redirected");
-  assert.deepEqual(api.updatedTabs, [{
-    tabId: 7,
-    url: blockedUrl("https://www.youtube.com/watch?v=abc", "limitRootSameDomainNavigation")
-  }]);
-});
+  const hardBlockedState = validState([
+    { id, kind: "domain", value: "youtube.com" }
+  ], activeSchedule(), limits, core.DEFAULT_LIMIT_RESET, activeSchedule());
 
-test("hard schedule redirects remembered YouTube videos", async () => {
-  const api = fakeApi();
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "youtube.com" }
-  ], inactiveSchedule());
-  const controller = createBackgroundController(api);
-
-  await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc"), { tab: { id: 7 } });
-  const blockedState = validState([
-    { id, kind: "url", value: "youtube.com" }
-  ], inactiveSchedule(), undefined, core.DEFAULT_LIMIT_RESET, activeSchedule());
-
-  api.storageData[core.STATE_KEY] = blockedState;
+  api.storageData[core.STATE_KEY] = hardBlockedState;
   api.storageData.settingsActivation = {
     schemaVersion: 1,
-    activeState: blockedState,
+    activeState: hardBlockedState,
     pending: { type: "none" }
   };
-  const response = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc"), { tab: { id: 7 } });
 
-  assert.equal(response.type, "redirected");
+  assert.deepEqual(await controller.handleMessage(recheck, { tab: { id: 7 } }), { type: "redirected" });
   assert.deepEqual(api.updatedTabs, [{
     tabId: 7,
     url: blockedUrl("https://www.youtube.com/watch?v=abc", "hardScheduleDomain")
   }]);
 });
 
-test("screenTimeElapsed redirects current root URL subpages after crossing the limit", async () => {
-  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "x.com" }
-  ], inactiveSchedule(), [
-    { domain: "x.com", limit: { type: "site", limitMinutes: 1 } }
-  ]);
-  api.storageData.screenTimeUsage = screenTimeUsage({
-    "x.com": { 20: 30000 }
-  });
-  const controller = createBackgroundController(api);
-  const response = await controller.handleMessage({
-    type: "screenTimeElapsed",
-    url: "https://x.com/messages",
-    elapsedMs: 30000,
-    source: { type: "document", referrer: knownReferrer("https://x.com/home"), navigationType: "navigate" }
-  }, { tab: { id: 7 } });
-
-  assert.deepEqual(response, { type: "logged", domain: "x.com", isOverLimit: true });
-  assert.deepEqual(api.updatedTabs, [{
-    tabId: 7,
-    url: blockedUrl("https://x.com/messages", "limitRootSameDomainNavigation")
-  }]);
-});
-
-test("screenTimeElapsed redirects matching URLs after crossing the limit", async () => {
+test("screenTimeElapsed leaves the open page open after crossing the limit", async () => {
   const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
   api.storageData[core.STATE_KEY] = validState([
     { id, kind: "url", value: "https://x.com/home" }
@@ -1456,15 +1308,11 @@ test("screenTimeElapsed redirects matching URLs after crossing the limit", async
   const response = await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://x.com/home",
-    elapsedMs: 30000,
-    source: defaultDocumentSource
+    elapsedMs: 30000
   }, { tab: { id: 7 } });
 
   assert.deepEqual(response, { type: "logged", domain: "x.com", isOverLimit: true });
-  assert.deepEqual(api.updatedTabs, [{
-    tabId: 7,
-    url: blockedUrl("https://x.com/home", "limitDirectMatch")
-  }]);
+  assert.deepEqual(api.updatedTabs, []);
 });
 
 test("whole-domain usage counts on non-matching URLs without redirecting them", async () => {
@@ -1481,8 +1329,7 @@ test("whole-domain usage counts on non-matching URLs without redirecting them", 
   const response = await controller.handleMessage({
     type: "screenTimeElapsed",
     url: "https://example.com/messages",
-    elapsedMs: 30000,
-    source: defaultDocumentSource
+    elapsedMs: 30000
   }, { tab: { id: 7 } });
 
   assert.deepEqual(response, { type: "logged", domain: "example.com", isOverLimit: true });
@@ -1607,8 +1454,7 @@ test("screen time sync waits until dirty data is old enough", async () => {
     await controller.handleMessage({
       type: "screenTimeElapsed",
       url: "https://example.com",
-      elapsedMs: 30000,
-      source: defaultDocumentSource
+      elapsedMs: 30000
     }, { tab: { id: 7 } });
     api.nowValue += 59000;
     await controller.handleMessage({ type: "getScreenTimeLog" }, {});
@@ -1661,15 +1507,13 @@ test("continuous screen time updates do not postpone sync forever", async () => 
     await controller.handleMessage({
       type: "screenTimeElapsed",
       url: "https://example.com",
-      elapsedMs: 30000,
-      source: defaultDocumentSource
+      elapsedMs: 30000
     }, { tab: { id: 7 } });
     api.nowValue += 30000;
     await controller.handleMessage({
       type: "screenTimeElapsed",
       url: "https://example.com",
-      elapsedMs: 30000,
-      source: defaultDocumentSource
+      elapsedMs: 30000
     }, { tab: { id: 7 } });
     api.nowValue += 30000;
     await controller.handleMessage({ type: "getScreenTimeLog" }, {});
@@ -1707,8 +1551,7 @@ test("Supabase failures leave screen time local and dirty", async () => {
     const response = await controller.handleMessage({
       type: "screenTimeElapsed",
       url: "https://example.com",
-      elapsedMs: 30000,
-      source: defaultDocumentSource
+      elapsedMs: 30000
     }, { tab: { id: 7 } });
 
     assert.equal(response.type, "logged");
@@ -1923,7 +1766,6 @@ test("syncNow repairs remote settings missing added defaults", async () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: core.domainLimitsForEntries(previousEntries, [], core.DEFAULT_LIMIT_GROUPS)
@@ -2168,7 +2010,6 @@ function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits, lim
     hardSchedule,
     limitReset,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: core.domainLimitsForEntries(stateEntries, domainLimits === undefined ? [] : domainLimits, core.DEFAULT_LIMIT_GROUPS)

@@ -48,7 +48,7 @@ Target device: rooted Pixel 8.
 5. App MVP: accessibility service, app-to-site table, schedules, block page, settings pushed over adb.
 6. App Supabase sign-in and sync, including app screen time.
 7. Device Owner, extension check, browser disabling.
-8. Optional, decided after using YouTube in Vivaldi: a custom ReVanced patch bundle for the YouTube app. The patch reports the current video ID, player type (watch vs Shorts), and navigation tab to the native app as YouTube URLs, so route rules, "finish current video", and per-route screen time apply in the app. Official patches add ad blocking, SponsorBlock, and Shorts hiding. Root-mounted over stock YouTube (same package name), pinned to a ReVanced-supported version. Replaces disabling the YouTube app.
+8. Optional, decided after using YouTube in Vivaldi: a custom ReVanced patch bundle for the YouTube app. The patch reports the current video ID, player type (watch vs Shorts), and navigation tab to the native app as YouTube URLs, so route rules and per-route screen time apply in the app. Official patches add ad blocking, SponsorBlock, and Shorts hiding. Root-mounted over stock YouTube (same package name), pinned to a ReVanced-supported version. Replaces disabling the YouTube app.
 
 ## Open questions
 

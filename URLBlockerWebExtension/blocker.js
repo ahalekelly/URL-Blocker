@@ -3,7 +3,8 @@
 
   const STATE_KEY = "blockerState";
   const BLOCKED_PAGE_HTML_KEY = "blockedPageHtml";
-  const SCHEMA_VERSION = 20;
+  const SCHEMA_VERSION = 21;
+  const SHARED_LIMIT_GROUPS_SCHEMA_VERSION = 20;
   const LIMIT_GROUPS_SCHEMA_VERSION = 19;
   const SHORT_VIDEO_HIDING_SCHEMA_VERSION = 18;
   const YOUTUBE_FOCUS_SCHEMA_VERSION = 17;
@@ -48,7 +49,6 @@
   const DEFAULT_HARD_SCHEDULE = { type: "off" };
   const DEFAULT_LIMIT_RESET = { type: "rollingWindow", windowHours: 24 };
   const DEFAULT_SETTINGS_DELAY = { delayMinutes: DEFAULT_SETTINGS_DELAY_MINUTES };
-  const DEFAULT_YOUTUBE_FOCUS = { finishCurrentVideo: true };
   const STREAMING_LIMIT_GROUP_ID = "20000000-0000-4000-8000-000000000001";
   const DEFAULT_LIMIT_GROUPS = [{ id: STREAMING_LIMIT_GROUP_ID, name: "Streaming", limitMinutes: 60 }];
   // New domains listed here join their default group while it exists.
@@ -133,7 +133,6 @@
       hardSchedule: DEFAULT_HARD_SCHEDULE,
       limitReset: DEFAULT_LIMIT_RESET,
       settingsDelay: DEFAULT_SETTINGS_DELAY,
-      youtubeFocus: DEFAULT_YOUTUBE_FOCUS,
       shortVideoHiding: DEFAULT_SHORT_VIDEO_HIDING,
       limitGroups: DEFAULT_LIMIT_GROUPS,
       domainLimits: domainLimitsForEntries(entries, [], DEFAULT_LIMIT_GROUPS)
@@ -192,10 +191,6 @@
       errors.push({ index: null, message: "Settings delay must be an object." });
     }
 
-    if (!isPlainObject(rawState.youtubeFocus)) {
-      errors.push({ index: null, message: "YouTube focus settings must be an object." });
-    }
-
     if (!isPlainObject(rawState.shortVideoHiding)) {
       errors.push({ index: null, message: "Short video hiding settings must be an object." });
     }
@@ -217,7 +212,6 @@
     let hardSchedule = DEFAULT_HARD_SCHEDULE;
     let limitReset = DEFAULT_LIMIT_RESET;
     let settingsDelay = DEFAULT_SETTINGS_DELAY;
-    let youtubeFocus = DEFAULT_YOUTUBE_FOCUS;
     let shortVideoHiding = DEFAULT_SHORT_VIDEO_HIDING;
 
     try {
@@ -256,14 +250,6 @@
       errors.push(...settingsDelayResult.errors);
     } else {
       settingsDelay = settingsDelayResult.settingsDelay;
-    }
-
-    const youtubeFocusResult = normalizeYouTubeFocus(rawState.youtubeFocus);
-
-    if (youtubeFocusResult.type === "invalid") {
-      errors.push(...youtubeFocusResult.errors);
-    } else {
-      youtubeFocus = youtubeFocusResult.youtubeFocus;
     }
 
     const shortVideoHidingResult = normalizeShortVideoHiding(rawState.shortVideoHiding);
@@ -352,7 +338,6 @@
         hardSchedule,
         limitReset,
         settingsDelay,
-        youtubeFocus,
         shortVideoHiding,
         limitGroups: groupsResult.limitGroups,
         domainLimits: limitsResult.domainLimits
@@ -378,6 +363,7 @@
       SETTINGS_DELAY_SCHEMA_VERSION,
       SETTINGS_DELAY_MODE_SCHEMA_VERSION,
       SCHEMA_VERSION,
+      SHARED_LIMIT_GROUPS_SCHEMA_VERSION,
       LIMIT_GROUPS_SCHEMA_VERSION,
       SHORT_VIDEO_HIDING_SCHEMA_VERSION,
       YOUTUBE_FOCUS_SCHEMA_VERSION,
@@ -445,6 +431,16 @@
       return rawState;
     }
 
+    const { youtubeFocus, ...state } = storedStateWithSharedLimitGroupsVersionShape(rawState);
+
+    return state;
+  }
+
+  function storedStateWithSharedLimitGroupsVersionShape(rawState) {
+    if (rawState.schemaVersion === SHARED_LIMIT_GROUPS_SCHEMA_VERSION) {
+      return rawState;
+    }
+
     const state = storedStateWithLimitGroupsVersionShape(rawState);
 
     return {
@@ -471,22 +467,22 @@
       case SHORT_VIDEO_HIDING_SCHEMA_VERSION:
         return { ...rawState, shortVideoHiding: DEFAULT_SHORT_VIDEO_HIDING };
       case YOUTUBE_FOCUS_SCHEMA_VERSION:
-        return { ...rawState, youtubeFocus: DEFAULT_YOUTUBE_FOCUS, shortVideoHiding: DEFAULT_SHORT_VIDEO_HIDING };
+        return { ...rawState, shortVideoHiding: DEFAULT_SHORT_VIDEO_HIDING };
       case HARD_SCHEDULE_SCHEMA_VERSION:
       case DOMAIN_NAVIGATION_SETTINGS_SCHEMA_VERSION:
       case URL_SUBPATH_DEFAULTS_SCHEMA_VERSION:
       case YOUTUBE_SUBSCRIPTIONS_SCHEMA_VERSION:
-        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, youtubeFocus: DEFAULT_YOUTUBE_FOCUS, shortVideoHiding: DEFAULT_SHORT_VIDEO_HIDING };
+        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, shortVideoHiding: DEFAULT_SHORT_VIDEO_HIDING };
       case SETTINGS_DELAY_MODE_SCHEMA_VERSION:
-        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, settingsDelay: migrateSettingsDelay(rawState.settingsDelay), youtubeFocus: DEFAULT_YOUTUBE_FOCUS, shortVideoHiding: DEFAULT_SHORT_VIDEO_HIDING };
+        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, settingsDelay: migrateSettingsDelay(rawState.settingsDelay), shortVideoHiding: DEFAULT_SHORT_VIDEO_HIDING };
       case SETTINGS_DELAY_SCHEMA_VERSION:
-        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, settingsDelay: DEFAULT_SETTINGS_DELAY, youtubeFocus: DEFAULT_YOUTUBE_FOCUS, shortVideoHiding: DEFAULT_SHORT_VIDEO_HIDING };
+        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, settingsDelay: DEFAULT_SETTINGS_DELAY, shortVideoHiding: DEFAULT_SHORT_VIDEO_HIDING };
       case LEGACY_SCHEMA_VERSION:
       case SUBREDDIT_SCHEMA_VERSION:
       case LIMIT_RESET_SCHEMA_VERSION:
       case FACEBOOK_HOME_SCHEMA_VERSION:
       case SOCIAL_DEFAULTS_SCHEMA_VERSION:
-        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, limitReset: DEFAULT_LIMIT_RESET, settingsDelay: DEFAULT_SETTINGS_DELAY, youtubeFocus: DEFAULT_YOUTUBE_FOCUS, shortVideoHiding: DEFAULT_SHORT_VIDEO_HIDING };
+        return { ...rawState, hardSchedule: DEFAULT_HARD_SCHEDULE, limitReset: DEFAULT_LIMIT_RESET, settingsDelay: DEFAULT_SETTINGS_DELAY, shortVideoHiding: DEFAULT_SHORT_VIDEO_HIDING };
       default:
         throw new Error(`Unknown migratable schema version: ${rawState.schemaVersion}`);
     }
@@ -923,29 +919,6 @@
     return {
       type: "valid",
       settingsDelay: { delayMinutes: settingsDelay.delayMinutes }
-    };
-  }
-
-  function normalizeYouTubeFocus(youtubeFocus) {
-    const errors = [];
-
-    if (!isPlainObject(youtubeFocus)) {
-      return invalid([{ index: null, message: "YouTube focus settings must be an object." }]);
-    }
-
-    pushUnknownKeyErrors(errors, youtubeFocus, ["finishCurrentVideo"], "YouTube focus settings");
-
-    if (typeof youtubeFocus.finishCurrentVideo !== "boolean") {
-      errors.push({ index: null, message: "YouTube finish current video setting must be a boolean." });
-    }
-
-    if (errors.length > 0) {
-      return invalid(errors);
-    }
-
-    return {
-      type: "valid",
-      youtubeFocus: { finishCurrentVideo: youtubeFocus.finishCurrentVideo }
     };
   }
 
@@ -1568,28 +1541,6 @@
     }
 
     return domainMatchesHost(entryDomain, result.url.limitHost);
-  }
-
-  function youtubeWatchVideoForUrl(rawUrl) {
-    const result = normalizePageUrl(rawUrl);
-
-    if (result.type === "invalid" || !domainMatchesHost("youtube.com", result.url.host)) {
-      return { type: "none" };
-    }
-
-    const url = new URL(rawUrl);
-
-    if (url.pathname !== "/watch") {
-      return { type: "none" };
-    }
-
-    const videoId = url.searchParams.get("v");
-
-    if (videoId === null || videoId.trim() === "") {
-      return { type: "none" };
-    }
-
-    return { type: "match", videoId };
   }
 
   // Short video hiding is always on for enabled sites, independent of the
@@ -2254,6 +2205,8 @@
   function stateKeys(schemaVersion) {
     switch (schemaVersion) {
       case SCHEMA_VERSION:
+        return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "hardSchedule", "limitReset", "settingsDelay", "shortVideoHiding", "limitGroups", "domainLimits"];
+      case SHARED_LIMIT_GROUPS_SCHEMA_VERSION:
         return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "hardSchedule", "limitReset", "settingsDelay", "youtubeFocus", "shortVideoHiding", "limitGroups", "domainLimits"];
       case LIMIT_GROUPS_SCHEMA_VERSION:
         return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "hardSchedule", "limitReset", "settingsDelay", "youtubeFocus", "shortVideoHiding", "domainLimits"];
@@ -2289,7 +2242,6 @@
     DEFAULT_LIMIT_RESET,
     DEFAULT_SCHEDULE,
     DEFAULT_SHORT_VIDEO_HIDING,
-    DEFAULT_YOUTUBE_FOCUS,
     BLOCKED_PAGE_HTML_KEY,
     EDITABLE_KIND_LABELS,
     KIND_LABELS,
@@ -2314,6 +2266,7 @@
     entryMatchesUrl,
     findBlockedApp,
     findBlockedMatchingEntry,
+    findHardScheduleMatchingEntry,
     findMatchingEntry,
     isScheduleActive,
     newEntry,
@@ -2336,7 +2289,6 @@
     settleSettingsActivation,
     shortVideoPage,
     usageWindow,
-    youtubeWatchVideoForUrl,
     validateSettingsActivation,
     validateStoredState,
     validateState

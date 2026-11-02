@@ -7,12 +7,11 @@
   const REFERRER_RECORD_PREFIX = "referrerRecords:";
   const REFERRER_RECORD_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
   const MAX_REFERRER_RECORDS = 20;
-  const YOUTUBE_FOCUS_ATTRIBUTE = "data-url-blocker-youtube-focus";
   const SHORT_VIDEO_SITE_ATTRIBUTE = "data-url-blocker-short-video";
   const PATH_ATTRIBUTE = "data-url-blocker-path";
   const SINGLE_SHORT_VIDEO_ATTRIBUTE = "data-url-blocker-single-short-video";
   const SINGLE_VIDEO_NAVIGATION_KEYS = new Set(["ArrowDown", "ArrowUp", "PageDown", "PageUp"]);
-  let lastSentUrl = "";
+  let checkedPage = "";
   let singleVideoLocked = false;
   let currentPageUrl = location.href;
   let arrival = { type: "unknown" };
@@ -44,19 +43,26 @@
     }
 
     // The poll logs screen time and rechecks the page so it blocks soon after
-    // a time limit runs out.
+    // the hard schedule starts.
     pollId = root.setInterval(() => {
       if (document.hidden) {
         return;
       }
 
-      recheckCurrentUrl();
+      const now = Date.now();
+
+      updateScreenTimeUrl(now);
+      sendScreenTime(now);
+      sendCurrentUrl(false);
     }, SCREEN_TIME_POLL_MS);
   }
 
   function pageShown(event) {
     updateScreenTimeUrl(Date.now());
-    sendCurrentUrl(event.persisted ? "document" : "none");
+
+    if (event.persisted) {
+      sendCurrentUrl(true);
+    }
   }
 
   function teardown() {
@@ -78,15 +84,7 @@
 
   function checkCurrentUrl() {
     updateScreenTimeUrl(Date.now());
-    sendCurrentUrl("none");
-  }
-
-  function recheckCurrentUrl() {
-    const now = Date.now();
-
-    updateScreenTimeUrl(now);
-    sendScreenTime(now);
-    sendCurrentUrl("document");
+    sendCurrentUrl(false);
   }
 
   function updateScreenTimeUrl(now) {
@@ -133,18 +131,16 @@
       return;
     }
 
-    const url = screenTimeUrl;
-
-    // The arrival lets the worker block the page right away if this time runs
-    // out its limit. It is read after initialization and before a pending URL
-    // change replaces it.
-    initPromise.then(() => sendMessage(
-      { type: "screenTimeElapsed", url, elapsedMs, source: documentNavigationSource() },
+    sendMessage(
+      { type: "screenTimeElapsed", url: screenTimeUrl, elapsedMs },
       (error) => console.error(`URL Blocker could not log screen time. ${errorLogText(error)}`),
-    ));
+    );
   }
 
-  async function sendCurrentUrl(sourceMode) {
+  // Limits and the block schedule judge a page when it loads, is restored
+  // from the back/forward cache, or changes to another page; later checks of
+  // the same page only apply the hard schedule.
+  async function sendCurrentUrl(restoredPage) {
     await initPromise;
 
     const currentUrl = location.href;
@@ -163,36 +159,28 @@
       }
     }
 
-    const source = urlCheckSource(sourceMode, currentUrl === lastSentUrl);
+    const page = pageChangeKey(currentUrl);
 
-    if (source.type === "none") {
+    if (!restoredPage && page === checkedPage) {
+      sendMessage(
+        { type: "recheckUrl", url: currentUrl },
+        (error) => console.error(`URL Blocker could not recheck the current URL. ${errorLogText(error)}`),
+      );
       return;
     }
 
-    lastSentUrl = currentUrl;
+    checkedPage = page;
     sendMessage(
-      { type: "urlChanged", url: currentUrl, source },
+      { type: "urlChanged", url: currentUrl, source: documentNavigationSource() },
       (error) => {
-        lastSentUrl = "";
+        if (checkedPage === page) {
+          checkedPage = "";
+        }
+
         console.error(`URL Blocker could not check the current URL. ${errorLogText(error)}`);
       },
       (response) => applyUrlChangedResponse(response, currentUrl),
     );
-  }
-
-  function urlCheckSource(sourceMode, sameUrl) {
-    if (!sameUrl) {
-      return documentNavigationSource();
-    }
-
-    switch (sourceMode) {
-      case "none":
-        return { type: "none" };
-      case "document":
-        return documentNavigationSource();
-      default:
-        throw new Error(`Unknown URL check source: ${sourceMode}`);
-    }
   }
 
   function documentNavigationSource() {
@@ -326,34 +314,26 @@
 
     switch (response.type) {
       case "allowed":
-        // A newer check covers the current URL, so a response for an earlier
-        // URL would tag the page with stale settings.
-        if (checkedUrl !== location.href) {
+        // A newer check covers the current page, so a response for an earlier
+        // page would tag it with stale settings.
+        if (pageChangeKey(checkedUrl) !== pageChangeKey(location.href)) {
           return;
         }
 
-        setYoutubeFocus(response.youtubeFocus === true);
         setShortVideo(response.shortVideo, new URL(checkedUrl).pathname);
         return;
       case "redirected":
         return;
       case "error":
-        setYoutubeFocus(false);
-        lastSentUrl = "";
+        if (checkedPage === pageChangeKey(checkedUrl)) {
+          checkedPage = "";
+        }
+
         console.error(`URL Blocker could not check the current URL. ${response.error} (${response.errorCode || response.type})`);
         return;
       default:
         throw new Error(`Unknown URL check response: ${response.type}`);
     }
-  }
-
-  function setYoutubeFocus(enabled) {
-    if (enabled) {
-      document.documentElement.setAttribute(YOUTUBE_FOCUS_ATTRIBUTE, "true");
-      return;
-    }
-
-    document.documentElement.removeAttribute(YOUTUBE_FOCUS_ATTRIBUTE);
   }
 
   // content.css hides short videos with rules keyed on these attributes; the

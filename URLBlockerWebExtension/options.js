@@ -30,7 +30,6 @@
     draftHardSchedule: core.DEFAULT_HARD_SCHEDULE,
     draftLimitReset: core.DEFAULT_LIMIT_RESET,
     draftSettingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    draftYoutubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     draftShortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     savedDraft: {
       entries: [],
@@ -39,7 +38,6 @@
       hardSchedule: core.DEFAULT_HARD_SCHEDULE,
       limitReset: core.DEFAULT_LIMIT_RESET,
       settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-      youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
       shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING
     },
     settingsActivation: { type: "active" },
@@ -78,7 +76,6 @@
   const rollingWindowHoursInput = document.getElementById("rollingWindowHoursInput");
   const dailyResetHourSelect = document.getElementById("dailyResetHourSelect");
   const settingsDelayMinutesInput = document.getElementById("settingsDelayMinutesInput");
-  const finishYouTubeVideosInput = document.getElementById("finishYouTubeVideosInput");
   const shortVideoHidingInputs = {
     youtube: document.getElementById("hideYouTubeShortsInput"),
     instagram: document.getElementById("hideInstagramReelsInput"),
@@ -121,7 +118,6 @@
   rollingWindowHoursInput.addEventListener("input", updateRollingWindow);
   dailyResetHourSelect.addEventListener("change", updateDailyResetHour);
   settingsDelayMinutesInput.addEventListener("input", updateSettingsDelayMinutes);
-  finishYouTubeVideosInput.addEventListener("change", updateFinishYouTubeVideos);
   Object.values(shortVideoHidingInputs).forEach((input) => input.addEventListener("change", updateShortVideoHiding));
   resetButton.addEventListener("click", resetBlocklist);
   grantAccessButton.addEventListener("click", requestMissingWebsiteAccess);
@@ -238,7 +234,6 @@
     rollingWindowHoursInput.value = String(rollingWindowHours());
     dailyResetHourSelect.value = String(dailyResetHour());
     settingsDelayMinutesInput.value = String(state.draftSettingsDelay.delayMinutes);
-    finishYouTubeVideosInput.checked = state.draftYoutubeFocus.finishCurrentVideo;
     Object.entries(shortVideoHidingInputs).forEach(([site, input]) => {
       input.checked = state.draftShortVideoHiding[site];
     });
@@ -423,7 +418,6 @@
       hardSchedule: editableHardSchedule(state.draftHardSchedule),
       limitReset: editableLimitReset(state.draftLimitReset),
       settingsDelay: editableSettingsDelay(state.draftSettingsDelay),
-      youtubeFocus: editableYoutubeFocus(state.draftYoutubeFocus),
       shortVideoHiding: { ...state.draftShortVideoHiding }
     };
   }
@@ -929,12 +923,6 @@
     render();
   }
 
-  function updateFinishYouTubeVideos() {
-    state.draftYoutubeFocus = { finishCurrentVideo: finishYouTubeVideosInput.checked };
-    clearMessages();
-    renderSaveButton();
-  }
-
   function updateShortVideoHiding() {
     state.draftShortVideoHiding = Object.fromEntries(Object.entries(shortVideoHidingInputs).map(([site, input]) => [site, input.checked]));
     clearMessages();
@@ -1402,7 +1390,6 @@
         hardSchedule: state.draftHardSchedule,
         limitReset: state.draftLimitReset,
         settingsDelay: state.draftSettingsDelay,
-        youtubeFocus: state.draftYoutubeFocus,
         shortVideoHiding: state.draftShortVideoHiding,
         limitGroups: state.draftLimitGroups,
         domainLimits: domainLimitsForDraft()
@@ -1417,7 +1404,6 @@
       hardSchedule: state.draftHardSchedule,
       limitReset: state.draftLimitReset,
       settingsDelay: state.draftSettingsDelay,
-      youtubeFocus: state.draftYoutubeFocus,
       shortVideoHiding: state.draftShortVideoHiding,
       limitGroups: state.draftLimitGroups,
       domainLimits: domainLimitsForDraft()
@@ -1431,7 +1417,6 @@
       state.draftHardSchedule = editableHardSchedule(result.state.hardSchedule);
       state.draftLimitReset = editableLimitReset(result.state.limitReset);
       state.draftSettingsDelay = editableSettingsDelay(result.state.settingsDelay);
-      state.draftYoutubeFocus = editableYoutubeFocus(result.state.youtubeFocus);
       state.draftShortVideoHiding = result.state.shortVideoHiding;
     }
 
@@ -1571,7 +1556,6 @@
     state.draftHardSchedule = editableHardSchedule(blockerState.hardSchedule);
     state.draftLimitReset = editableLimitReset(blockerState.limitReset);
     state.draftSettingsDelay = editableSettingsDelay(blockerState.settingsDelay);
-    state.draftYoutubeFocus = editableYoutubeFocus(blockerState.youtubeFocus);
     state.draftShortVideoHiding = blockerState.shortVideoHiding;
     state.settingsActivation = activation || { type: "active" };
     state.savedDraft = draftSnapshot();
@@ -1695,10 +1679,6 @@
     }
 
     return entry;
-  }
-
-  function editableYoutubeFocus(youtubeFocus) {
-    return { finishCurrentVideo: youtubeFocus.finishCurrentVideo };
   }
 
   function editableEntries(entries, domainLimits) {

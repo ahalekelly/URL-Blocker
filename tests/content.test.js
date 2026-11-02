@@ -25,6 +25,10 @@ function urlChanged(url, source = defaultSource) {
   return { type: "urlChanged", url, source };
 }
 
+function recheck(url) {
+  return { type: "recheckUrl", url };
+}
+
 test("content script reports the startup URL to the worker", async () => {
   const page = await runContentScript("https://x.com/home");
 
@@ -33,7 +37,7 @@ test("content script reports the startup URL to the worker", async () => {
   ]);
 });
 
-test("content script reports changed URLs once", async () => {
+test("content script reports changed pages once and rechecks repeats", async () => {
   const page = await runContentScript("https://x.com");
 
   page.location.href = "https://x.com/home";
@@ -42,7 +46,8 @@ test("content script reports changed URLs once", async () => {
 
   assert.deepEqual(page.messages, [
     urlChanged("https://x.com"),
-    urlChanged("https://x.com/home", documentSource("https://x.com"))
+    urlChanged("https://x.com/home", documentSource("https://x.com")),
+    recheck("https://x.com/home")
   ]);
 });
 
@@ -58,28 +63,12 @@ test("content script reports SPA route changes as internal navigation", async ()
   ]);
 });
 
-test("content script toggles YouTube focus from URL check responses", async () => {
-  const page = await runContentScript("https://www.youtube.com/watch?v=abc", {
-    urlChangedResponses: [
-      { type: "allowed", youtubeFocus: true, shortVideo: { type: "none" } },
-      { type: "allowed", youtubeFocus: false, shortVideo: { type: "none" } }
-    ]
-  });
-
-  assert.equal(page.documentElement.attributes["data-url-blocker-youtube-focus"], "true");
-
-  page.location.href = "https://www.youtube.com";
-  await page.dispatch("currententrychange");
-
-  assert.equal(page.documentElement.attributes["data-url-blocker-youtube-focus"], undefined);
-});
-
 test("content script marks short video pages and locks single short videos", async () => {
   const page = await runContentScript("https://www.facebook.com/", {
     urlChangedResponses: [
-      { type: "allowed", youtubeFocus: false, shortVideo: { type: "feed", site: "facebook" } },
-      { type: "allowed", youtubeFocus: false, shortVideo: { type: "singleVideo", site: "facebook" } },
-      { type: "allowed", youtubeFocus: false, shortVideo: { type: "none" } }
+      { type: "allowed", shortVideo: { type: "feed", site: "facebook" } },
+      { type: "allowed", shortVideo: { type: "singleVideo", site: "facebook" } },
+      { type: "allowed", shortVideo: { type: "none" } }
     ]
   });
 
@@ -121,12 +110,12 @@ test("content script ignores URL check responses for an earlier URL", async () =
   const page = await runContentScript("https://www.instagram.com/", {
     urlChangedResponses: [
       new Promise((resolve) => { respond = resolve; }),
-      { type: "allowed", youtubeFocus: false, shortVideo: { type: "feed", site: "instagram" } }
+      { type: "allowed", shortVideo: { type: "feed", site: "instagram" } }
     ]
   });
 
   page.location.href = "https://www.instagram.com/explore/";
-  respond({ type: "allowed", youtubeFocus: false, shortVideo: { type: "feed", site: "instagram" } });
+  respond({ type: "allowed", shortVideo: { type: "feed", site: "instagram" } });
   await page.flush();
 
   assert.equal(page.documentElement.attributes["data-url-blocker-short-video"], undefined);
@@ -145,20 +134,20 @@ test("content script logs elapsed time before changed URLs", async () => {
 
   assert.deepEqual(page.messages, [
     urlChanged("https://x.com"),
-    { type: "screenTimeElapsed", url: "https://x.com", elapsedMs: 700, source: defaultSource },
+    { type: "screenTimeElapsed", url: "https://x.com", elapsedMs: 700 },
     urlChanged("https://x.com/home", documentSource("https://x.com"))
   ]);
 });
 
-test("content script periodically rechecks unchanged URLs", async () => {
+test("content script periodically rechecks unchanged pages", async () => {
   const page = await runContentScript("https://x.com/home");
 
   await page.tick();
 
   assert.deepEqual(page.messages, [
     urlChanged("https://x.com/home"),
-    { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 5000, source: defaultSource },
-    urlChanged("https://x.com/home")
+    { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 5000 },
+    recheck("https://x.com/home")
   ]);
 });
 
@@ -170,7 +159,7 @@ test("content script logs elapsed time when the page hides", async () => {
 
   assert.deepEqual(page.messages, [
     urlChanged("https://x.com/home"),
-    { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 900, source: defaultSource }
+    { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 900 }
   ]);
 });
 
@@ -182,9 +171,9 @@ test("content script ignores stale screen time after sleep", async () => {
 
   assert.deepEqual(page.messages, [
     urlChanged("https://x.com/home"),
-    urlChanged("https://x.com/home"),
-    { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 5000, source: defaultSource },
-    urlChanged("https://x.com/home")
+    recheck("https://x.com/home"),
+    { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 5000 },
+    recheck("https://x.com/home")
   ]);
 });
 
@@ -308,22 +297,6 @@ test("content script force-checks bfcache restores with the stored SPA arrival",
   ]);
 });
 
-test("content script poll rechecks report the page's arrival", async () => {
-  const page = await runContentScript("https://example.com/a", { referrer: "https://search.example/" });
-
-  page.location.href = "https://example.com/b";
-  await page.dispatch("currententrychange");
-  await page.tick();
-
-  assert.deepEqual(page.messages.at(-1), urlChanged("https://example.com/b", documentSource("https://example.com/a")));
-  assert.deepEqual(page.messages.at(-2), {
-    type: "screenTimeElapsed",
-    url: "https://example.com/b",
-    elapsedMs: 5000,
-    source: documentSource("https://example.com/a")
-  });
-});
-
 test("content script appends referrer records and caps history at 20", async () => {
   const storageData = {
     [`${referrerRecordPrefix}https://example.com/page`]: {
@@ -345,7 +318,7 @@ test("content script appends referrer records and caps history at 20", async () 
   });
 });
 
-test("content script keeps the page arrival across &/# URL changes", async () => {
+test("content script rechecks &/# URL changes and keeps the page arrival", async () => {
   const page = await runContentScript("https://example.com/watch?v=abc", { referrer: "https://search.example/" });
 
   page.location.href = "https://example.com/watch?v=abc&t=30";
@@ -357,8 +330,8 @@ test("content script keeps the page arrival across &/# URL changes", async () =>
 
   assert.deepEqual(page.messages, [
     urlChanged("https://example.com/watch?v=abc", documentSource("https://search.example/")),
-    urlChanged("https://example.com/watch?v=abc&t=30", documentSource("https://search.example/")),
-    urlChanged("https://example.com/watch?v=abc&t=30#comments", documentSource("https://search.example/")),
+    recheck("https://example.com/watch?v=abc&t=30"),
+    recheck("https://example.com/watch?v=abc&t=30#comments"),
     urlChanged("https://example.com/next", documentSource("https://example.com/watch?v=abc&t=30#comments"))
   ]);
   assert.deepEqual(page.storageData[`${referrerRecordPrefix}https://example.com/watch?v=abc`], {
@@ -444,7 +417,7 @@ async function runContentScript(url, options = {}) {
             return urlChangedResponses.shift();
           }
 
-          return { type: "allowed", youtubeFocus: false, shortVideo: { type: "none" } };
+          return { type: "allowed", shortVideo: { type: "none" } };
         }
       },
       storage: {

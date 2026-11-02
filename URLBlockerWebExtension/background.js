@@ -22,7 +22,6 @@
   const SUPABASE_SESSION_KEY = "supabaseSession";
   const REFERRER_RECORD_PREFIX = "referrerRecords:";
   const REFERRER_RECORD_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-  const YOUTUBE_VIDEO_PREFIX = "youtubeVideo:";
   const COMMITTED_NAVIGATION_PREFIX = "committedNavigation:";
   const UNKNOWN_NAVIGATION_SOURCE = { type: "unknown" };
 
@@ -76,12 +75,15 @@
         case "urlChanged":
           requireKeys(message, ["type", "url", "source"], "urlChanged message");
           return urlChanged(message.url, message.source, sender);
+        case "recheckUrl":
+          requireKeys(message, ["type", "url"], "recheckUrl message");
+          return recheckUrl(message.url, sender);
         case "openBlockedTarget":
           requireKeys(message, ["type", "tabId", "url"], "openBlockedTarget message");
           return openBlockedTarget(message.tabId, message.url);
         case "screenTimeElapsed":
-          requireKeys(message, ["type", "url", "elapsedMs", "source"], "screenTimeElapsed message");
-          return logScreenTime(message.url, message.elapsedMs, message.source, sender);
+          requireKeys(message, ["type", "url", "elapsedMs"], "screenTimeElapsed message");
+          return logScreenTime(message.url, message.elapsedMs, sender);
         case "getScreenTimeLog":
           requireKeys(message, ["type"], "getScreenTimeLog message");
           return getScreenTimeLog();
@@ -221,6 +223,20 @@
       return redirectBlockedUrl(sender.tab.id, rawUrl, await contentNavigationSource(sender.tab.id, rawUrl, rawSource));
     }
 
+    // An open page stays open when its time limit runs out or the block
+    // schedule starts; only the hard schedule closes it.
+    async function recheckUrl(rawUrl, sender) {
+      if (!sender.tab || typeof sender.tab.id !== "number") {
+        throw codedError("MissingSenderTab", "recheckUrl message must come from a tab.");
+      }
+
+      if (typeof rawUrl !== "string" || rawUrl.trim() === "") {
+        throw codedError("BlockedUrlInvalid", "Rechecked URL must be a string.");
+      }
+
+      return redirectFromMatch(sender.tab.id, rawUrl, core.findHardScheduleMatchingEntry(await loadState(), rawUrl, new Date()));
+    }
+
     // The block page opens its target through here because Chromium sends no
     // referrer from extension pages: a plain link would arrive as a
     // referrer-less link, which root URL rules allow.
@@ -255,7 +271,7 @@
       return source;
     }
 
-    async function logScreenTime(rawUrl, elapsedMs, rawSource, sender) {
+    async function logScreenTime(rawUrl, elapsedMs, sender) {
       if (!sender.tab || typeof sender.tab.id !== "number") {
         throw codedError("MissingSenderTab", "screenTimeElapsed message must come from a tab.");
       }
@@ -272,7 +288,6 @@
         throw codedError("ScreenTimeElapsedInvalid", "Screen time elapsed time must be no more than 30 seconds.");
       }
 
-      const source = await contentNavigationSource(sender.tab.id, rawUrl, rawSource);
       const state = await loadState();
       const match = core.screenTimeDomainForUrl(state, rawUrl);
 
@@ -280,7 +295,7 @@
         case "none":
           return { type: "ignored" };
         case "match":
-          return saveScreenTimeAndRedirect(state, match.domain, rawUrl, elapsedMs, source, sender.tab.id);
+          return saveScreenTimeAndSync(state, match.domain, elapsedMs);
         default:
           throw new Error(`Unknown screen time match type: ${match.type}`);
       }
@@ -340,13 +355,8 @@
       const usage = await loadScreenTimeUsage();
       const match = core.findBlockedMatchingEntry(state, rawUrl, core.overLimitDomains(state, usage, nowMs), navigationSource);
 
-      if (await youtubeFocusAllows(state, tabId, rawUrl, match)) {
-        return { type: "allowed", youtubeFocus: true, shortVideo: match.shortVideo };
-      }
-
       if (match.type === "none") {
-        await rememberAllowedYoutubeVideo(tabId, rawUrl);
-        return { type: "allowed", youtubeFocus: false, shortVideo: match.shortVideo };
+        return { type: "allowed", shortVideo: match.shortVideo };
       }
 
       return redirectFromMatch(tabId, rawUrl, match);
@@ -367,7 +377,7 @@
       const usage = await loadScreenTimeUsage();
       const match = core.findBlockedMatchingEntry(state, details.url, core.overLimitDomains(state, usage, currentTimeMs()), UNKNOWN_NAVIGATION_SOURCE);
 
-      if (match.type !== "match" || await youtubeFocusAllows(state, details.tabId, details.url, match)) {
+      if (match.type !== "match") {
         return { type: "allowed" };
       }
 
@@ -434,36 +444,6 @@
 
         return redirectFromMatch(tab.id, tab.url, match);
       }));
-    }
-
-    async function youtubeFocusAllows(state, tabId, rawUrl, match) {
-      if (!state.youtubeFocus.finishCurrentVideo || match.type !== "match" || match.reason === "hardScheduleDomain") {
-        return false;
-      }
-
-      const video = core.youtubeWatchVideoForUrl(rawUrl);
-
-      if (video.type === "none") {
-        return false;
-      }
-
-      return await loadTabValue(YOUTUBE_VIDEO_PREFIX, tabId) === video.videoId;
-    }
-
-    async function rememberAllowedYoutubeVideo(tabId, rawUrl) {
-      const video = core.youtubeWatchVideoForUrl(rawUrl);
-      const key = `${YOUTUBE_VIDEO_PREFIX}${tabId}`;
-
-      switch (video.type) {
-        case "match":
-          await tabStorage.set({ [key]: video.videoId });
-          return;
-        case "none":
-          await tabStorage.remove(key);
-          return;
-        default:
-          throw new Error(`Unknown YouTube video match type: ${video.type}`);
-      }
     }
 
     async function redirectFromMatch(tabId, rawUrl, match) {
@@ -628,21 +608,13 @@
       }
     }
 
-    async function saveScreenTimeAndRedirect(state, domain, rawUrl, elapsedMs, source, tabId) {
+    async function saveScreenTimeAndSync(state, domain, elapsedMs) {
       const nowMs = currentTimeMs();
       const hour = currentHour(nowMs);
       const usage = await saveScreenTime(domain, elapsedMs, hour, nowMs);
       const isOverLimit = core.overLimitDomains(state, usage, nowMs).has(domain);
 
       await syncScreenTimeIfReady(state, { force: isOverLimit });
-
-      if (isOverLimit) {
-        const match = core.findBlockedMatchingEntry(state, rawUrl, new Set([domain]), source);
-
-        if (!await youtubeFocusAllows(state, tabId, rawUrl, match)) {
-          await redirectFromMatch(tabId, rawUrl, match);
-        }
-      }
 
       return { type: "logged", domain, isOverLimit };
     }
@@ -1242,7 +1214,7 @@
     }
 
     async function forgetTab(tabId) {
-      await tabStorage.remove([`${YOUTUBE_VIDEO_PREFIX}${tabId}`, `${COMMITTED_NAVIGATION_PREFIX}${tabId}`]);
+      await tabStorage.remove(`${COMMITTED_NAVIGATION_PREFIX}${tabId}`);
     }
 
     sweepReferrerRecords().catch((error) => {

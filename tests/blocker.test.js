@@ -84,7 +84,6 @@ test("loads default blocked pages for new installs", () => {
   assert.deepEqual(state.hardSchedule, { type: "off" });
   assert.deepEqual(state.limitReset, { type: "rollingWindow", windowHours: 24 });
   assert.deepEqual(state.settingsDelay, { delayMinutes: 60 });
-  assert.deepEqual(state.youtubeFocus, { finishCurrentVideo: true });
   assert.deepEqual(state.limitGroups, [{ id: streamingGroupId, name: "Streaming", limitMinutes: 60 }]);
   assert.deepEqual(state.domainLimits, [
     domainLimit("bsky.app"),
@@ -120,7 +119,6 @@ test("keeps default entries locked but configurable", () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("x.com", 12)]
@@ -140,7 +138,6 @@ test("keeps default entries locked but configurable", () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("example.com", 30)]
@@ -157,7 +154,6 @@ test("keeps default entries locked but configurable", () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
@@ -177,7 +173,6 @@ test("normalizes old linkedin feed default entries", () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("linkedin.com", 30)]
@@ -410,7 +405,6 @@ test("repairs stored current states missing added defaults", () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: { type: "daily", resetHour: 6 },
     settingsDelay: { delayMinutes: 17 },
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: core.domainLimitsForEntries(previousEntries, [{ domain: "youtube.com", limit: { type: "site", limitMinutes: 11 } }], core.DEFAULT_LIMIT_GROUPS)
@@ -437,23 +431,14 @@ test("migrates schema 16 states to default hard schedule", () => {
   assert.deepEqual(state.hardSchedule, { type: "off" });
 });
 
-test("migrates schema 17 states to default YouTube focus settings", () => {
+test("migrates schema 20 states to drop YouTube focus settings", () => {
   const oldState = validState([
     { id: ids[0], kind: "domain", value: "example.com" }
   ]);
-  const state = validStoredState({
-    schemaVersion: 17,
-    entries: oldState.entries,
-    blockedPageHtml: oldState.blockedPageHtml,
-    schedule: oldState.schedule,
-    hardSchedule: oldState.hardSchedule,
-    limitReset: oldState.limitReset,
-    settingsDelay: oldState.settingsDelay,
-    domainLimits: legacyDomainLimits(oldState.domainLimits)
-  }, []);
+  const state = validStoredState({ ...oldState, schemaVersion: 20, youtubeFocus: { finishCurrentVideo: true } }, []);
 
   assert.equal(state.schemaVersion, core.SCHEMA_VERSION);
-  assert.deepEqual(state.youtubeFocus, { finishCurrentVideo: true });
+  assert.equal(Object.hasOwn(state, "youtubeFocus"), false);
 });
 
 test("migrates schema 18 states to default short video hiding", () => {
@@ -478,7 +463,6 @@ test("migrates schema 19 states to the default limit groups", () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     domainLimits: legacyDomainLimits(core.domainLimitsForEntries(previousEntries, [{ domain: "youtube.com", limit: { type: "site", limitMinutes: 11 } }], []))
   }, defaultBlockedPages);
@@ -653,43 +637,6 @@ test("single short video redirects are judged with the current arrival first", (
   assert.equal(decide("https://www.instagram.com/reel/Cx1/", unrelatedSource).type, "singleVideoRedirect");
 });
 
-test("validates YouTube focus settings", () => {
-  const state = validState([]);
-  const disabled = core.validateState({
-    ...state,
-    youtubeFocus: { finishCurrentVideo: false }
-  }, []);
-  const missing = core.validateState({
-    ...state,
-    youtubeFocus: {}
-  }, []);
-  const typed = core.validateState({
-    ...state,
-    youtubeFocus: { finishCurrentVideo: "yes" }
-  }, []);
-  const unknown = core.validateState({
-    ...state,
-    youtubeFocus: { finishCurrentVideo: true, feed: false }
-  }, []);
-
-  assert.equal(disabled.type, "valid");
-  assert.deepEqual(disabled.state.youtubeFocus, { finishCurrentVideo: false });
-  assert.equal(missing.type, "invalid");
-  assert.match(missing.errors[0].message, /YouTube finish current video setting/);
-  assert.equal(typed.type, "invalid");
-  assert.match(typed.errors[0].message, /YouTube finish current video setting/);
-  assert.equal(unknown.type, "invalid");
-  assert.match(unknown.errors[0].message, /YouTube focus settings has unknown key/);
-});
-
-test("recognizes YouTube watch video URLs", () => {
-  assert.deepEqual(core.youtubeWatchVideoForUrl("https://www.youtube.com/watch?v=abc&t=1"), { type: "match", videoId: "abc" });
-  assert.deepEqual(core.youtubeWatchVideoForUrl("https://m.youtube.com/watch?v=mobile"), { type: "match", videoId: "mobile" });
-  assert.deepEqual(core.youtubeWatchVideoForUrl("https://www.youtube.com/watch?v="), { type: "none" });
-  assert.deepEqual(core.youtubeWatchVideoForUrl("https://www.youtube.com/shorts/abc"), { type: "none" });
-  assert.deepEqual(core.youtubeWatchVideoForUrl("https://example.com/watch?v=abc"), { type: "none" });
-});
-
 test("maps URL alias source hosts to permissions", () => {
   const state = validState([
     { id: ids[0], kind: "url", value: "x.com" }
@@ -737,7 +684,6 @@ test("validates state strictly", () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("example.com", 30)]
@@ -754,7 +700,6 @@ test("validates state strictly", () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("example.com", 30)]
@@ -771,7 +716,6 @@ test("validates state strictly", () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
@@ -791,7 +735,6 @@ test("validates state strictly", () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("example.com", 30)]
@@ -818,7 +761,6 @@ test("validates blocked page HTML and rejects old state", () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
@@ -835,7 +777,6 @@ test("validates blocked page HTML and rejects old state", () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
@@ -862,7 +803,6 @@ test("validates schedules and detects active windows", () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
@@ -879,7 +819,6 @@ test("validates schedules and detects active windows", () => {
     hardSchedule: { type: "off" },
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
@@ -896,7 +835,6 @@ test("validates schedules and detects active windows", () => {
     hardSchedule: { type: "always" },
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
@@ -913,7 +851,6 @@ test("validates schedules and detects active windows", () => {
     hardSchedule: { type: "dailyWindow", startMinute: 540, endMinute: 540 },
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
@@ -941,7 +878,6 @@ test("validates limit reset settings", () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: { type: "daily", resetHour: 6.5 },
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
@@ -960,7 +896,6 @@ test("validates settings delay settings", () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: { delayMinutes: 0 },
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
@@ -973,7 +908,6 @@ test("validates settings delay settings", () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: { delayMinutes: -1 },
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
@@ -1323,7 +1257,6 @@ test("validates domain limits against associated domains", () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
@@ -1340,7 +1273,6 @@ test("validates domain limits against associated domains", () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("example.com", 30)]
@@ -1375,7 +1307,6 @@ test("rejects duplicate entries after normalization", () => {
     hardSchedule: core.DEFAULT_HARD_SCHEDULE,
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("x.com", 30)]
@@ -1615,7 +1546,6 @@ function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits, lim
     hardSchedule,
     limitReset,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    youtubeFocus: core.DEFAULT_YOUTUBE_FOCUS,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: core.domainLimitsForEntries(typedEntries, domainLimits === undefined ? [] : domainLimits, core.DEFAULT_LIMIT_GROUPS)
