@@ -10,7 +10,7 @@ The parts that look accidental all concern **how you got to a page**:
 
 - **Five arrival types** run through the policy code: content-script document, Safari document, Chromium committed transition, block page, and unknown. Each has its own rules for reloads and empty versus unknown referrers.
 - **A 30-day referrer log, keyed by URL**, rebuilds where you came from on reloads and Back/Forward. "Newest record wins", so it can borrow another tab's arrival.
-- **Two per-site toggles**, "block direct visits" and "block internal links". Their combinations, times the arrival types, produce seven block reasons and seven block-page texts.
+- **Two per-site toggles**, "Block all pages except via links" and "Block links within this site" (`blockDirectVisits` and `blockInternalLinks` in code). Their combinations, times the arrival types, produce seven block reasons and seven block-page texts.
 - **The entry type also sets policy.** A bare-domain "URL" entry turns on arrival rules for the whole site; an exact "URL" match means "feed"; other entry types mean "leave open".
 - **Six check points** each apply a different subset of the rules: navigation start, Chromium commit, the content script's page check, the 5-second recheck, the sweep after a settings change, and the block page.
 - **Page identity** ("everything before the first `&` or `#`") is copied in two files.
@@ -48,7 +48,7 @@ The parts that look accidental all concern **how you got to a page**:
 
 ### 4. Remove the two toggles
 
-Direct visits and internal links are always blocked. Block reasons shrink from seven to three: hard schedule, schedule, limit.
+Both are always on: pages on the site open only from links on other sites. Block reasons shrink from seven to three: hard schedule, schedule, limit.
 
 Short-video handling, limit groups, reset windows, aliases, and custom entries stay as they are. Android keeps checking whole apps, which have no page identity.
 
@@ -73,5 +73,5 @@ Build it in layers, testing in Brave and Safari after each:
 
 ## Decisions needed
 
-1. Do you ever turn off "block direct visits" or "block internal links"?
+1. Do you ever turn off "Block all pages except via links" or "Block links within this site"?
 2. Is the Back/Forward cost acceptable, given that the reload behavior gets more lenient in exchange?
