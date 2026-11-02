@@ -10,7 +10,11 @@
   const SINGLE_VIDEO_NAVIGATION_KEYS = new Set(["ArrowDown", "ArrowUp", "PageDown", "PageUp"]);
   let singleVideoLocked = false;
   let currentPageUrl = location.href;
-  let referrer = document.referrer;
+  // Back/Forward reloads a page with the referrer of the document's first
+  // load, which on SPAs is the outside link that opened an earlier page.
+  let arrival = historyLoad()
+    ? { type: "history" }
+    : { type: "referrer", url: document.referrer };
   let screenTimeUrl = "";
   let screenTimeStartedAt = 0;
   let pollId = 0;
@@ -63,6 +67,7 @@
     updateScreenTimeUrl(Date.now());
 
     if (event.persisted) {
+      arrival = { type: "history" };
       sendCurrentUrl();
     }
   }
@@ -145,15 +150,21 @@
     // After an in-page URL change the previous URL is the referrer, so the
     // worker counts it as a hop inside the site unless the tab holds a pass.
     if (currentUrl !== currentPageUrl) {
-      referrer = currentPageUrl;
+      arrival = { type: "referrer", url: currentPageUrl };
       currentPageUrl = currentUrl;
     }
 
     sendMessage(
-      { type: "checkPage", url: currentUrl, referrer },
+      { type: "checkPage", url: currentUrl, arrival },
       (error) => console.error(`URL Blocker could not check the current URL. ${errorLogText(error)}`),
       (response) => applyCheckPageResponse(response, currentUrl),
     );
+  }
+
+  function historyLoad() {
+    const [entry] = performance.getEntriesByType("navigation");
+
+    return entry !== undefined && entry.type === "back_forward";
   }
 
   function applyCheckPageResponse(response, checkedUrl) {

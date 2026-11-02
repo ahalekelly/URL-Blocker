@@ -21,7 +21,8 @@
   const SETTINGS_ACTIVATION_KEY = "settingsActivation";
   const SUPABASE_SESSION_KEY = "supabaseSession";
   const COMMITTED_NAVIGATION_PREFIX = "committedNavigation:";
-  const PAGE_PASS_PREFIX = "pagePass:";
+  const PAGE_PASS_PREFIX = "pagePasses:";
+  const MAX_PAGE_PASSES = 100;
   // Chromium reports links opened from other apps as start_page.
   const OUTSIDE_TRANSITIONS = new Set(["link", "start_page", "form_submit"]);
   const ARRIVAL_PENDING = { type: "arrivalPending" };
@@ -74,8 +75,8 @@
           requireKeys(message, ["type"], "openOptions message");
           return openOptions();
         case "checkPage":
-          requireKeys(message, ["type", "url", "referrer"], "checkPage message");
-          return checkPage(message.url, message.referrer, sender);
+          requireKeys(message, ["type", "url", "arrival"], "checkPage message");
+          return checkPage(message.url, message.arrival, sender);
         case "openBlockedTarget":
           requireKeys(message, ["type", "tabId", "url"], "openBlockedTarget message");
           return openBlockedTarget(message.tabId, message.url);
@@ -213,16 +214,30 @@
       return { type: "synced" };
     }
 
-    async function checkPage(rawUrl, referrer, sender) {
+    async function checkPage(rawUrl, arrival, sender) {
       if (!sender.tab || typeof sender.tab.id !== "number") {
         throw codedError("MissingSenderTab", "checkPage message must come from a tab.");
       }
 
-      if (typeof referrer !== "string") {
-        throw codedError("ReferrerInvalid", "Page referrer must be a string.");
+      if (!isPlainObject(arrival)) {
+        throw codedError("ArrivalInvalid", "Page arrival must be an object.");
       }
 
-      return checkTabPage(sender.tab.id, rawUrl, await contentArrival(sender.tab.id, rawUrl, referrer));
+      switch (arrival.type) {
+        case "history":
+          requireKeys(arrival, ["type"], "Page arrival");
+          return checkTabPage(sender.tab.id, rawUrl, { type: "arrival", from: { type: "inside" } });
+        case "referrer":
+          requireKeys(arrival, ["type", "url"], "Page arrival");
+
+          if (typeof arrival.url !== "string") {
+            throw codedError("ArrivalInvalid", "Page referrer must be a string.");
+          }
+
+          return checkTabPage(sender.tab.id, rawUrl, await contentArrival(sender.tab.id, rawUrl, arrival.url));
+        default:
+          throw codedError("ArrivalInvalid", `Unknown page arrival type: ${arrival.type}.`);
+      }
     }
 
     // Chromium and iOS apps open some links without a referrer. Chromium's
@@ -347,8 +362,8 @@
 
       const state = await loadState();
       const usage = await loadScreenTimeUsage();
-      const pass = await loadTabValue(PAGE_PASS_PREFIX, tabId);
-      const visit = pass === core.pageChangeKey(rawUrl) ? { type: "continuing" } : newVisit;
+      const passes = await loadTabValue(PAGE_PASS_PREFIX, tabId) || [];
+      const visit = passes.includes(core.pageChangeKey(rawUrl)) ? { type: "continuing" } : newVisit;
 
       return applyDecision(tabId, rawUrl, visit, core.decidePage(state, rawUrl, visit, core.overLimitDomains(state, usage, currentTimeMs()), new Date()));
     }
@@ -373,8 +388,15 @@
       }
     }
 
+    // A tab keeps a pass for every page it was allowed onto, so Back and
+    // Forward return to them while other pages on the site stay blocked.
     async function savePagePass(tabId, rawUrl) {
-      await tabStorage.set({ [`${PAGE_PASS_PREFIX}${tabId}`]: core.pageChangeKey(rawUrl) });
+      const passes = await loadTabValue(PAGE_PASS_PREFIX, tabId) || [];
+      const page = core.pageChangeKey(rawUrl);
+
+      if (!passes.includes(page)) {
+        await tabStorage.set({ [`${PAGE_PASS_PREFIX}${tabId}`]: [...passes, page].slice(-MAX_PAGE_PASSES) });
+      }
     }
 
     // Before the request goes out, only feeds and the hard schedule can
@@ -384,11 +406,6 @@
 
       if (details.frameId !== 0) {
         return { type: "ignored" };
-      }
-
-      // Leaving the page ends its pass, even for a page with no content script.
-      if (await loadTabValue(PAGE_PASS_PREFIX, details.tabId) !== core.pageChangeKey(details.url)) {
-        await tabStorage.remove(`${PAGE_PASS_PREFIX}${details.tabId}`);
       }
 
       return checkTabPage(details.tabId, details.url, ARRIVAL_PENDING);
@@ -401,6 +418,10 @@
         throw codedError("NavigationDetailsInvalid", "Committed navigation transition type must be a string.");
       }
 
+      if (!Array.isArray(details.transitionQualifiers)) {
+        throw codedError("NavigationDetailsInvalid", "Committed navigation transition qualifiers must be an array.");
+      }
+
       if (details.frameId !== 0) {
         return { type: "ignored" };
       }
@@ -409,9 +430,10 @@
 
       // A reload keeps the page's original referrer, which the page reports,
       // so a restored tab is judged by how it was first opened.
-      return checkTabPage(details.tabId, details.url, OUTSIDE_TRANSITIONS.has(details.transitionType) || details.transitionType === "reload"
-        ? ARRIVAL_PENDING
-        : { type: "arrival", from: { type: "inside" } });
+      const pending = !details.transitionQualifiers.includes("forward_back")
+        && (OUTSIDE_TRANSITIONS.has(details.transitionType) || details.transitionType === "reload");
+
+      return checkTabPage(details.tabId, details.url, pending ? ARRIVAL_PENDING : { type: "arrival", from: { type: "inside" } });
     }
 
     function requireTopFrameDetails(details) {

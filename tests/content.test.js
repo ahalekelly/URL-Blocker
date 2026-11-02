@@ -7,7 +7,11 @@ const assert = require("node:assert/strict");
 const contentScript = fs.readFileSync(path.join(__dirname, "../URLBlockerWebExtension/content.js"), "utf8");
 
 function checkPage(url, referrer = "") {
-  return { type: "checkPage", url, referrer };
+  return { type: "checkPage", url, arrival: { type: "referrer", url: referrer } };
+}
+
+function checkHistoryPage(url) {
+  return { type: "checkPage", url, arrival: { type: "history" } };
 }
 
 test("content script reports the startup URL with the document referrer", async () => {
@@ -67,9 +71,15 @@ test("content script checks the page when it is shown again", async () => {
 
   assert.deepEqual(page.messages, [
     checkPage("https://x.com/home"),
-    checkPage("https://x.com/home"),
-    checkPage("https://x.com/home")
+    checkHistoryPage("https://x.com/home"),
+    checkHistoryPage("https://x.com/home")
   ]);
+});
+
+test("content script reports Back and Forward loads as history", async () => {
+  const page = await runContentScript("https://www.youtube.com/watch?v=b", { referrer: "https://search.example/", navigationType: "back_forward" });
+
+  assert.deepEqual(page.messages, [checkHistoryPage("https://www.youtube.com/watch?v=b")]);
 });
 
 test("content script marks short video pages and locks single short videos", async () => {
@@ -231,6 +241,11 @@ async function runContentScript(url, options = {}) {
       }
     },
     document: { hidden: false, referrer: options.referrer || "", documentElement },
+    performance: {
+      getEntriesByType(type) {
+        return type === "navigation" ? [{ type: options.navigationType || "navigate" }] : [];
+      }
+    },
     intervals: [],
     listeners: new Map(),
     URL,

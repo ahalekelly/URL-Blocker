@@ -114,7 +114,7 @@
   </div>
 
   <p class="note">
-    <b>Passes.</b> Every page a tab is allowed onto, whether or not its site is restricted, gives that tab a pass for the page. The pass lasts until the tab navigates to another page or closes, and survives the browser idling the extension. A browser restart clears it; a restored or reloaded tab is then judged by the referrer it was first opened with.
+    <b>Passes.</b> Every page a tab is allowed onto, whether or not its site is restricted, gives that tab a pass for the page. The tab keeps its passes until it closes, and they survive the browser idling the extension. Back and Forward count as arriving from inside the site, so they return only to pages the tab holds a pass for. A browser restart clears it; a restored or reloaded tab is then judged by the referrer it was first opened with.
   </p>
   <p class="note">
     <b>Outside links.</b> A referrer from another site or an Android app counts as outside. A site rewriting its own URL in place keeps the page’s referrer. Some links arrive with no referrer: Chromium tells them apart from typed visits by the navigation’s transition (link, opened from another app, or form submit), while Safari counts every empty referrer as outside, because iOS apps open links without one. Before the page reports its referrer, only feeds and the hard schedule can block.

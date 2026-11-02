@@ -694,6 +694,11 @@ async function runContentScript(app, url, tabId) {
       }
     },
     console,
+    performance: {
+      getEntriesByType() {
+        return [{ type: "navigate" }];
+      }
+    },
     document: {
       hidden: false,
       referrer: "",

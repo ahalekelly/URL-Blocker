@@ -9,7 +9,7 @@ const { createBackgroundController } = require("../URLBlockerWebExtension/backgr
 
 const id = "11111111-1111-4111-8111-111111111111";
 function checkPageMessage(url, referrer = "https://other.example/from") {
-  return { type: "checkPage", url, referrer };
+  return { type: "checkPage", url, arrival: { type: "referrer", url: referrer } };
 }
 
 function restrictState(api, state) {
@@ -436,13 +436,13 @@ test("checkPage judges empty Chromium referrers by the committed transition", as
   const controller = createBackgroundController(api);
   const check = (tabId, url) => controller.handleMessage(checkPageMessage(url, ""), { tab: { id: tabId } });
 
-  await controller.redirectCommittedNavigation({ frameId: 0, tabId: 7, transitionType: "link", url: "https://example.com/linked" });
-  await controller.redirectCommittedNavigation({ frameId: 0, tabId: 8, transitionType: "start_page", url: "https://example.com/from-app" });
+  await controller.redirectCommittedNavigation({ frameId: 0, tabId: 7, transitionType: "link", transitionQualifiers: [], url: "https://example.com/linked" });
+  await controller.redirectCommittedNavigation({ frameId: 0, tabId: 8, transitionType: "start_page", transitionQualifiers: [], url: "https://example.com/from-app" });
 
   assert.equal((await check(7, "https://example.com/linked")).type, "allowed");
   assert.equal((await check(8, "https://example.com/from-app")).type, "allowed");
   assert.equal((await check(9, "https://example.com/typed")).type, "allowed");
-  assert.equal((await controller.redirectCommittedNavigation({ frameId: 0, tabId: 9, transitionType: "typed", url: "https://example.com/typed" })).type, "redirected");
+  assert.equal((await controller.redirectCommittedNavigation({ frameId: 0, tabId: 9, transitionType: "typed", transitionQualifiers: [], url: "https://example.com/typed" })).type, "redirected");
 });
 
 test("committed typed navigations count as inside arrivals and reloads keep the page's referrer", async () => {
@@ -451,7 +451,7 @@ test("committed typed navigations count as inside arrivals and reloads keep the 
     { id, kind: "url", value: "example.com" }
   ], { type: "always" });
   const controller = createBackgroundController(api);
-  const commit = (tabId, transitionType, url) => controller.redirectCommittedNavigation({ frameId: 0, tabId, transitionType, url });
+  const commit = (tabId, transitionType, url) => controller.redirectCommittedNavigation({ frameId: 0, tabId, transitionType, transitionQualifiers: [], url });
 
   assert.equal((await commit(7, "typed", "https://example.com/path")).type, "redirected");
   assert.equal((await commit(8, "auto_bookmark", "https://example.com/path")).type, "redirected");
@@ -474,7 +474,7 @@ test("committed Chromium subframe navigation is ignored", async () => {
   const response = await controller.redirectCommittedNavigation({
     frameId: 1,
     tabId: 7,
-    transitionType: "typed",
+    transitionType: "typed", transitionQualifiers: [],
     url: "https://example.com/path"
   });
 
@@ -495,16 +495,19 @@ test("starting navigation blocks feeds and leaves other pages to their arrival",
   assert.deepEqual(api.updatedTabs, [{ tabId: 7, url: blockedUrl("https://example.com/", "schedule", "chrome-extension") }]);
 });
 
-test("starting navigation to another page ends the tab's pass", async () => {
+test("Back and Forward return only to pages the tab was allowed onto", async () => {
   const api = fakeApi({ runtimeScheme: "chrome-extension" });
   api.storageData[core.STATE_KEY] = validState([
     { id, kind: "url", value: "example.com" }
   ], { type: "always" });
   const controller = createBackgroundController(api);
+  const history = (url) => controller.handleMessage({ type: "checkPage", url, arrival: { type: "history" } }, { tab: { id: 7 } });
 
-  assert.equal((await controller.handleMessage(checkPageMessage("https://example.com/path"), { tab: { id: 7 } })).type, "allowed");
-  await controller.redirectNavigationStart({ frameId: 0, tabId: 7, url: "https://other.example/" });
-  assert.equal((await controller.redirectCommittedNavigation({ frameId: 0, tabId: 7, transitionType: "auto_bookmark", url: "https://example.com/path" })).type, "redirected");
+  assert.equal((await controller.handleMessage(checkPageMessage("https://example.com/a"), { tab: { id: 7 } })).type, "allowed");
+  assert.equal((await controller.handleMessage(checkPageMessage("https://example.com/b", "https://example.com/a"), { tab: { id: 7 } })).type, "redirected");
+  assert.equal((await history("https://example.com/b")).type, "redirected");
+  assert.equal((await history("https://example.com/a")).type, "allowed");
+  assert.equal((await controller.redirectCommittedNavigation({ frameId: 0, tabId: 7, transitionType: "link", transitionQualifiers: ["forward_back"], url: "https://example.com/b" })).type, "redirected");
 });
 
 test("checkPage redirects every page on a domain during the hard schedule", async () => {
@@ -565,7 +568,8 @@ test("checkPage rejects malformed referrers", async () => {
   api.storageData[core.STATE_KEY] = validState([{ id, kind: "url", value: "x.com" }]);
   const controller = createBackgroundController(api);
 
-  await assert.rejects(controller.handleMessage({ type: "checkPage", url: "https://x.com/", referrer: null }, { tab: { id: 7 } }), /referrer must be a string/);
+  await assert.rejects(controller.handleMessage({ type: "checkPage", url: "https://x.com/", arrival: { type: "referrer", url: null } }, { tab: { id: 7 } }), /referrer must be a string/);
+  await assert.rejects(controller.handleMessage({ type: "checkPage", url: "https://x.com/", arrival: { type: "typed" } }, { tab: { id: 7 } }), /Unknown page arrival type/);
 });
 
 test("openBlockedTarget keeps outside-link pages blocked", async () => {
