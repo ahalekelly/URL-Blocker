@@ -8,21 +8,13 @@ const sync = require("../URLBlockerWebExtension/supabase-sync.js");
 const { createBackgroundController } = require("../URLBlockerWebExtension/background.js");
 
 const id = "11111111-1111-4111-8111-111111111111";
-const referrerRecordPrefix = "referrerRecords:";
-const referrerRecordRetentionMs = 30 * 24 * 60 * 60 * 1000;
-const defaultDocumentSource = { type: "document", referrer: knownReferrer("https://other.example/from"), navigationType: "navigate" };
-const internalYoutubeSource = { type: "document", referrer: knownReferrer("https://www.youtube.com/"), navigationType: "navigate" };
-
-function knownReferrer(url) {
-  return { type: "known", url };
+function checkPageMessage(url, referrer = "https://other.example/from") {
+  return { type: "checkPage", url, referrer };
 }
 
-function unknownReferrer() {
-  return { type: "unknown" };
-}
-
-function urlChangedMessage(url, source = defaultDocumentSource) {
-  return { type: "urlChanged", url, source };
+function restrictState(api, state) {
+  api.storageData[core.STATE_KEY] = state;
+  api.storageData.settingsActivation = { schemaVersion: 1, activeState: state, pending: { type: "none" } };
 }
 
 function blockedUrl(url, reason, scheme = "safari-web-extension") {
@@ -390,436 +382,83 @@ test("syncWebsiteAccess registers content scripts for the saved blocklist", asyn
   assert.deepEqual(api.registeredScripts[0].matches, ["*://*.facebook.com/*", "*://*.instagram.com/*", "*://*.linkedin.com/*", "*://*.twitter.com/*", "*://*.x.com/*", "*://*.youtube.com/*"]);
 });
 
-test("urlChanged redirects matching sender tab to the blocked page", async () => {
+test("checkPage blocks feeds and lets outside links through while restricted", async () => {
   const api = fakeApi();
   api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "https://x.com" }
+    { id, kind: "url", value: "x.com" }
   ], { type: "always" });
   const controller = createBackgroundController(api);
-  const response = await controller.handleMessage(urlChangedMessage("https://x.com/home"), { tab: { id: 7 } });
 
-  assert.equal(response.type, "redirected");
-  assert.deepEqual(api.updatedTabs, [{
-    tabId: 7,
-    url: blockedUrl("https://x.com/home", "scheduleDirectMatch")
-  }]);
-});
-
-test("urlChanged allows URLs that no longer match saved state", async () => {
-  const api = fakeApi();
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "https://x.com" }
+  assert.deepEqual(await controller.handleMessage(checkPageMessage("https://x.com/home"), { tab: { id: 7 } }), { type: "redirected" });
+  assert.deepEqual(await controller.handleMessage(checkPageMessage("https://x.com/status/1"), { tab: { id: 8 } }), { type: "allowed", shortVideo: { type: "none" } });
+  assert.deepEqual(await controller.handleMessage(checkPageMessage("https://x.com/status/2", "https://x.com/status/1"), { tab: { id: 8 } }), { type: "redirected" });
+  assert.deepEqual(api.updatedTabs, [
+    { tabId: 7, url: blockedUrl("https://x.com/home", "schedule") },
+    { tabId: 8, url: blockedUrl("https://x.com/status/2", "schedule") }
   ]);
-  const controller = createBackgroundController(api);
-  const response = await controller.handleMessage(urlChangedMessage("https://x.com/messages"), { tab: { id: 7 } });
-
-  assert.equal(response.type, "allowed");
-  assert.deepEqual(api.updatedTabs, []);
 });
 
-test("urlChanged redirects deep links during the hard schedule", async () => {
+test("checkPage keeps a tab on the page it holds a pass for", async () => {
   const api = fakeApi();
   api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "https://x.com" }
-  ], inactiveSchedule(), undefined, core.DEFAULT_LIMIT_RESET, activeSchedule());
-  const controller = createBackgroundController(api);
-  const response = await controller.handleMessage(urlChangedMessage("https://x.com/messages"), { tab: { id: 7 } });
-
-  assert.equal(response.type, "redirected");
-  assert.deepEqual(api.updatedTabs, [{
-    tabId: 7,
-    url: blockedUrl("https://x.com/messages", "hardScheduleDomain")
-  }]);
-});
-
-test("urlChanged opens YouTube Shorts as single videos despite a blocking Shorts entry", async () => {
-  const api = fakeApi();
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "urlWithSubpaths", value: "youtube.com/shorts" }
-  ], activeSchedule());
-  const controller = createBackgroundController(api);
-  const response = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/shorts/abc"), { tab: { id: 7 } });
-
-  assert.equal(response.type, "redirected");
-  assert.deepEqual(api.updatedTabs, [{ tabId: 7, url: "https://www.youtube.com/watch?v=abc" }]);
-});
-
-test("urlChanged reports short video hiding for allowed pages", async () => {
-  const api = fakeApi();
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "https://x.com" }
+    { id, kind: "domain", value: "example.com" }
   ], inactiveSchedule());
   const controller = createBackgroundController(api);
 
-  assert.deepEqual(await controller.handleMessage(urlChangedMessage("https://www.facebook.com/reel/123"), { tab: { id: 7 } }), {
-    type: "allowed",
-    shortVideo: { type: "singleVideo", site: "facebook" }
-  });
-  assert.deepEqual(await controller.handleMessage(urlChangedMessage("https://x.com/home"), { tab: { id: 7 } }), {
-    type: "allowed",
-    shortVideo: { type: "none" }
-  });
-});
+  await controller.handleMessage(checkPageMessage("https://example.com/watch?v=1", "https://example.com/"), { tab: { id: 7 } });
+  restrictState(api, validState([{ id, kind: "domain", value: "example.com" }], { type: "always" }));
 
-test("urlChanged allows matching URLs outside the schedule", async () => {
-  const api = fakeApi();
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "https://x.com" }
-  ], inactiveSchedule());
-  const controller = createBackgroundController(api);
-  const response = await controller.handleMessage(urlChangedMessage("https://x.com"), { tab: { id: 7 } });
-
-  assert.equal(response.type, "allowed");
-  assert.deepEqual(api.updatedTabs, []);
-});
-
-test("urlChanged redirects matching URLs inside the schedule", async () => {
-  const api = fakeApi();
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "https://x.com" }
-  ], activeSchedule());
-  const controller = createBackgroundController(api);
-  const response = await controller.handleMessage(urlChangedMessage("https://x.com"), { tab: { id: 7 } });
-
-  assert.equal(response.type, "redirected");
-  assert.deepEqual(api.updatedTabs, [{
-    tabId: 7,
-    url: blockedUrl("https://x.com", "scheduleDirectMatch")
-  }]);
-});
-
-test("urlChanged expands root URL blocks for Safari empty referrers", async () => {
-  const api = fakeApi();
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "example.com" }
-  ], { type: "always" });
-  const controller = createBackgroundController(api);
-  const response = await controller.handleMessage(urlChangedMessage("https://example.com/path", {
-    type: "document",
-    referrer: knownReferrer(""),
-    navigationType: "navigate"
-  }), { tab: { id: 7 } });
-
-  assert.equal(response.type, "redirected");
-  assert.deepEqual(api.updatedTabs, [{
-    tabId: 7,
-    url: blockedUrl("https://example.com/path", "scheduleRootDirectNavigation")
-  }]);
-});
-
-test("urlChanged blocks back and forward returns to a root URL page", async () => {
-  const api = fakeApi();
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "example.com" }
-  ], { type: "always" });
-  const controller = createBackgroundController(api);
-  const response = await controller.handleMessage(urlChangedMessage("https://example.com/path", {
-    type: "document",
-    referrer: knownReferrer(""),
-    navigationType: "back_forward"
-  }), { tab: { id: 7 } });
-
-  assert.equal(response.type, "redirected");
-  assert.deepEqual(api.updatedTabs, [{
-    tabId: 7,
-    url: blockedUrl("https://example.com/path", "scheduleRootDirectNavigation")
-  }]);
-});
-
-test("urlChanged allows root URL subpage reloads on Safari", async () => {
-  const api = fakeApi();
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "example.com" }
-  ], { type: "always" });
-  const controller = createBackgroundController(api);
-  const response = await controller.handleMessage(urlChangedMessage("https://example.com/path", {
-    type: "document",
-    referrer: knownReferrer(""),
-    navigationType: "reload"
-  }), { tab: { id: 7 } });
-
-  assert.equal(response.type, "allowed");
-  assert.deepEqual(api.updatedTabs, []);
-});
-
-test("urlChanged expands root URL blocks for Chromium same-domain referrers", async () => {
-  const api = fakeApi({ runtimeScheme: "chrome-extension" });
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "example.com" }
-  ], { type: "always" });
-  const controller = createBackgroundController(api);
-  const response = await controller.handleMessage(urlChangedMessage("https://example.com/path", {
-    type: "document",
-    referrer: knownReferrer("https://www.example.com/start"),
-    navigationType: "navigate"
-  }), { tab: { id: 7 } });
-
-  assert.equal(response.type, "redirected");
-  assert.deepEqual(api.updatedTabs, [{
-    tabId: 7,
-    url: blockedUrl("https://example.com/path", "scheduleRootSameDomainNavigation", "chrome-extension")
-  }]);
-});
-
-test("urlChanged allows root URL subpage reloads on Chromium", async () => {
-  const api = fakeApi({ runtimeScheme: "chrome-extension" });
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "example.com" }
-  ], { type: "always" });
-  const controller = createBackgroundController(api);
-  const response = await controller.handleMessage(urlChangedMessage("https://example.com/path", {
-    type: "document",
-    referrer: knownReferrer("https://example.com/start"),
-    navigationType: "reload"
-  }), { tab: { id: 7 } });
-
-  assert.equal(response.type, "allowed");
-  assert.deepEqual(api.updatedTabs, []);
-});
-
-test("urlChanged rejects malformed document referrers", async () => {
-  const controller = createBackgroundController(fakeApi());
-  const malformedReferrers = [
-    { type: "known" },
-    { type: "known", url: "https://example.com/", extra: true },
-    { type: "unknown", url: "https://example.com/" },
-    { type: "mystery", url: "https://example.com/" },
-    "https://example.com/"
-  ];
-
-  for (const referrer of malformedReferrers) {
-    await assert.rejects(() => controller.handleMessage(urlChangedMessage("https://example.com/path", {
-      type: "document",
-      referrer,
-      navigationType: "navigate"
-    }), { tab: { id: 7 } }), { errorCode: "NavigationSourceInvalid" });
-  }
-});
-
-test("root URL rechecks after reaching a domain limit block only direct and internal arrivals", async () => {
-  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "example.com" }
-  ], inactiveSchedule(), [
-    { domain: "example.com", limit: { type: "site", limitMinutes: 1 } }
-  ]);
-  api.storageData.screenTimeUsage = screenTimeUsage({
-    "example.com": { 20: 60000 }
-  });
-  const controller = createBackgroundController(api);
-  const external = await controller.handleMessage(urlChangedMessage("https://example.com/watch?v=1"), { tab: { id: 7 } });
-  const internal = await controller.handleMessage(urlChangedMessage("https://example.com/watch?v=2", {
-    type: "document",
-    referrer: knownReferrer("https://example.com/"),
-    navigationType: "navigate"
-  }), { tab: { id: 8 } });
-  const direct = await controller.handleMessage(urlChangedMessage("https://example.com/watch?v=3", {
-    type: "document",
-    referrer: knownReferrer(""),
-    navigationType: "navigate"
-  }), { tab: { id: 9 } });
-
-  assert.equal(external.type, "allowed");
-  assert.equal(internal.type, "redirected");
-  assert.equal(direct.type, "redirected");
-  assert.deepEqual(api.updatedTabs, [
-    { tabId: 8, url: blockedUrl("https://example.com/watch?v=2", "limitRootSameDomainNavigation") },
-    { tabId: 9, url: blockedUrl("https://example.com/watch?v=3", "limitRootDirectNavigation") }
-  ]);
-});
-
-test("Chromium rechecks judge empty referrers by the committed transition", async () => {
-  const api = fakeApi({ now: 20 * 60 * 60 * 1000, runtimeScheme: "chrome-extension" });
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "example.com" }
-  ], inactiveSchedule(), [
-    { domain: "example.com", limit: { type: "site", limitMinutes: 1 } }
-  ]);
-  const controller = createBackgroundController(api);
-  const emptyReferrer = { type: "document", referrer: knownReferrer(""), navigationType: "navigate" };
-
-  await controller.redirectCommittedNavigation({ frameId: 0, tabId: 7, url: "https://example.com/typed", transitionType: "typed" });
-  await controller.redirectCommittedNavigation({ frameId: 0, tabId: 8, url: "https://example.com/linked", transitionType: "link" });
-  api.storageData.screenTimeUsage = screenTimeUsage({
-    "example.com": { 20: 60000 }
-  });
-  const typed = await controller.handleMessage(urlChangedMessage("https://example.com/typed#top", emptyReferrer), { tab: { id: 7 } });
-  const linked = await controller.handleMessage(urlChangedMessage("https://example.com/linked", emptyReferrer), { tab: { id: 8 } });
-
-  assert.equal(typed.type, "redirected");
-  assert.equal(linked.type, "allowed");
-  assert.deepEqual(api.updatedTabs, [
-    { tabId: 7, url: blockedUrl("https://example.com/typed#top", "limitRootDirectNavigation", "chrome-extension") }
-  ]);
-});
-
-test("Chromium reloads keep the committed transition until the tab closes", async () => {
-  const api = fakeApi({ now: 20 * 60 * 60 * 1000, runtimeScheme: "chrome-extension" });
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "example.com" }
-  ], inactiveSchedule(), [
-    { domain: "example.com", limit: { type: "site", limitMinutes: 1 } }
-  ]);
-  const controller = createBackgroundController(api);
-  const emptyReferrer = { type: "document", referrer: knownReferrer(""), navigationType: "navigate" };
-
-  await controller.redirectCommittedNavigation({ frameId: 0, tabId: 7, url: "https://example.com/typed", transitionType: "typed" });
-  await controller.redirectCommittedNavigation({ frameId: 0, tabId: 7, url: "https://example.com/typed", transitionType: "reload" });
-  api.storageData.screenTimeUsage = screenTimeUsage({
-    "example.com": { 20: 60000 }
-  });
-  const reloaded = await controller.handleMessage(urlChangedMessage("https://example.com/typed", emptyReferrer), { tab: { id: 7 } });
+  assert.equal((await controller.handleMessage(checkPageMessage("https://example.com/watch?v=1", "https://example.com/"), { tab: { id: 7 } })).type, "allowed");
+  assert.equal((await controller.handleMessage(checkPageMessage("https://example.com/watch?v=1&t=30", "https://example.com/watch?v=1"), { tab: { id: 7 } })).type, "allowed");
+  assert.equal((await controller.handleMessage(checkPageMessage("https://example.com/watch?v=2", "https://example.com/watch?v=1"), { tab: { id: 7 } })).type, "redirected");
+  assert.equal((await controller.handleMessage(checkPageMessage("https://example.com/watch?v=1", "https://example.com/"), { tab: { id: 8 } })).type, "redirected");
 
   await controller.forgetTab(7);
-  const forgotten = await controller.handleMessage(urlChangedMessage("https://example.com/typed", emptyReferrer), { tab: { id: 7 } });
 
-  assert.equal(reloaded.type, "redirected");
-  assert.equal(forgotten.type, "allowed");
+  assert.equal((await controller.handleMessage(checkPageMessage("https://example.com/watch?v=1", "https://example.com/"), { tab: { id: 7 } })).type, "redirected");
 });
 
-test("urlChanged blocks a Short instead of redirecting when the watch page would be blocked", async () => {
-  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
+test("checkPage counts empty Safari referrers as outside links", async () => {
+  const api = fakeApi();
   api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "youtube.com" }
-  ], inactiveSchedule(), [
-    { domain: "youtube.com", limit: { type: "site", limitMinutes: 1 } }
-  ]);
-  api.storageData.screenTimeUsage = screenTimeUsage({
-    "youtube.com": { 20: 60000 }
-  });
+    { id, kind: "url", value: "example.com" }
+  ], { type: "always" });
   const controller = createBackgroundController(api);
-  const blocked = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/shorts/abc", internalYoutubeSource), { tab: { id: 7 } });
-  const redirected = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/shorts/def"), { tab: { id: 8 } });
 
-  assert.equal(blocked.type, "redirected");
-  assert.equal(redirected.type, "redirected");
-  assert.deepEqual(api.updatedTabs, [
-    { tabId: 7, url: blockedUrl("https://www.youtube.com/shorts/abc", "limitRootSameDomainNavigation") },
-    { tabId: 8, url: "https://www.youtube.com/watch?v=def" }
-  ]);
+  assert.equal((await controller.handleMessage(checkPageMessage("https://example.com/path", ""), { tab: { id: 7 } })).type, "allowed");
 });
 
-test("urlChanged fails closed for unknown referrers on root URL pages", async () => {
+test("checkPage judges empty Chromium referrers by the committed transition", async () => {
   const api = fakeApi({ runtimeScheme: "chrome-extension" });
   api.storageData[core.STATE_KEY] = validState([
     { id, kind: "url", value: "example.com" }
   ], { type: "always" });
   const controller = createBackgroundController(api);
-  const response = await controller.handleMessage(urlChangedMessage("https://example.com/path", {
-    type: "document",
-    referrer: unknownReferrer(),
-    navigationType: "back_forward"
-  }), { tab: { id: 7 } });
+  const check = (tabId, url) => controller.handleMessage(checkPageMessage(url, ""), { tab: { id: tabId } });
 
-  assert.equal(response.type, "redirected");
-  assert.deepEqual(api.updatedTabs, [{
-    tabId: 7,
-    url: blockedUrl("https://example.com/path", "scheduleRootSameDomainNavigation", "chrome-extension")
-  }]);
+  await controller.redirectCommittedNavigation({ frameId: 0, tabId: 7, transitionType: "link", url: "https://example.com/linked" });
+  await controller.redirectCommittedNavigation({ frameId: 0, tabId: 8, transitionType: "start_page", url: "https://example.com/from-app" });
+
+  assert.equal((await check(7, "https://example.com/linked")).type, "allowed");
+  assert.equal((await check(8, "https://example.com/from-app")).type, "allowed");
+  assert.equal((await check(9, "https://example.com/no-commit")).type, "redirected");
 });
 
-test("openBlockedTarget keeps root URL subpages blocked", async () => {
+test("committed typed and reload navigations count as inside arrivals", async () => {
   const api = fakeApi({ runtimeScheme: "chrome-extension" });
   api.storageData[core.STATE_KEY] = validState([
     { id, kind: "url", value: "example.com" }
   ], { type: "always" });
   const controller = createBackgroundController(api);
-  const response = await controller.handleMessage({ type: "openBlockedTarget", tabId: 7, url: "https://example.com/path" }, {});
+  const commit = (tabId, transitionType, url) => controller.redirectCommittedNavigation({ frameId: 0, tabId, transitionType, url });
 
-  assert.equal(response.type, "redirected");
-  assert.deepEqual(api.updatedTabs, [{
-    tabId: 7,
-    url: blockedUrl("https://example.com/path", "scheduleRootSameDomainNavigation", "chrome-extension")
-  }]);
-});
-
-test("openBlockedTarget opens targets that are no longer blocked", async () => {
-  const api = fakeApi({ runtimeScheme: "chrome-extension" });
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "example.com" }
-  ], { type: "always" });
-  const controller = createBackgroundController(api);
-  const response = await controller.handleMessage({ type: "openBlockedTarget", tabId: 7, url: "https://other.example/path" }, {});
-
-  assert.equal(response.type, "opened");
-  assert.deepEqual(api.updatedTabs, [{ tabId: 7, url: "https://other.example/path" }]);
-});
-
-test("startup sweep removes expired referrer records and preserves fresh records", async () => {
-  const api = fakeApi({ now: referrerRecordRetentionMs + 1000 });
-  const mixedKey = `${referrerRecordPrefix}https://example.com/page`;
-  const expiredKey = `${referrerRecordPrefix}https://example.com/old`;
-  const unrelatedKey = "unrelated";
-
-  api.storageData[mixedKey] = {
-    records: [
-      { referrer: "https://expired.example/", recordedAt: 0 },
-      { referrer: "https://fresh.example/", recordedAt: 1000 }
-    ]
-  };
-  api.storageData[expiredKey] = {
-    records: [{ referrer: "https://expired.example/", recordedAt: 0 }]
-  };
-  api.storageData[unrelatedKey] = { records: [{ referrer: "https://expired.example/", recordedAt: 0 }] };
-
-  createBackgroundController(api);
-  await flushPromises();
-
-  assert.deepEqual(api.storageData[mixedKey], {
-    records: [{ referrer: "https://fresh.example/", recordedAt: 1000 }]
-  });
-  assert.equal(api.storageData[expiredKey], undefined);
-  assert.deepEqual(api.storageData[unrelatedKey], { records: [{ referrer: "https://expired.example/", recordedAt: 0 }] });
-});
-
-test("startup sweep does not rewrite unchanged referrer records", async () => {
-  const api = fakeApi({ now: referrerRecordRetentionMs + 1000 });
-  const freshKey = `${referrerRecordPrefix}https://example.com/fresh`;
-
-  api.storageData[freshKey] = { records: [{ referrer: "https://fresh.example/", recordedAt: 1000 }] };
-
-  createBackgroundController(api);
-  await flushPromises();
-
-  assert.deepEqual(api.storageSets.filter((value) => Object.hasOwn(value, freshKey)), []);
-  assert.deepEqual(api.storageData[freshKey], { records: [{ referrer: "https://fresh.example/", recordedAt: 1000 }] });
-});
-
-test("committed Chromium typed navigation expands root URL blocks", async () => {
-  const api = fakeApi({ runtimeScheme: "chrome-extension" });
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "example.com" }
-  ], { type: "always" });
-  const controller = createBackgroundController(api);
-  const response = await controller.redirectCommittedNavigation({
-    frameId: 0,
-    tabId: 7,
-    transitionType: "typed",
-    url: "https://example.com/path"
-  });
-
-  assert.equal(response.type, "redirected");
-  assert.deepEqual(api.updatedTabs, [{
-    tabId: 7,
-    url: blockedUrl("https://example.com/path", "scheduleRootDirectNavigation", "chrome-extension")
-  }]);
-});
-
-test("committed Chromium reload navigation does not expand root URL blocks", async () => {
-  const api = fakeApi({ runtimeScheme: "chrome-extension" });
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "example.com" }
-  ], { type: "always" });
-  const controller = createBackgroundController(api);
-  const response = await controller.redirectCommittedNavigation({
-    frameId: 0,
-    tabId: 7,
-    transitionType: "reload",
-    url: "https://example.com/path"
-  });
-
-  assert.equal(response.type, "allowed");
-  assert.deepEqual(api.updatedTabs, []);
+  assert.equal((await commit(7, "typed", "https://example.com/path")).type, "redirected");
+  assert.equal((await commit(8, "auto_bookmark", "https://example.com/path")).type, "redirected");
+  assert.equal((await commit(9, "link", "https://example.com/path")).type, "allowed");
+  assert.equal((await controller.handleMessage(checkPageMessage("https://example.com/path"), { tab: { id: 10 } })).type, "allowed");
+  assert.equal((await commit(10, "reload", "https://example.com/path")).type, "allowed");
+  assert.equal((await commit(11, "reload", "https://example.com/path")).type, "redirected");
+  assert.deepEqual(api.updatedTabs.map((tab) => tab.tabId), [7, 8, 11]);
 });
 
 test("committed Chromium subframe navigation is ignored", async () => {
@@ -839,43 +478,102 @@ test("committed Chromium subframe navigation is ignored", async () => {
   assert.deepEqual(api.updatedTabs, []);
 });
 
-test("starting navigation to a page blocked for every arrival redirects before the request", async () => {
+test("starting navigation blocks feeds and leaves other pages to their arrival", async () => {
   const api = fakeApi({ runtimeScheme: "chrome-extension" });
   api.storageData[core.STATE_KEY] = validState([
     { id, kind: "url", value: "example.com" }
   ], { type: "always" });
   const controller = createBackgroundController(api);
-  const response = await controller.redirectNavigationStart({ frameId: 0, tabId: 7, url: "https://example.com/" });
 
-  assert.equal(response.type, "redirected");
-  assert.deepEqual(api.updatedTabs, [{
-    tabId: 7,
-    url: blockedUrl("https://example.com/", "scheduleDirectMatch", "chrome-extension")
-  }]);
+  assert.equal((await controller.redirectNavigationStart({ frameId: 0, tabId: 7, url: "https://example.com/" })).type, "redirected");
+  assert.equal((await controller.redirectNavigationStart({ frameId: 0, tabId: 8, url: "https://example.com/path" })).type, "allowed");
+  assert.equal((await controller.redirectNavigationStart({ frameId: 1, tabId: 9, url: "https://example.com/" })).type, "ignored");
+  assert.deepEqual(api.updatedTabs, [{ tabId: 7, url: blockedUrl("https://example.com/", "schedule", "chrome-extension") }]);
 });
 
-test("starting navigation leaves arrival-dependent root URL blocks to the commit", async () => {
-  const api = fakeApi({ runtimeScheme: "chrome-extension" });
+test("checkPage redirects every page on a domain during the hard schedule", async () => {
+  const api = fakeApi();
   api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "example.com" }
-  ], { type: "always" });
+    { id, kind: "url", value: "x.com" }
+  ], inactiveSchedule(), undefined, core.DEFAULT_LIMIT_RESET, activeSchedule());
   const controller = createBackgroundController(api);
-  const response = await controller.redirectNavigationStart({ frameId: 0, tabId: 7, url: "https://example.com/path" });
 
-  assert.equal(response.type, "allowed");
-  assert.deepEqual(api.updatedTabs, []);
+  assert.equal((await controller.handleMessage(checkPageMessage("https://x.com/status/1"), { tab: { id: 7 } })).type, "redirected");
+  assert.deepEqual(api.updatedTabs, [{ tabId: 7, url: blockedUrl("https://x.com/status/1", "hardSchedule") }]);
 });
 
-test("starting subframe navigation is ignored", async () => {
-  const api = fakeApi({ runtimeScheme: "chrome-extension" });
+test("checkPage opens single short videos and keeps the redirected page open", async () => {
+  const api = fakeApi();
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "youtube.com" },
+    { id: "22222222-2222-4222-8222-222222222222", kind: "urlWithSubpaths", value: "youtube.com/shorts" }
+  ], { type: "always" });
+  const controller = createBackgroundController(api);
+
+  assert.deepEqual(await controller.handleMessage(checkPageMessage("https://www.youtube.com/shorts/abc"), { tab: { id: 7 } }), { type: "redirected" });
+  assert.equal((await controller.handleMessage(checkPageMessage("https://www.youtube.com/watch?v=abc", ""), { tab: { id: 7 } })).type, "allowed");
+  assert.deepEqual(await controller.handleMessage(checkPageMessage("https://www.youtube.com/shorts/def", "https://www.youtube.com/"), { tab: { id: 8 } }), { type: "redirected" });
+  assert.deepEqual(api.updatedTabs, [
+    { tabId: 7, url: "https://www.youtube.com/watch?v=abc" },
+    { tabId: 8, url: blockedUrl("https://www.youtube.com/shorts/def", "schedule") }
+  ]);
+});
+
+test("checkPage reports short video hiding for allowed pages", async () => {
+  const api = fakeApi();
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "https://x.com" }
+  ], inactiveSchedule());
+  const controller = createBackgroundController(api);
+
+  assert.deepEqual(await controller.handleMessage(checkPageMessage("https://www.facebook.com/reel/123"), { tab: { id: 7 } }), {
+    type: "allowed",
+    shortVideo: { type: "singleVideo", site: "facebook" }
+  });
+  assert.deepEqual(await controller.handleMessage(checkPageMessage("https://x.com/home"), { tab: { id: 7 } }), {
+    type: "allowed",
+    shortVideo: { type: "none" }
+  });
+});
+
+test("checkPage keeps allowed pages open while their site is restricted", async () => {
+  const api = fakeApi();
+  api.storageData[core.STATE_KEY] = { ...validState([{ id, kind: "url", value: "x.com" }], { type: "always" }), allowedPages: ["x.com/messages"] };
+  const controller = createBackgroundController(api);
+
+  assert.equal((await controller.handleMessage(checkPageMessage("https://x.com/messages", "https://x.com/home"), { tab: { id: 7 } })).type, "allowed");
+});
+
+test("checkPage rejects malformed referrers", async () => {
+  const api = fakeApi();
+  api.storageData[core.STATE_KEY] = validState([{ id, kind: "url", value: "x.com" }]);
+  const controller = createBackgroundController(api);
+
+  await assert.rejects(controller.handleMessage({ type: "checkPage", url: "https://x.com/", referrer: null }, { tab: { id: 7 } }), /referrer must be a string/);
+});
+
+test("openBlockedTarget keeps outside-link pages blocked", async () => {
+  const api = fakeApi();
   api.storageData[core.STATE_KEY] = validState([
     { id, kind: "url", value: "example.com" }
   ], { type: "always" });
   const controller = createBackgroundController(api);
-  const response = await controller.redirectNavigationStart({ frameId: 1, tabId: 7, url: "https://example.com/" });
 
-  assert.equal(response.type, "ignored");
-  assert.deepEqual(api.updatedTabs, []);
+  assert.deepEqual(await controller.handleMessage({ type: "openBlockedTarget", tabId: 7, url: "https://example.com/path" }, {}), { type: "redirected" });
+  assert.deepEqual(api.updatedTabs, [{ tabId: 7, url: blockedUrl("https://example.com/path", "schedule") }]);
+});
+
+test("openBlockedTarget opens targets that are no longer blocked and keeps them open", async () => {
+  const api = fakeApi();
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "example.com" }
+  ], inactiveSchedule());
+  const controller = createBackgroundController(api);
+
+  assert.deepEqual(await controller.handleMessage({ type: "openBlockedTarget", tabId: 7, url: "https://example.com/path" }, {}), { type: "opened" });
+  restrictState(api, validState([{ id, kind: "url", value: "example.com" }], { type: "always" }));
+  assert.equal((await controller.handleMessage(checkPageMessage("https://example.com/path", ""), { tab: { id: 7 } })).type, "allowed");
+  assert.deepEqual(api.updatedTabs, [{ tabId: 7, url: "https://example.com/path" }]);
 });
 
 test("screenTimeElapsed logs time into the current hour bucket", async () => {
@@ -1187,29 +885,7 @@ test("screenTimeElapsed keeps historical buckets when saving", async () => {
   });
 });
 
-test("urlChanged redirects matching URLs when rolling usage is over limit", async () => {
-  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "https://x.com/home" }
-  ], inactiveSchedule(), [
-    { domain: "x.com", limit: { type: "site", limitMinutes: 1 } }
-  ]);
-  api.storageData.screenTimeUsage = screenTimeUsage({
-    "x.com": { 20: 60000 }
-  });
-  const controller = createBackgroundController(api);
-  const blocked = await controller.handleMessage(urlChangedMessage("https://x.com/home"), { tab: { id: 7 } });
-  const allowed = await controller.handleMessage(urlChangedMessage("https://x.com/messages"), { tab: { id: 8 } });
-
-  assert.equal(blocked.type, "redirected");
-  assert.equal(allowed.type, "allowed");
-  assert.deepEqual(api.updatedTabs, [{
-    tabId: 7,
-    url: blockedUrl("https://x.com/home", "limitDirectMatch")
-  }]);
-});
-
-test("urlChanged blocks other YouTube videos after rolling usage exceeds the limit", async () => {
+test("checkPage closes open feeds once the limit runs out", async () => {
   const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
   api.storageData[core.STATE_KEY] = validState([
     { id, kind: "url", value: "youtube.com" }
@@ -1218,115 +894,15 @@ test("urlChanged blocks other YouTube videos after rolling usage exceeds the lim
   ]);
   const controller = createBackgroundController(api);
 
-  await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", internalYoutubeSource), { tab: { id: 7 } });
+  await controller.handleMessage(checkPageMessage("https://www.youtube.com/watch?v=abc", "https://www.youtube.com/"), { tab: { id: 7 } });
+  await controller.handleMessage(checkPageMessage("https://www.youtube.com/"), { tab: { id: 8 } });
   api.storageData.screenTimeUsage = screenTimeUsage({
     "youtube.com": { 20: 60000 }
   });
-  const response = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=def", internalYoutubeSource), { tab: { id: 7 } });
 
-  assert.equal(response.type, "redirected");
-  assert.deepEqual(api.updatedTabs, [{
-    tabId: 7,
-    url: blockedUrl("https://www.youtube.com/watch?v=def", "limitRootSameDomainNavigation")
-  }]);
-});
-
-test("urlChanged blocks YouTube videos started from the homepage after block time starts", async () => {
-  const api = fakeApi();
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "youtube.com" }
-  ], inactiveSchedule());
-  const controller = createBackgroundController(api);
-
-  await controller.handleMessage(urlChangedMessage("https://www.youtube.com"), { tab: { id: 7 } });
-  const blockedState = validState([
-    { id, kind: "url", value: "youtube.com" }
-  ], activeSchedule());
-
-  api.storageData[core.STATE_KEY] = blockedState;
-  api.storageData.settingsActivation = {
-    schemaVersion: 1,
-    activeState: blockedState,
-    pending: { type: "none" }
-  };
-  const response = await controller.handleMessage(urlChangedMessage("https://www.youtube.com/watch?v=abc", {
-    type: "document",
-    referrer: knownReferrer("https://www.youtube.com"),
-    navigationType: "navigate"
-  }), { tab: { id: 7 } });
-
-  assert.equal(response.type, "redirected");
-  assert.deepEqual(api.updatedTabs, [{
-    tabId: 7,
-    url: blockedUrl("https://www.youtube.com/watch?v=abc", "scheduleRootSameDomainNavigation")
-  }]);
-});
-
-test("recheckUrl closes open feed pages once the limit runs out", async () => {
-  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "youtube.com" }
-  ], inactiveSchedule(), [
-    { domain: "youtube.com", limit: { type: "site", limitMinutes: 1 } }
-  ]);
-  api.storageData.screenTimeUsage = screenTimeUsage({
-    "youtube.com": { 20: 60000 }
-  });
-  const controller = createBackgroundController(api);
-
-  assert.deepEqual(await controller.handleMessage({ type: "recheckUrl", url: "https://www.youtube.com/watch?v=abc" }, { tab: { id: 7 } }), { type: "allowed" });
-  assert.deepEqual(await controller.handleMessage({ type: "recheckUrl", url: "https://www.youtube.com/" }, { tab: { id: 8 } }), { type: "redirected" });
-  assert.deepEqual(api.updatedTabs, [{
-    tabId: 8,
-    url: blockedUrl("https://www.youtube.com/", "limitDirectMatch")
-  }]);
-});
-
-test("recheckUrl closes open feed pages when the schedule starts", async () => {
-  const api = fakeApi();
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "x.com" }
-  ], activeSchedule());
-  const controller = createBackgroundController(api);
-
-  assert.deepEqual(await controller.handleMessage({ type: "recheckUrl", url: "https://x.com/messages" }, { tab: { id: 7 } }), { type: "allowed" });
-  assert.deepEqual(await controller.handleMessage({ type: "recheckUrl", url: "https://x.com/home" }, { tab: { id: 8 } }), { type: "redirected" });
-  assert.deepEqual(api.updatedTabs, [{
-    tabId: 8,
-    url: blockedUrl("https://x.com/home", "scheduleDirectMatch")
-  }]);
-});
-
-test("recheckUrl leaves other open pages open until the hard schedule", async () => {
-  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
-  const limits = [{ domain: "youtube.com", limit: { type: "site", limitMinutes: 1 } }];
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "domain", value: "youtube.com" }
-  ], activeSchedule(), limits);
-  api.storageData.screenTimeUsage = screenTimeUsage({
-    "youtube.com": { 20: 60000 }
-  });
-  const controller = createBackgroundController(api);
-  const recheck = { type: "recheckUrl", url: "https://www.youtube.com/watch?v=abc" };
-
-  assert.deepEqual(await controller.handleMessage(recheck, { tab: { id: 7 } }), { type: "allowed" });
-
-  const hardBlockedState = validState([
-    { id, kind: "domain", value: "youtube.com" }
-  ], activeSchedule(), limits, core.DEFAULT_LIMIT_RESET, activeSchedule());
-
-  api.storageData[core.STATE_KEY] = hardBlockedState;
-  api.storageData.settingsActivation = {
-    schemaVersion: 1,
-    activeState: hardBlockedState,
-    pending: { type: "none" }
-  };
-
-  assert.deepEqual(await controller.handleMessage(recheck, { tab: { id: 7 } }), { type: "redirected" });
-  assert.deepEqual(api.updatedTabs, [{
-    tabId: 7,
-    url: blockedUrl("https://www.youtube.com/watch?v=abc", "hardScheduleDomain")
-  }]);
+  assert.equal((await controller.handleMessage(checkPageMessage("https://www.youtube.com/watch?v=abc", "https://www.youtube.com/"), { tab: { id: 7 } })).type, "allowed");
+  assert.equal((await controller.handleMessage(checkPageMessage("https://www.youtube.com/"), { tab: { id: 8 } })).type, "redirected");
+  assert.deepEqual(api.updatedTabs, [{ tabId: 8, url: blockedUrl("https://www.youtube.com/", "limit") }]);
 });
 
 test("screenTimeElapsed leaves the open page open after crossing the limit", async () => {
@@ -1802,6 +1378,7 @@ test("syncNow repairs remote settings missing added defaults", async () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: core.domainLimitsForEntries(previousEntries, [], core.DEFAULT_LIMIT_GROUPS)
   };
@@ -2013,7 +1590,7 @@ test("getSyncStatus requires native sign-in on iOS when signed out", async () =>
   });
 });
 
-test("saveState redirects open tabs that match the new state", async () => {
+test("saveState closes open feeds that match the new state", async () => {
   const api = fakeApi({
     tabs: [
       { id: 7, url: "https://x.com/home" },
@@ -2022,7 +1599,7 @@ test("saveState redirects open tabs that match the new state", async () => {
   });
   const controller = createBackgroundController(api);
   const response = await controller.saveState(validState([
-    { id, kind: "url", value: "https://x.com/home" }
+    { id, kind: "url", value: "x.com" }
   ], { type: "always" }));
   const finishResponse = await controller.finishSavedState();
 
@@ -2030,7 +1607,7 @@ test("saveState redirects open tabs that match the new state", async () => {
   assert.equal(finishResponse.type, "finishedSavedState");
   assert.deepEqual(api.updatedTabs, [{
     tabId: 7,
-    url: blockedUrl("https://x.com/home", "scheduleDirectMatch")
+    url: blockedUrl("https://x.com/home", "schedule")
   }]);
 });
 
@@ -2046,6 +1623,7 @@ function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits, lim
     limitReset,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: core.domainLimitsForEntries(stateEntries, domainLimits === undefined ? [] : domainLimits, core.DEFAULT_LIMIT_GROUPS)
   };

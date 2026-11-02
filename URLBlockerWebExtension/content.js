@@ -4,19 +4,13 @@
   const api = root.browser || root.chrome;
   const SCREEN_TIME_POLL_MS = 5 * 1000;
   const MAX_SCREEN_TIME_ELAPSED_MS = 30 * 1000;
-  const REFERRER_RECORD_PREFIX = "referrerRecords:";
-  const REFERRER_RECORD_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-  const MAX_REFERRER_RECORDS = 20;
   const SHORT_VIDEO_SITE_ATTRIBUTE = "data-url-blocker-short-video";
   const PATH_ATTRIBUTE = "data-url-blocker-path";
   const SINGLE_SHORT_VIDEO_ATTRIBUTE = "data-url-blocker-single-short-video";
   const SINGLE_VIDEO_NAVIGATION_KEYS = new Set(["ArrowDown", "ArrowUp", "PageDown", "PageUp"]);
-  let checkedPage = "";
   let singleVideoLocked = false;
   let currentPageUrl = location.href;
-  let arrival = { type: "unknown" };
-  let arrivalNavigationType = currentNavigationType();
-  const initPromise = initializeArrival();
+  let referrer = document.referrer;
   let screenTimeUrl = "";
   let screenTimeStartedAt = 0;
   let pollId = 0;
@@ -43,7 +37,7 @@
     }
 
     // The poll logs screen time and rechecks the page so it blocks soon after
-    // the hard schedule starts, or a feed page runs out its limit.
+    // the hard schedule starts, or a feed runs out its limit.
     pollId = root.setInterval(() => {
       if (document.hidden) {
         return;
@@ -53,7 +47,7 @@
 
       updateScreenTimeUrl(now);
       sendScreenTime(now);
-      sendCurrentUrl(false);
+      sendCurrentUrl();
     }, SCREEN_TIME_POLL_MS);
   }
 
@@ -61,7 +55,7 @@
     updateScreenTimeUrl(Date.now());
 
     if (event.persisted) {
-      sendCurrentUrl(true);
+      sendCurrentUrl();
     }
   }
 
@@ -84,7 +78,7 @@
 
   function checkCurrentUrl() {
     updateScreenTimeUrl(Date.now());
-    sendCurrentUrl(false);
+    sendCurrentUrl();
   }
 
   function updateScreenTimeUrl(now) {
@@ -137,186 +131,33 @@
     );
   }
 
-  // Limits and the block schedule judge a page when it loads, is restored
-  // from the back/forward cache, or changes to another page. Later checks of
-  // the same page only close it for the hard schedule or when it is a feed.
-  async function sendCurrentUrl(restoredPage) {
-    await initPromise;
-
+  function sendCurrentUrl() {
     const currentUrl = location.href;
 
+    // After an in-page URL change the previous URL is the referrer, so the
+    // worker counts it as a hop inside the site unless the tab holds a pass.
     if (currentUrl !== currentPageUrl) {
-      const previousUrl = currentPageUrl;
-
+      referrer = currentPageUrl;
       currentPageUrl = currentUrl;
-
-      // &/# changes stay on the same page, so they keep the page's arrival
-      // instead of recording the page as its own referrer.
-      if (pageChangeKey(previousUrl) !== pageChangeKey(currentUrl)) {
-        arrival = { type: "known", url: previousUrl };
-        arrivalNavigationType = "navigate";
-        recordReferrer(currentUrl, previousUrl);
-      }
     }
 
-    const page = pageChangeKey(currentUrl);
-
-    if (!restoredPage && page === checkedPage) {
-      sendMessage(
-        { type: "recheckUrl", url: currentUrl },
-        (error) => console.error(`URL Blocker could not recheck the current URL. ${errorLogText(error)}`),
-      );
-      return;
-    }
-
-    checkedPage = page;
     sendMessage(
-      { type: "urlChanged", url: currentUrl, source: documentNavigationSource() },
-      (error) => {
-        if (checkedPage === page) {
-          checkedPage = "";
-        }
-
-        console.error(`URL Blocker could not check the current URL. ${errorLogText(error)}`);
-      },
-      (response) => applyUrlChangedResponse(response, currentUrl),
+      { type: "checkPage", url: currentUrl, referrer },
+      (error) => console.error(`URL Blocker could not check the current URL. ${errorLogText(error)}`),
+      (response) => applyCheckPageResponse(response, currentUrl),
     );
   }
 
-  function documentNavigationSource() {
-    return {
-      type: "document",
-      referrer: arrival,
-      navigationType: arrivalNavigationType
-    };
-  }
-
-  async function initializeArrival() {
-    switch (arrivalNavigationType) {
-      case "navigate":
-      case "prerender":
-        arrival = { type: "known", url: documentReferrer() };
-        recordReferrer(currentPageUrl, arrival.url);
-        return;
-      case "reload":
-        // A stored record is the page's real arrival, so the reload is judged
-        // like that arrival. Without one the reload never expands root URLs.
-        arrival = await storedArrivalOrUnknown(currentPageUrl);
-
-        if (arrival.type === "known") {
-          arrivalNavigationType = "navigate";
-        } else {
-          arrival = { type: "known", url: documentReferrer() };
-        }
-
-        return;
-      case "back_forward":
-        arrival = await storedArrivalOrUnknown(currentPageUrl);
-        return;
-      default:
-        // Throwing here would reject initPromise and silently stop all URL
-        // reporting, so an unrecognized navigation type fails closed instead.
-        arrival = { type: "unknown" };
-        return;
-    }
-  }
-
-  async function storedArrivalOrUnknown(rawUrl) {
-    try {
-      const record = await newestReferrerRecord(rawUrl);
-
-      if (record === null) {
-        return { type: "unknown" };
-      }
-
-      return { type: "known", url: record.referrer };
-    } catch (error) {
-      console.error(`URL Blocker could not read referrer records. ${errorLogText(error)}`);
-
-      return { type: "unknown" };
-    }
-  }
-
-  function documentReferrer() {
-    return typeof document.referrer === "string" ? document.referrer : "";
-  }
-
-  function currentNavigationType() {
-    if (!root.performance || typeof root.performance.getEntriesByType !== "function") {
-      return "navigate";
-    }
-
-    const entries = root.performance.getEntriesByType("navigation");
-
-    if (entries.length === 0 || typeof entries[0].type !== "string") {
-      return "navigate";
-    }
-
-    return entries[0].type;
-  }
-
-  function recordReferrer(rawUrl, referrer) {
-    writeReferrerRecord(rawUrl, referrer).catch((error) => {
-      console.error(`URL Blocker could not write referrer records. ${errorLogText(error)}`);
-    });
-  }
-
-  async function newestReferrerRecord(rawUrl) {
-    const key = referrerRecordKey(rawUrl);
-    const stored = await api.storage.local.get(key);
-    const records = unexpiredRecords(stored[key]);
-
-    if (records.length === 0) {
-      return null;
-    }
-
-    return records[records.length - 1];
-  }
-
-  async function writeReferrerRecord(rawUrl, referrer) {
-    const key = referrerRecordKey(rawUrl);
-    const stored = await api.storage.local.get(key);
-    const records = [
-      ...unexpiredRecords(stored[key]),
-      { referrer, recordedAt: Date.now() }
-    ].slice(-MAX_REFERRER_RECORDS);
-
-    await api.storage.local.set({ [key]: { records } });
-  }
-
-  function unexpiredRecords(value) {
-    if (!isPlainObject(value) || !Array.isArray(value.records)) {
-      return [];
-    }
-
-    const expiresBefore = Date.now() - REFERRER_RECORD_RETENTION_MS;
-
-    return value.records.filter((record) => isPlainObject(record)
-      && typeof record.referrer === "string"
-      && typeof record.recordedAt === "number"
-      && record.recordedAt >= expiresBefore);
-  }
-
-  function referrerRecordKey(rawUrl) {
-    return `${REFERRER_RECORD_PREFIX}${pageChangeKey(rawUrl)}`;
-  }
-
-  // Everything up to the first & or # identifies the page: extra query params
-  // and fragments change on SPAs without the user leaving the page.
-  function pageChangeKey(rawUrl) {
-    return rawUrl.split(/[&#]/, 1)[0];
-  }
-
-  function applyUrlChangedResponse(response, checkedUrl) {
+  function applyCheckPageResponse(response, checkedUrl) {
     if (!isPlainObject(response) || typeof response.type !== "string") {
       throw new Error("URL check response must include a type.");
     }
 
     switch (response.type) {
       case "allowed":
-        // A newer check covers the current page, so a response for an earlier
-        // page would tag it with stale settings.
-        if (pageChangeKey(checkedUrl) !== pageChangeKey(location.href)) {
+        // A newer check covers the current URL, so a response for an earlier
+        // URL would tag the page with stale settings.
+        if (checkedUrl !== location.href) {
           return;
         }
 
@@ -325,10 +166,6 @@
       case "redirected":
         return;
       case "error":
-        if (checkedPage === pageChangeKey(checkedUrl)) {
-          checkedPage = "";
-        }
-
         console.error(`URL Blocker could not check the current URL. ${response.error} (${response.errorCode || response.type})`);
         return;
       default:

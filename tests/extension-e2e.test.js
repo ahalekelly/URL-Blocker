@@ -144,36 +144,23 @@ test("options keeps stats and limit reset visible when block schedule is always"
   assert.equal(page.byId("syncStatusText").textContent, "Sign in to sync settings and screen time limits.");
 });
 
-test("options saves domain navigation settings across same-domain rows", async () => {
+test("options round-trips allowed pages", async () => {
   const app = createExtensionApp();
+  app.backgroundApi.storageData[core.STATE_KEY] = validState([{ id, kind: "url", value: "x.com" }]);
+  app.backgroundApi.grantedOrigins.push("*://*.x.com/*");
+  let page = await openOptionsPage(app);
 
-  app.backgroundApi.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "example.com" },
-    { id: "22222222-2222-4222-8222-222222222222", kind: "url", value: "example.com/focus" }
-  ]);
-  app.backgroundApi.grantedOrigins.push("*://*.example.com/*");
+  assert.equal(page.byId("allowedPagesInput").value, "");
 
-  const page = await openOptionsPage(app);
-  let rows = page.customRows();
-
-  assert.equal(rows[0].querySelector(".block-direct-visits-input").checked, true);
-  assert.equal(rows[1].querySelector(".block-direct-visits-input").checked, true);
-
-  rows[0].querySelector(".block-direct-visits-input").checked = false;
-  await rows[0].querySelector(".block-direct-visits-input").dispatch("change");
-  rows = page.customRows();
-
-  assert.equal(rows[0].querySelector(".block-direct-visits-input").checked, false);
-  assert.equal(rows[1].querySelector(".block-direct-visits-input").checked, false);
-
-  rows[1].querySelector(".block-internal-links-input").checked = false;
-  await rows[1].querySelector(".block-internal-links-input").dispatch("change");
+  page.byId("allowedPagesInput").value = "https://www.x.com/messages/\n\n studio.youtube.com ";
+  await page.byId("allowedPagesInput").dispatch("input");
   await page.byId("saveButton").dispatch("click");
 
-  const domainLimit = app.backgroundApi.storageData[core.STATE_KEY].domainLimits.find((limit) => limit.domain === "example.com");
+  assert.deepEqual(app.backgroundApi.storageData[core.STATE_KEY].allowedPages, ["x.com/messages", "studio.youtube.com"]);
 
-  assert.equal(domainLimit.blockDirectVisits, false);
-  assert.equal(domainLimit.blockInternalLinks, false);
+  page = await openOptionsPage(app);
+
+  assert.equal(page.byId("allowedPagesInput").value, "x.com/messages\nstudio.youtube.com");
 });
 
 test("options hides provider sign-in buttons when sync is signed in", async () => {
@@ -496,14 +483,14 @@ test("end-to-end options save blocks a page and renders the blocked view", async
   assert.ok(app.backgroundApi.registeredScripts.at(-1).matches.includes("*://*.example.com/*"));
   assert.deepEqual(app.backgroundApi.updatedTabs, [{
     tabId: 2,
-    url: blockedUrl("https://example.com/focus", "scheduleDirectMatch")
+    url: blockedUrl("https://example.com/focus", "schedule")
   }]);
 
   await runContentScript(app, "https://example.com/focus", 3);
 
   assert.deepEqual(app.backgroundApi.updatedTabs.at(-1), {
     tabId: 3,
-    url: blockedUrl("https://example.com/focus", "scheduleDirectMatch")
+    url: blockedUrl("https://example.com/focus", "schedule")
   });
 
   const blocked = await openBlockedPage(app, app.backgroundApi.updatedTabs.at(-1).url);
@@ -517,7 +504,7 @@ test("end-to-end options save blocks a page and renders the blocked view", async
 
   assert.deepEqual(app.backgroundApi.updatedTabs.at(-1), {
     tabId: 4,
-    url: blockedUrl("https://example.com/focus", "scheduleDirectMatch")
+    url: blockedUrl("https://example.com/focus", "schedule")
   });
 
   await blocked.byId("copyTargetButton").dispatch("click");
@@ -530,13 +517,9 @@ test("blocked page renders each reason body without a built-in title", async () 
   const app = createExtensionApp();
   app.backgroundApi.storageData[core.STATE_KEY] = validState([]);
   const reasons = [
-    ["hardScheduleDomain", "All pages on this site are blocked during your hard block schedule."],
-    ["scheduleDirectMatch", "This page is blocked during your schedule."],
-    ["limitDirectMatch", "You've reached your time limit for this site."],
-    ["scheduleRootDirectNavigation", "Direct visits to this blocked site are blocked during your schedule."],
-    ["limitRootDirectNavigation", "Direct visits to this site are blocked because you've reached your time limit."],
-    ["scheduleRootSameDomainNavigation", "Links within this blocked site are blocked during your schedule."],
-    ["limitRootSameDomainNavigation", "Links within this site are blocked because you've reached your time limit."]
+    ["hardSchedule", "All pages on this site are blocked during your hard block schedule."],
+    ["schedule", "This page is blocked during your schedule."],
+    ["limit", "You've reached your time limit for this site."]
   ];
 
   for (const [reason, body] of reasons) {
@@ -708,29 +691,12 @@ async function runContentScript(app, url, tabId) {
           pendingMessages.push(result);
           return result;
         }
-      },
-      storage: {
-        local: {
-          async get(key) {
-            if (key === null) {
-              return { ...app.backgroundApi.storageData };
-            }
-
-            if (Array.isArray(key)) {
-              return Object.fromEntries(key.map((storageKey) => [storageKey, app.backgroundApi.storageData[storageKey]]));
-            }
-
-            return { [key]: app.backgroundApi.storageData[key] };
-          },
-          async set(value) {
-            Object.assign(app.backgroundApi.storageData, JSON.parse(JSON.stringify(value)));
-          }
-        }
       }
     },
     console,
     document: {
       hidden: false,
+      referrer: "",
       documentElement: {
         setAttribute() {},
         removeAttribute() {}
@@ -1023,6 +989,7 @@ function validState(entries, schedule = core.DEFAULT_SCHEDULE) {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: core.domainLimitsForEntries(stateEntries, [], core.DEFAULT_LIMIT_GROUPS)
   };
@@ -1139,6 +1106,7 @@ function optionsDocument() {
     "limitGroupRows",
     "addLimitGroupButton",
     "blockedPageHtmlInput",
+    "allowedPagesInput",
     "alwaysScheduleInput",
     "dailyScheduleInput",
     "scheduleWindowFields",
@@ -1251,15 +1219,11 @@ function rowTemplateContent() {
   const valueLabel = new TestElement("label");
   const valueInput = new TestElement("input", "", "value-input");
   const limitControl = new TestElement("div", "", "row-limit");
-  const domainSettings = new TestElement("div", "", "domain-settings");
-  const blockDirectVisitsInput = new TestElement("input", "", "block-direct-visits-input");
-  const blockInternalLinksInput = new TestElement("input", "", "block-internal-links-input");
   const rowError = new TestElement("p", "", "row-error");
 
   toolbar.append(segments, deleteButton);
   valueLabel.append(valueInput);
-  domainSettings.append(blockDirectVisitsInput, blockInternalLinksInput);
-  row.append(toolbar, valueLabel, limitControl, domainSettings, rowError);
+  row.append(toolbar, valueLabel, limitControl, rowError);
   fragment.append(row);
 
   return fragment;

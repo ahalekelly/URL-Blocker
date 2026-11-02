@@ -3,7 +3,8 @@
 
   const STATE_KEY = "blockerState";
   const BLOCKED_PAGE_HTML_KEY = "blockedPageHtml";
-  const SCHEMA_VERSION = 21;
+  const SCHEMA_VERSION = 22;
+  const OPEN_PAGES_SCHEMA_VERSION = 21;
   const SHARED_LIMIT_GROUPS_SCHEMA_VERSION = 20;
   const LIMIT_GROUPS_SCHEMA_VERSION = 19;
   const SHORT_VIDEO_HIDING_SCHEMA_VERSION = 18;
@@ -38,8 +39,6 @@
   const SETTINGS_ACTIVATION_SCHEMA_VERSION = 1;
   const MAX_BLOCKED_PAGE_HTML_LENGTH = 4000;
   const DEFAULT_LIMIT_MINUTES = 30;
-  const DEFAULT_BLOCK_DIRECT_VISITS = true;
-  const DEFAULT_BLOCK_INTERNAL_LINKS = true;
   const MAX_LIMIT_MINUTES = 960;
   const MAX_ROLLING_WINDOW_HOURS = 168;
   const DEFAULT_SETTINGS_DELAY_MINUTES = 60;
@@ -134,6 +133,7 @@
       limitReset: DEFAULT_LIMIT_RESET,
       settingsDelay: DEFAULT_SETTINGS_DELAY,
       shortVideoHiding: DEFAULT_SHORT_VIDEO_HIDING,
+      allowedPages: [],
       limitGroups: DEFAULT_LIMIT_GROUPS,
       domainLimits: domainLimitsForEntries(entries, [], DEFAULT_LIMIT_GROUPS)
     }, entries);
@@ -193,6 +193,10 @@
 
     if (!isPlainObject(rawState.shortVideoHiding)) {
       errors.push({ index: null, message: "Short video hiding settings must be an object." });
+    }
+
+    if (!Array.isArray(rawState.allowedPages)) {
+      errors.push({ index: null, message: "Allowed pages must be an array." });
     }
 
     if (!Array.isArray(rawState.limitGroups)) {
@@ -259,6 +263,28 @@
     } else {
       shortVideoHiding = shortVideoHidingResult.shortVideoHiding;
     }
+
+    const allowedPages = [];
+
+    rawState.allowedPages.forEach((value) => {
+      if (typeof value !== "string" || value.trim() === "") {
+        errors.push({ index: null, message: "Allowed pages must be non-empty strings." });
+        return;
+      }
+
+      try {
+        const normalized = normalizeUrlEntryValue(value);
+
+        if (allowedPages.includes(normalized)) {
+          errors.push({ index: null, message: `Duplicate allowed page: ${normalized}.` });
+          return;
+        }
+
+        allowedPages.push(normalized);
+      } catch (error) {
+        errors.push({ index: null, message: `Allowed page ${value}: ${error.message}` });
+      }
+    });
 
     if (rawState.entries.length > MAX_ENTRIES) {
       errors.push({ index: null, message: `Blocklist is limited to ${MAX_ENTRIES} entries.` });
@@ -339,6 +365,7 @@
         limitReset,
         settingsDelay,
         shortVideoHiding,
+        allowedPages,
         limitGroups: groupsResult.limitGroups,
         domainLimits: limitsResult.domainLimits
       }
@@ -363,6 +390,7 @@
       SETTINGS_DELAY_SCHEMA_VERSION,
       SETTINGS_DELAY_MODE_SCHEMA_VERSION,
       SCHEMA_VERSION,
+      OPEN_PAGES_SCHEMA_VERSION,
       SHARED_LIMIT_GROUPS_SCHEMA_VERSION,
       LIMIT_GROUPS_SCHEMA_VERSION,
       SHORT_VIDEO_HIDING_SCHEMA_VERSION,
@@ -428,6 +456,14 @@
 
   function storedStateWithCurrentShape(rawState) {
     if (rawState.schemaVersion === SCHEMA_VERSION) {
+      return rawState;
+    }
+
+    return { ...storedStateWithOpenPagesVersionShape(rawState), allowedPages: [] };
+  }
+
+  function storedStateWithOpenPagesVersionShape(rawState) {
+    if (rawState.schemaVersion === OPEN_PAGES_SCHEMA_VERSION) {
       return rawState;
     }
 
@@ -1018,7 +1054,7 @@
         return;
       }
 
-      pushUnknownKeyErrors(errors, limit, ["domain", "limit", "blockDirectVisits", "blockInternalLinks"], "Domain limit");
+      pushUnknownKeyErrors(errors, limit, ["domain", "limit"], "Domain limit");
 
       if (typeof limit.domain !== "string") {
         errors.push({ index: null, message: "Domain limit domain must be a string." });
@@ -1051,23 +1087,8 @@
         return;
       }
 
-      if (typeof limit.blockDirectVisits !== "boolean") {
-        errors.push({ index: null, message: "Domain limit block direct visits setting must be a boolean." });
-        return;
-      }
-
-      if (typeof limit.blockInternalLinks !== "boolean") {
-        errors.push({ index: null, message: "Domain limit block internal links setting must be a boolean." });
-        return;
-      }
-
       seen.add(domain);
-      domainLimits.push({
-        domain,
-        limit: limitResult.limit,
-        blockDirectVisits: limit.blockDirectVisits,
-        blockInternalLinks: limit.blockInternalLinks
-      });
+      domainLimits.push({ domain, limit: limitResult.limit });
     });
 
     expectedDomains.forEach((domain) => {
@@ -1134,13 +1155,7 @@
 
     return rawEntryDomains(entries).map((domain) => ({
       domain,
-      limit: existing.has(domain) ? existing.get(domain).limit : defaultDomainLimit(domain, limitGroups),
-      blockDirectVisits: existing.has(domain) && typeof existing.get(domain).blockDirectVisits === "boolean"
-        ? existing.get(domain).blockDirectVisits
-        : DEFAULT_BLOCK_DIRECT_VISITS,
-      blockInternalLinks: existing.has(domain) && typeof existing.get(domain).blockInternalLinks === "boolean"
-        ? existing.get(domain).blockInternalLinks
-        : DEFAULT_BLOCK_INTERNAL_LINKS
+      limit: existing.has(domain) ? existing.get(domain).limit : defaultDomainLimit(domain, limitGroups)
     }));
   }
 
@@ -1236,46 +1251,119 @@
     return { type: "none" };
   }
 
-  // Precedence: the hard schedule blocks first. Single short videos come next:
-  // they redirect to a single-video page unless that page would be blocked, or
-  // stay in place where only full-domain entries and root URL arrival rules
-  // apply, so route entries like youtube.com/shorts never block them.
+  // Precedence: the hard schedule, then single short video redirects, which
+  // are judged by their destination, then the allow list and the page policy.
+  //
+  // A visit is "continuing" when the tab already holds a pass for the page,
+  // "arrivalPending" when it is new but how it arrived is not known yet, or an
+  // "arrival" from outside the site, from inside it, or from a referrer.
   //
   // Every result carries the page's short video handling for content.js.
-  function findBlockedMatchingEntry(state, rawUrl, overLimitDomains, navigationSource, date = new Date()) {
+  function decidePage(state, rawUrl, visit, overLimitDomains, date) {
     const shortVideo = shortVideoPage(state, rawUrl);
 
-    return { ...blockedMatchForPage(state, rawUrl, shortVideo, overLimitDomains, navigationSource, date), shortVideo };
+    return { ...pageDecision(state, rawUrl, shortVideo, visit, overLimitDomains, date), shortVideo };
   }
 
-  function blockedMatchForPage(state, rawUrl, shortVideo, overLimitDomains, navigationSource, date) {
+  function pageDecision(state, rawUrl, shortVideo, visit, overLimitDomains, date) {
     const hardScheduleMatch = findHardScheduleMatchingEntry(state, rawUrl, date);
 
     if (hardScheduleMatch.type === "match") {
       return hardScheduleMatch;
     }
 
-    // The redirect starts a new document that loses this navigation's
-    // arrival, so the target is judged with the current arrival first.
     if (shortVideo.type === "singleVideoRedirect") {
-      const targetMatch = blockedMatchForPage(state, shortVideo.url, shortVideoPage(state, shortVideo.url), overLimitDomains, navigationSource, date);
+      const target = pageDecision(state, shortVideo.url, shortVideoPage(state, shortVideo.url), visit, overLimitDomains, date);
 
-      return targetMatch.type === "match" ? targetMatch : { type: "singleVideoRedirect", url: shortVideo.url };
+      return target.type === "match" || visit.type === "arrivalPending" ? target : { type: "singleVideoRedirect", url: shortVideo.url };
     }
 
-    const entries = shortVideo.type === "singleVideo"
-      ? state.entries.filter((entry) => entry.kind === "domain")
-      : state.entries;
-    const match = findEntryMatch(entries, rawUrl);
+    if (isAllowedPage(state, rawUrl)) {
+      return { type: "none" };
+    }
 
-    switch (match.type) {
-      case "none":
-        return activeBlockedMatch(state, findRootUrlMatchingEntry(state, rawUrl, navigationSource), overLimitDomains, date);
-      case "match":
-        return activeBlockedMatch(state, match, overLimitDomains, date);
+    const policy = pagePolicy(state, rawUrl, shortVideo);
+
+    if (policy.type === "unrestricted") {
+      return { type: "none" };
+    }
+
+    const domain = associatedDomainForEntry(policy.entry);
+    const reason = isScheduleActive(state.schedule, date) ? "schedule" : overLimitDomains.has(domain) ? "limit" : "none";
+
+    if (reason === "none") {
+      return { type: "none" };
+    }
+
+    switch (policy.type) {
+      case "feed":
+        return { type: "match", entry: policy.entry, reason };
+      case "outsideLinksOnly":
+        return visitAllowsPage(visit, domain) ? { type: "none" } : { type: "match", entry: policy.entry, reason };
       default:
-        throw new Error(`Unknown match type: ${match.type}`);
+        throw new Error(`Unknown page policy: ${policy.type}`);
     }
+  }
+
+  // Exact URL entries name feed pages. Every other entry match, and the rest
+  // of a bare-domain URL entry's site, opens only from outside links. A single
+  // short video is never a feed.
+  function pagePolicy(state, rawUrl, shortVideo) {
+    if (shortVideo.type !== "singleVideo") {
+      const feed = findEntryMatch(state.entries.filter((entry) => entry.kind === "url"), rawUrl);
+
+      if (feed.type === "match") {
+        return { type: "feed", entry: feed.entry };
+      }
+    }
+
+    const match = findEntryMatch(state.entries, rawUrl);
+
+    if (match.type === "match") {
+      return { type: "outsideLinksOnly", entry: match.entry };
+    }
+
+    const result = normalizePageUrl(rawUrl);
+    const rootEntry = result.type === "valid"
+      ? state.entries.find((entry) => entryIsEnabled(entry) && rootUrlEntryMatchesHost(entry, result.url.limitHost))
+      : undefined;
+
+    return rootEntry ? { type: "outsideLinksOnly", entry: rootEntry } : { type: "unrestricted" };
+  }
+
+  function visitAllowsPage(visit, domain) {
+    switch (visit.type) {
+      case "continuing":
+      case "arrivalPending":
+        return true;
+      case "arrival":
+        return isOutsideArrival(visit.from, domain);
+      default:
+        throw new Error(`Unknown visit type: ${visit.type}`);
+    }
+  }
+
+  function isOutsideArrival(from, domain) {
+    switch (from.type) {
+      case "outside":
+        return true;
+      case "inside":
+        return false;
+      case "referrer": {
+        const result = normalizePageUrl(from.url);
+
+        return result.type === "valid" && !domainMatchesHost(domain, result.url.limitHost);
+      }
+      default:
+        throw new Error(`Unknown arrival type: ${from.type}`);
+    }
+  }
+
+  function isAllowedPage(state, rawUrl) {
+    const result = normalizePageUrl(rawUrl);
+
+    return result.type === "valid"
+      && state.allowedPages.some((value) => entryMatchesUrl({ type: "custom", kind: "urlWithSubpaths", value }, result.url));
   }
 
   function findHardScheduleMatchingEntry(state, rawUrl, date) {
@@ -1291,40 +1379,21 @@
 
     for (const entry of state.entries) {
       if (entryIsEnabled(entry) && domainMatchesHost(associatedDomainForEntry(entry), result.url.limitHost)) {
-        return { type: "match", entry, reason: "hardScheduleDomain" };
+        return { type: "match", entry, reason: "hardSchedule" };
       }
     }
 
     return { type: "none" };
   }
 
-  // An open page closes only for the hard schedule, or when it exactly matches
-  // a URL entry: those name feed pages, which scroll endlessly.
-  function findOpenPageBlock(state, rawUrl, overLimitDomains, date) {
-    const hardScheduleMatch = findHardScheduleMatchingEntry(state, rawUrl, date);
-
-    if (hardScheduleMatch.type === "match") {
-      return hardScheduleMatch;
-    }
-
-    return activeBlockedMatch(state, findEntryMatch(state.entries.filter((entry) => entry.kind === "url"), rawUrl), overLimitDomains, date);
-  }
-
-  // An app counts as its site's home page, so it is blocked whenever the home
-  // page would be blocked for a direct match.
+  // An app is its site's home page opened directly, checked for as long as it
+  // is on screen.
   function findBlockedApp(state, packageName, overLimitDomains, date) {
     if (!Object.hasOwn(APP_SITE_DOMAINS, packageName)) {
       return { type: "none" };
     }
 
-    const homeUrl = `https://${APP_SITE_DOMAINS[packageName]}/`;
-    const hardScheduleMatch = findHardScheduleMatchingEntry(state, homeUrl, date);
-
-    if (hardScheduleMatch.type === "match") {
-      return hardScheduleMatch;
-    }
-
-    return activeBlockedMatch(state, findEntryMatch(state.entries, homeUrl), overLimitDomains, date);
+    return decidePage(state, `https://${APP_SITE_DOMAINS[packageName]}/`, { type: "arrival", from: { type: "inside" } }, overLimitDomains, date);
   }
 
   function screenTimeDomainForApp(state, packageName) {
@@ -1335,99 +1404,17 @@
     return screenTimeDomainForUrl(state, `https://${APP_SITE_DOMAINS[packageName]}/`);
   }
 
-  function activeBlockedMatch(state, match, overLimitDomains, date) {
-    switch (match.type) {
-      case "none":
-        return { type: "none" };
-      case "match":
-        if (isScheduleActive(state.schedule, date)) {
-          return blockedMatch(match, "schedule");
-        }
-
-        if (overLimitDomains.has(associatedDomainForEntry(match.entry))) {
-          return blockedMatch(match, "limit");
-        }
-
-        return { type: "none" };
-      default:
-        throw new Error(`Unknown match type: ${match.type}`);
-    }
-  }
-
-  function blockedMatch(match, activation) {
-    switch (match.reasonType) {
-      case "directMatch":
-        return { type: "match", entry: match.entry, reason: blockReason(activation, "scheduleDirectMatch", "limitDirectMatch") };
-      case "rootDirectNavigation":
-        return { type: "match", entry: match.entry, reason: blockReason(activation, "scheduleRootDirectNavigation", "limitRootDirectNavigation") };
-      case "rootSameDomainNavigation":
-        return { type: "match", entry: match.entry, reason: blockReason(activation, "scheduleRootSameDomainNavigation", "limitRootSameDomainNavigation") };
-      default:
-        throw new Error(`Unknown block reason type: ${match.reasonType}`);
-    }
-  }
-
   function blockedReasonText(reason) {
     switch (reason) {
-      case "hardScheduleDomain":
+      case "hardSchedule":
         return "All pages on this site are blocked during your hard block schedule.";
-      case "scheduleDirectMatch":
+      case "schedule":
         return "This page is blocked during your schedule.";
-      case "limitDirectMatch":
+      case "limit":
         return "You've reached your time limit for this site.";
-      case "scheduleRootDirectNavigation":
-        return "Direct visits to this blocked site are blocked during your schedule.";
-      case "limitRootDirectNavigation":
-        return "Direct visits to this site are blocked because you've reached your time limit.";
-      case "scheduleRootSameDomainNavigation":
-        return "Links within this blocked site are blocked during your schedule.";
-      case "limitRootSameDomainNavigation":
-        return "Links within this site are blocked because you've reached your time limit.";
       default:
         throw new Error(`Unknown blocked page reason: ${reason}`);
     }
-  }
-
-  function blockReason(activation, scheduleReason, limitReason) {
-    switch (activation) {
-      case "schedule":
-        return scheduleReason;
-      case "limit":
-        return limitReason;
-      default:
-        throw new Error(`Unknown block activation: ${activation}`);
-    }
-  }
-
-  function findRootUrlMatchingEntry(state, rawUrl, navigationSource) {
-    const result = normalizePageUrl(rawUrl);
-
-    if (result.type === "invalid") {
-      return { type: "none" };
-    }
-
-    if (sourceReferrerIsSamePage(navigationSource, rawUrl)) {
-      return { type: "none" };
-    }
-
-    for (const entry of state.entries) {
-      if (!entryIsEnabled(entry) || !rootUrlEntryMatchesHost(entry, result.url.limitHost)) {
-        continue;
-      }
-
-      const reason = rootUrlNavigationReason(navigationSource, domainLimitForEntry(state, entry));
-
-      switch (reason.type) {
-        case "none":
-          continue;
-        case "match":
-          return { type: "match", entry, reasonType: reason.reasonType };
-        default:
-          throw new Error(`Unknown root navigation reason: ${reason.type}`);
-      }
-    }
-
-    return { type: "none" };
   }
 
   function rootUrlEntryMatchesHost(entry, host) {
@@ -1440,119 +1427,10 @@
     return storedUrl.path === "" && domainMatchesHost(storedUrl.host, host);
   }
 
-  function domainLimitForEntry(state, entry) {
-    return domainLimitForDomain(state, associatedDomainForEntry(entry));
-  }
-
-  function domainLimitForDomain(state, domain) {
-    const limit = state.domainLimits.find((candidate) => candidate.domain === domain);
-
-    if (!limit) {
-      throw new Error(`Missing domain limit: ${domain}.`);
-    }
-
-    return limit;
-  }
-
-  function rootUrlNavigationReason(source, limit) {
-    switch (source.type) {
-      case "unknown":
-        return { type: "none" };
-      case "document":
-        if (source.navigationType === "reload") {
-          return { type: "none" };
-        }
-
-        return rootReferrerNavigationReason(source.referrer, limit);
-      case "safariDocument":
-        if (source.navigationType === "reload") {
-          return { type: "none" };
-        }
-
-        if (source.referrer.type === "known" && source.referrer.url === "" && limit.blockDirectVisits) {
-          return { type: "match", reasonType: "rootDirectNavigation" };
-        }
-
-        return rootReferrerNavigationReason(source.referrer, limit);
-      case "blockedPage":
-        return unknownReferrerNavigationReason(limit);
-      case "chromiumCommitted":
-        if (source.transitionType === "reload") {
-          return { type: "none" };
-        }
-
-        if (limit.blockDirectVisits && ["typed", "generated", "auto_bookmark"].includes(source.transitionType)) {
-          return { type: "match", reasonType: "rootDirectNavigation" };
-        }
-
-        return { type: "none" };
-      default:
-        throw new Error(`Unknown navigation source type: ${source.type}`);
-    }
-  }
-
-  function rootReferrerNavigationReason(referrer, limit) {
-    switch (referrer.type) {
-      case "known":
-        if (limit.blockInternalLinks && sourceReferrerMatchesDomain(referrer.url, limit.domain)) {
-          return { type: "match", reasonType: "rootSameDomainNavigation" };
-        }
-
-        return { type: "none" };
-      case "unknown":
-        return unknownReferrerNavigationReason(limit);
-      default:
-        throw new Error(`Unknown referrer type: ${referrer.type}`);
-    }
-  }
-
-  function unknownReferrerNavigationReason(limit) {
-    if (limit.blockInternalLinks) {
-      return { type: "match", reasonType: "rootSameDomainNavigation" };
-    }
-
-    if (limit.blockDirectVisits) {
-      return { type: "match", reasonType: "rootDirectNavigation" };
-    }
-
-    return { type: "none" };
-  }
-
-  function sourceReferrerIsSamePage(source, rawUrl) {
-    switch (source.type) {
-      case "unknown":
-      case "chromiumCommitted":
-      case "blockedPage":
-        return false;
-      case "document":
-      case "safariDocument":
-        switch (source.referrer.type) {
-          case "known":
-            return pageChangeKey(source.referrer.url) === pageChangeKey(rawUrl);
-          case "unknown":
-            return false;
-          default:
-            throw new Error(`Unknown referrer type: ${source.referrer.type}`);
-        }
-      default:
-        throw new Error(`Unknown navigation source type: ${source.type}`);
-    }
-  }
-
   // Everything up to the first & or # identifies the page: extra query params
   // and fragments change on SPAs without the user leaving the page.
   function pageChangeKey(rawUrl) {
     return rawUrl.split(/[&#]/, 1)[0];
-  }
-
-  function sourceReferrerMatchesDomain(rawReferrer, entryDomain) {
-    const result = normalizePageUrl(rawReferrer);
-
-    if (result.type === "invalid") {
-      return false;
-    }
-
-    return domainMatchesHost(entryDomain, result.url.limitHost);
   }
 
   // Short video hiding is always on for enabled sites, independent of the
@@ -2217,6 +2095,8 @@
   function stateKeys(schemaVersion) {
     switch (schemaVersion) {
       case SCHEMA_VERSION:
+        return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "hardSchedule", "limitReset", "settingsDelay", "shortVideoHiding", "allowedPages", "limitGroups", "domainLimits"];
+      case OPEN_PAGES_SCHEMA_VERSION:
         return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "hardSchedule", "limitReset", "settingsDelay", "shortVideoHiding", "limitGroups", "domainLimits"];
       case SHARED_LIMIT_GROUPS_SCHEMA_VERSION:
         return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "hardSchedule", "limitReset", "settingsDelay", "youtubeFocus", "shortVideoHiding", "limitGroups", "domainLimits"];
@@ -2247,8 +2127,6 @@
     DEFAULT_LIMIT_GROUPS,
     DEFAULT_LIMIT_MINUTES,
     MAX_LIMIT_GROUP_NAME_LENGTH,
-    DEFAULT_BLOCK_DIRECT_VISITS,
-    DEFAULT_BLOCK_INTERNAL_LINKS,
     DEFAULT_BLOCKED_PAGE_HTML,
     DEFAULT_HARD_SCHEDULE,
     DEFAULT_LIMIT_RESET,
@@ -2270,15 +2148,13 @@
     associatedDomainForEntry,
     blockedReasonText,
     contentScriptOriginsForState,
+    decidePage,
     domainForEntry,
     domainForRegexEntryValue,
-    domainLimitForDomain,
     domainLimitsForEntries,
     emptyState,
     entryMatchesUrl,
     findBlockedApp,
-    findBlockedMatchingEntry,
-    findOpenPageBlock,
     findMatchingEntry,
     isScheduleActive,
     newEntry,

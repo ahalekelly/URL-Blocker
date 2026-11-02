@@ -31,6 +31,7 @@
     draftLimitReset: core.DEFAULT_LIMIT_RESET,
     draftSettingsDelay: core.DEFAULT_SETTINGS_DELAY,
     draftShortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    draftAllowedPagesText: "",
     savedDraft: {
       entries: [],
       blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
@@ -38,7 +39,8 @@
       hardSchedule: core.DEFAULT_HARD_SCHEDULE,
       limitReset: core.DEFAULT_LIMIT_RESET,
       settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-      shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING
+      shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+      allowedPagesText: ""
     },
     settingsActivation: { type: "active" },
     rowErrors: new Map(),
@@ -58,6 +60,7 @@
   const limitGroupRows = document.getElementById("limitGroupRows");
   const addLimitGroupButton = document.getElementById("addLimitGroupButton");
   const blockedPageHtmlInput = document.getElementById("blockedPageHtmlInput");
+  const allowedPagesInput = document.getElementById("allowedPagesInput");
   const alwaysScheduleInput = document.getElementById("alwaysScheduleInput");
   const dailyScheduleInput = document.getElementById("dailyScheduleInput");
   const scheduleWindowFields = document.getElementById("scheduleWindowFields");
@@ -105,6 +108,7 @@
   addLimitGroupButton.addEventListener("click", addLimitGroup);
   saveButton.addEventListener("click", saveDraft);
   blockedPageHtmlInput.addEventListener("input", updateBlockedPageHtml);
+  allowedPagesInput.addEventListener("input", updateAllowedPages);
   alwaysScheduleInput.addEventListener("change", () => updateScheduleType("always"));
   dailyScheduleInput.addEventListener("change", () => updateScheduleType("dailyWindow"));
   scheduleStartInput.addEventListener("input", updateScheduleWindow);
@@ -216,6 +220,7 @@
     limitGroupsPanel.hidden = timeLimitsAreHidden();
     limitGroupRows.replaceChildren(...state.draftLimitGroups.map(renderLimitGroupRow));
     blockedPageHtmlInput.value = state.draftBlockedPageHtml;
+    allowedPagesInput.value = state.draftAllowedPagesText;
     renderScreenTimeTitle();
     alwaysScheduleInput.checked = state.draftSchedule.type === "always";
     dailyScheduleInput.checked = state.draftSchedule.type === "dailyWindow";
@@ -319,7 +324,7 @@
     title.className = "default-group-title";
     title.textContent = titleText;
     controls.className = "default-group-controls";
-    controls.append(renderDomainSettings(entries[0], titleText), renderLimitControl(entries[0], titleText));
+    controls.append(renderLimitControl(entries[0], titleText));
     toolbar.append(title, controls);
     entryList.className = "default-group-entries";
     entryList.replaceChildren(...entries.map(renderDefaultGroupEntry));
@@ -418,7 +423,8 @@
       hardSchedule: editableHardSchedule(state.draftHardSchedule),
       limitReset: editableLimitReset(state.draftLimitReset),
       settingsDelay: editableSettingsDelay(state.draftSettingsDelay),
-      shortVideoHiding: { ...state.draftShortVideoHiding }
+      shortVideoHiding: { ...state.draftShortVideoHiding },
+      allowedPagesText: state.draftAllowedPagesText
     };
   }
 
@@ -434,12 +440,7 @@
   }
 
   function domainDraftSnapshot(snapshot, entry) {
-    return {
-      ...snapshot,
-      limit: { ...entry.limit },
-      blockDirectVisits: entry.blockDirectVisits,
-      blockInternalLinks: entry.blockInternalLinks
-    };
+    return { ...snapshot, limit: { ...entry.limit } };
   }
 
   function renderDefaultGroupEntry(entry) {
@@ -482,8 +483,6 @@
     const segments = fragment.querySelector(".segments");
     const input = fragment.querySelector(".value-input");
     const limitControl = fragment.querySelector(".row-limit");
-    const blockDirectVisitsInput = fragment.querySelector(".block-direct-visits-input");
-    const blockInternalLinksInput = fragment.querySelector(".block-internal-links-input");
     const deleteButton = fragment.querySelector(".delete-button");
     const rowError = fragment.querySelector(".row-error");
     const error = state.rowErrors.get(entry.id) || "";
@@ -494,10 +493,6 @@
     input.addEventListener("input", () => updateValue(entry.id, input.value));
     input.addEventListener("blur", () => normalizeUrlInput(entry.id));
     limitControl.replaceWith(renderLimitControl(entry, entry.value || "this rule"));
-    blockDirectVisitsInput.checked = entry.blockDirectVisits;
-    blockDirectVisitsInput.addEventListener("change", () => updateBlockDirectVisits(entry.id, blockDirectVisitsInput.checked));
-    blockInternalLinksInput.checked = entry.blockInternalLinks;
-    blockInternalLinksInput.addEventListener("change", () => updateBlockInternalLinks(entry.id, blockInternalLinksInput.checked));
     deleteButton.disabled = state.defaultEntries.length === 0 && customEntryCount() === 1;
     deleteButton.addEventListener("click", () => deleteRow(entry.id));
     rowError.hidden = error === "";
@@ -505,47 +500,6 @@
     row.dataset.entryId = entry.id;
 
     return fragment;
-  }
-
-  function renderDomainSettings(entry, titleText) {
-    const settings = document.createElement("div");
-
-    settings.className = "domain-settings";
-    settings.append(
-      renderDomainSettingInput(
-        "block-direct-visits-input",
-        entry.blockDirectVisits,
-        `Block all pages except via links for ${titleText}`,
-        "Block all pages except via links",
-        (checked) => updateBlockDirectVisits(entry.id, checked)
-      ),
-      renderDomainSettingInput(
-        "block-internal-links-input",
-        entry.blockInternalLinks,
-        `Block links within ${titleText}`,
-        "Block links within this site",
-        (checked) => updateBlockInternalLinks(entry.id, checked)
-      )
-    );
-
-    return settings;
-  }
-
-  function renderDomainSettingInput(className, checked, ariaLabel, labelText, update) {
-    const label = document.createElement("label");
-    const input = document.createElement("input");
-    const text = document.createElement("span");
-
-    label.className = "choice-label domain-setting-label";
-    input.className = className;
-    input.type = "checkbox";
-    input.checked = checked;
-    input.setAttribute("aria-label", ariaLabel);
-    input.addEventListener("change", () => update(input.checked));
-    text.textContent = labelText;
-    label.append(input, text);
-
-    return label;
   }
 
   function renderKindButtons(entry, segments) {
@@ -772,8 +726,6 @@
   function addRow() {
     state.draftEntries.push(core.newEntry("url"));
     state.draftEntries[state.draftEntries.length - 1].limit = { type: "site", limitMinutes: core.DEFAULT_LIMIT_MINUTES };
-    state.draftEntries[state.draftEntries.length - 1].blockDirectVisits = core.DEFAULT_BLOCK_DIRECT_VISITS;
-    state.draftEntries[state.draftEntries.length - 1].blockInternalLinks = core.DEFAULT_BLOCK_INTERNAL_LINKS;
     clearMessages();
     render();
   }
@@ -791,9 +743,7 @@
         id: entry.id,
         kind,
         value: entry.value,
-        limit: entry.limit,
-        blockDirectVisits: entry.blockDirectVisits,
-        blockInternalLinks: entry.blockInternalLinks
+        limit: entry.limit
       } : entry
     ));
     syncDomainSettingsForEntry(findDraftEntry(id));
@@ -851,8 +801,6 @@
 
     if (matchingEntry) {
       entry.limit = matchingEntry.limit;
-      entry.blockDirectVisits = matchingEntry.blockDirectVisits;
-      entry.blockInternalLinks = matchingEntry.blockInternalLinks;
     }
   }
 
@@ -878,16 +826,6 @@
       default:
         throw new Error(`Unknown domain limit type: ${limit.type}`);
     }
-  }
-
-  function updateBlockDirectVisits(id, checked) {
-    setDomainSetting(id, "blockDirectVisits", checked);
-    render();
-  }
-
-  function updateBlockInternalLinks(id, checked) {
-    setDomainSetting(id, "blockInternalLinks", checked);
-    render();
   }
 
   function addLimitGroup() {
@@ -953,6 +891,12 @@
         return;
       }
     });
+  }
+
+  function updateAllowedPages() {
+    state.draftAllowedPagesText = allowedPagesInput.value;
+    clearMessages();
+    renderSaveButton();
   }
 
   function updateBlockedPageHtml() {
@@ -1391,6 +1335,7 @@
         limitReset: state.draftLimitReset,
         settingsDelay: state.draftSettingsDelay,
         shortVideoHiding: state.draftShortVideoHiding,
+        allowedPages: draftAllowedPages(),
         limitGroups: state.draftLimitGroups,
         domainLimits: domainLimitsForDraft()
       }, state.defaultEntries);
@@ -1405,6 +1350,7 @@
       limitReset: state.draftLimitReset,
       settingsDelay: state.draftSettingsDelay,
       shortVideoHiding: state.draftShortVideoHiding,
+      allowedPages: draftAllowedPages(),
       limitGroups: state.draftLimitGroups,
       domainLimits: domainLimitsForDraft()
     }, state.defaultEntries);
@@ -1418,9 +1364,14 @@
       state.draftLimitReset = editableLimitReset(result.state.limitReset);
       state.draftSettingsDelay = editableSettingsDelay(result.state.settingsDelay);
       state.draftShortVideoHiding = result.state.shortVideoHiding;
+      state.draftAllowedPagesText = result.state.allowedPages.join("\n");
     }
 
     return result;
+  }
+
+  function draftAllowedPages() {
+    return state.draftAllowedPagesText.split("\n").map((line) => line.trim()).filter((line) => line !== "");
   }
 
   function normalizeDraftEntry(entry) {
@@ -1458,9 +1409,7 @@
       try {
         hints.push({
           domain: core.domainForEntry(entry),
-          limit: entry.limit,
-          blockDirectVisits: entry.blockDirectVisits,
-          blockInternalLinks: entry.blockInternalLinks
+          limit: entry.limit
         });
       } catch {
         return;
@@ -1557,6 +1506,7 @@
     state.draftLimitReset = editableLimitReset(blockerState.limitReset);
     state.draftSettingsDelay = editableSettingsDelay(blockerState.settingsDelay);
     state.draftShortVideoHiding = blockerState.shortVideoHiding;
+    state.draftAllowedPagesText = blockerState.allowedPages.join("\n");
     state.settingsActivation = activation || { type: "active" };
     state.savedDraft = draftSnapshot();
   }
@@ -1699,12 +1649,7 @@
   }
 
   function editableDomainEntry(entry, limit) {
-    return {
-      ...entry,
-      limit: { ...limit.limit },
-      blockDirectVisits: limit.blockDirectVisits,
-      blockInternalLinks: limit.blockInternalLinks
-    };
+    return { ...entry, limit: { ...limit.limit } };
   }
 
   function editableLimitGroups(limitGroups) {

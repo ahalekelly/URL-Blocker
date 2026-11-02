@@ -20,10 +20,11 @@
   const SETTINGS_SYNC_KEY = "settingsSync";
   const SETTINGS_ACTIVATION_KEY = "settingsActivation";
   const SUPABASE_SESSION_KEY = "supabaseSession";
-  const REFERRER_RECORD_PREFIX = "referrerRecords:";
-  const REFERRER_RECORD_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
   const COMMITTED_NAVIGATION_PREFIX = "committedNavigation:";
-  const UNKNOWN_NAVIGATION_SOURCE = { type: "unknown" };
+  const PAGE_PASS_PREFIX = "pagePass:";
+  // Chromium reports links opened from other apps as start_page.
+  const OUTSIDE_TRANSITIONS = new Set(["link", "start_page", "form_submit"]);
+  const ARRIVAL_PENDING = { type: "arrivalPending" };
 
   function createBackgroundController(api) {
     const stateStorage = createStateStorage(api);
@@ -72,12 +73,9 @@
         case "openOptions":
           requireKeys(message, ["type"], "openOptions message");
           return openOptions();
-        case "urlChanged":
-          requireKeys(message, ["type", "url", "source"], "urlChanged message");
-          return urlChanged(message.url, message.source, sender);
-        case "recheckUrl":
-          requireKeys(message, ["type", "url"], "recheckUrl message");
-          return recheckUrl(message.url, sender);
+        case "checkPage":
+          requireKeys(message, ["type", "url", "referrer"], "checkPage message");
+          return checkPage(message.url, message.referrer, sender);
         case "openBlockedTarget":
           requireKeys(message, ["type", "tabId", "url"], "openBlockedTarget message");
           return openBlockedTarget(message.tabId, message.url);
@@ -215,35 +213,44 @@
       return { type: "synced" };
     }
 
-    async function urlChanged(rawUrl, rawSource, sender) {
+    async function checkPage(rawUrl, referrer, sender) {
       if (!sender.tab || typeof sender.tab.id !== "number") {
-        throw codedError("MissingSenderTab", "urlChanged message must come from a tab.");
+        throw codedError("MissingSenderTab", "checkPage message must come from a tab.");
       }
 
-      return redirectBlockedUrl(sender.tab.id, rawUrl, await contentNavigationSource(sender.tab.id, rawUrl, rawSource));
+      if (typeof referrer !== "string") {
+        throw codedError("ReferrerInvalid", "Page referrer must be a string.");
+      }
+
+      return checkTabPage(sender.tab.id, rawUrl, { type: "arrival", from: await contentArrival(sender.tab.id, rawUrl, referrer) });
     }
 
-    async function recheckUrl(rawUrl, sender) {
-      if (!sender.tab || typeof sender.tab.id !== "number") {
-        throw codedError("MissingSenderTab", "recheckUrl message must come from a tab.");
+    // Chromium and iOS apps open some links without a referrer. Chromium's
+    // committed transition tells those links apart from typed visits and
+    // bookmarks; Safari has no transition, so an empty referrer counts as an
+    // outside link there.
+    async function contentArrival(tabId, rawUrl, referrer) {
+      if (referrer !== "") {
+        return { type: "referrer", url: referrer };
       }
 
-      if (typeof rawUrl !== "string" || rawUrl.trim() === "") {
-        throw codedError("BlockedUrlInvalid", "Rechecked URL must be a string.");
+      if (isSafariRuntime(api)) {
+        return { type: "outside" };
       }
 
-      const state = await loadState();
-      const usage = await loadScreenTimeUsage();
-      const match = core.findOpenPageBlock(state, rawUrl, core.overLimitDomains(state, usage, currentTimeMs()), new Date());
+      const committed = await loadTabValue(COMMITTED_NAVIGATION_PREFIX, tabId);
 
-      return redirectFromMatch(sender.tab.id, rawUrl, match);
+      return committed !== undefined
+        && core.pageChangeKey(committed.url) === core.pageChangeKey(rawUrl)
+        && OUTSIDE_TRANSITIONS.has(committed.transitionType)
+        ? { type: "outside" }
+        : { type: "inside" };
     }
 
-    // The block page opens its target through here because Chromium sends no
-    // referrer from extension pages: a plain link would arrive as a
-    // referrer-less link, which root URL rules allow.
+    // The block page opens its target through here so the target counts as
+    // an arrival from inside the site, not as a referrer-less link.
     async function openBlockedTarget(tabId, rawUrl) {
-      const result = await redirectBlockedUrl(tabId, rawUrl, { type: "blockedPage" });
+      const result = await checkTabPage(tabId, rawUrl, { type: "arrival", from: { type: "inside" } });
 
       switch (result.type) {
         case "allowed":
@@ -254,23 +261,6 @@
         default:
           throw new Error(`Unknown redirect result: ${result.type}`);
       }
-    }
-
-    // Chromium leaves document.referrer empty for typed URLs and bookmarks as
-    // well as for some links, so the page's committed transition tells them apart.
-    async function contentNavigationSource(tabId, rawUrl, rawSource) {
-      const source = documentNavigationSource(api, rawSource);
-      const committed = await loadTabValue(COMMITTED_NAVIGATION_PREFIX, tabId);
-
-      if (source.type === "document"
-        && source.referrer.type === "known"
-        && source.referrer.url === ""
-        && committed !== undefined
-        && core.pageChangeKey(committed.url) === core.pageChangeKey(rawUrl)) {
-        return { type: "chromiumCommitted", transitionType: committed.transitionType };
-      }
-
-      return source;
     }
 
     async function logScreenTime(rawUrl, elapsedMs, sender) {
@@ -343,7 +333,9 @@
       };
     }
 
-    async function redirectBlockedUrl(tabId, rawUrl, navigationSource) {
+    // A tab holding a pass for the page continues on it; anything else is a
+    // new visit. Every allowed arrival gives the tab a pass for its page.
+    async function checkTabPage(tabId, rawUrl, newVisit) {
       if (typeof tabId !== "number") {
         throw codedError("BlockedTabInvalid", "Blocked tab ID must be a number.");
       }
@@ -353,21 +345,39 @@
       }
 
       const state = await loadState();
-      const nowMs = currentTimeMs();
       const usage = await loadScreenTimeUsage();
-      const match = core.findBlockedMatchingEntry(state, rawUrl, core.overLimitDomains(state, usage, nowMs), navigationSource);
+      const pass = await loadTabValue(PAGE_PASS_PREFIX, tabId);
+      const visit = pass === core.pageChangeKey(rawUrl) ? { type: "continuing" } : newVisit;
 
-      if (match.type === "none") {
-        return { type: "allowed", shortVideo: match.shortVideo };
-      }
-
-      return redirectFromMatch(tabId, rawUrl, match);
+      return applyDecision(tabId, rawUrl, visit, core.decidePage(state, rawUrl, visit, core.overLimitDomains(state, usage, currentTimeMs()), new Date()));
     }
 
-    // Before the request goes out, the arrival is unknown, so only pages
-    // blocked for every arrival redirect here, sparing the wait for the
-    // site's response. Arrival-dependent blocks and single-video redirects
-    // wait for the commit, which knows the transition.
+    async function applyDecision(tabId, rawUrl, visit, decision) {
+      switch (decision.type) {
+        case "none":
+          if (visit.type === "arrival") {
+            await savePagePass(tabId, rawUrl);
+          }
+
+          return { type: "allowed", shortVideo: decision.shortVideo };
+        case "match":
+          await api.tabs.update(tabId, { url: blockedPageUrl(rawUrl, decision.reason) });
+          return { type: "redirected" };
+        case "singleVideoRedirect":
+          await savePagePass(tabId, decision.url);
+          await api.tabs.update(tabId, { url: decision.url });
+          return { type: "redirected" };
+        default:
+          throw new Error(`Unknown page decision: ${decision.type}`);
+      }
+    }
+
+    async function savePagePass(tabId, rawUrl) {
+      await tabStorage.set({ [`${PAGE_PASS_PREFIX}${tabId}`]: core.pageChangeKey(rawUrl) });
+    }
+
+    // Before the request goes out, only feeds and the hard schedule can
+    // block; outside-link pages wait for the commit or the page's referrer.
     async function redirectNavigationStart(details) {
       requireTopFrameDetails(details);
 
@@ -375,15 +385,7 @@
         return { type: "ignored" };
       }
 
-      const state = await loadState();
-      const usage = await loadScreenTimeUsage();
-      const match = core.findBlockedMatchingEntry(state, details.url, core.overLimitDomains(state, usage, currentTimeMs()), UNKNOWN_NAVIGATION_SOURCE);
-
-      if (match.type !== "match") {
-        return { type: "allowed" };
-      }
-
-      return redirectFromMatch(details.tabId, details.url, match);
+      return checkTabPage(details.tabId, details.url, ARRIVAL_PENDING);
     }
 
     async function redirectCommittedNavigation(details) {
@@ -397,20 +399,11 @@
         return { type: "ignored" };
       }
 
-      const previous = await loadTabValue(COMMITTED_NAVIGATION_PREFIX, details.tabId);
+      await tabStorage.set({ [`${COMMITTED_NAVIGATION_PREFIX}${details.tabId}`]: { url: details.url, transitionType: details.transitionType } });
 
-      // A reload keeps the page's original transition, the way content.js
-      // keeps a reloaded page's remembered arrival.
-      if (details.transitionType !== "reload"
-        || previous === undefined
-        || core.pageChangeKey(previous.url) !== core.pageChangeKey(details.url)) {
-        await tabStorage.set({ [`${COMMITTED_NAVIGATION_PREFIX}${details.tabId}`]: { url: details.url, transitionType: details.transitionType } });
-      }
-
-      return redirectBlockedUrl(details.tabId, details.url, {
-        type: "chromiumCommitted",
-        transitionType: details.transitionType
-      });
+      return checkTabPage(details.tabId, details.url, OUTSIDE_TRANSITIONS.has(details.transitionType)
+        ? ARRIVAL_PENDING
+        : { type: "arrival", from: { type: "inside" } });
     }
 
     function requireTopFrameDetails(details) {
@@ -437,28 +430,15 @@
       const usage = await loadScreenTimeUsage();
       const limitedDomains = core.overLimitDomains(state, usage, nowMs);
 
+      const continuing = { type: "continuing" };
+
       await Promise.all(tabs.map((tab) => {
         if (typeof tab.id !== "number" || typeof tab.url !== "string") {
           return undefined;
         }
 
-        return redirectFromMatch(tab.id, tab.url, core.findOpenPageBlock(state, tab.url, limitedDomains, new Date()));
+        return applyDecision(tab.id, tab.url, continuing, core.decidePage(state, tab.url, continuing, limitedDomains, new Date()));
       }));
-    }
-
-    async function redirectFromMatch(tabId, rawUrl, match) {
-      switch (match.type) {
-        case "none":
-          return { type: "allowed" };
-        case "match":
-          await api.tabs.update(tabId, { url: blockedPageUrl(rawUrl, match.reason) });
-          return { type: "redirected" };
-        case "singleVideoRedirect":
-          await api.tabs.update(tabId, { url: match.url });
-          return { type: "redirected" };
-        default:
-          throw new Error(`Unknown match type: ${match.type}`);
-      }
     }
 
     function blockedPageUrl(rawUrl, reason) {
@@ -1169,43 +1149,6 @@
       return Math.floor(nowMs / HOUR_MS);
     }
 
-    async function sweepReferrerRecords() {
-      const values = await api.storage.local.get(null);
-      const expiresBefore = currentTimeMs() - REFERRER_RECORD_RETENTION_MS;
-
-      for (const [key, value] of Object.entries(values)) {
-        if (!key.startsWith(REFERRER_RECORD_PREFIX)) {
-          continue;
-        }
-
-        const records = unexpiredReferrerRecords(value, expiresBefore);
-
-        if (records.length === 0) {
-          await api.storage.local.remove(key);
-          continue;
-        }
-
-        // The sweep runs on every service worker wake; rewriting unchanged
-        // keys would race concurrent content script writes for nothing.
-        if (records.length === value.records.length) {
-          continue;
-        }
-
-        await api.storage.local.set({ [key]: { records } });
-      }
-    }
-
-    function unexpiredReferrerRecords(value, expiresBefore) {
-      if (!isPlainObject(value) || !Array.isArray(value.records)) {
-        return [];
-      }
-
-      return value.records.filter((record) => isPlainObject(record)
-        && typeof record.referrer === "string"
-        && typeof record.recordedAt === "number"
-        && record.recordedAt >= expiresBefore);
-    }
-
     async function loadTabValue(prefix, tabId) {
       const key = `${prefix}${tabId}`;
       const stored = await tabStorage.get(key);
@@ -1214,12 +1157,8 @@
     }
 
     async function forgetTab(tabId) {
-      await tabStorage.remove(`${COMMITTED_NAVIGATION_PREFIX}${tabId}`);
+      await tabStorage.remove([`${COMMITTED_NAVIGATION_PREFIX}${tabId}`, `${PAGE_PASS_PREFIX}${tabId}`]);
     }
-
-    sweepReferrerRecords().catch((error) => {
-      console.error(`URL Blocker could not sweep referrer records. ${errorLogText(error)}`);
-    });
 
     return {
       forgetTab,
@@ -1235,7 +1174,7 @@
       loadState,
       logScreenTime,
       openOptions,
-      redirectBlockedUrl,
+      checkTabPage,
       redirectCommittedNavigation,
       redirectNavigationStart,
       finishSavedState,
@@ -1590,55 +1529,6 @@
     return canSendNativeMessage(api) && api.runtime.getURL("options.html").startsWith("safari-web-extension://");
   }
 
-  function documentNavigationSource(api, source) {
-    if (!isPlainObject(source) || source.type !== "document") {
-      throw codedError("NavigationSourceInvalid", "Navigation source must be a document source.");
-    }
-
-    requireKeys(source, ["type", "referrer", "navigationType"], "Navigation source");
-
-    if (typeof source.navigationType !== "string") {
-      throw codedError("NavigationSourceInvalid", "Navigation source navigation type must be a string.");
-    }
-
-    return {
-      type: isSafariRuntime(api) ? "safariDocument" : "document",
-      referrer: documentNavigationReferrer(source.referrer),
-      navigationType: source.navigationType
-    };
-  }
-
-  function documentNavigationReferrer(referrer) {
-    if (!isPlainObject(referrer) || typeof referrer.type !== "string") {
-      throw codedError("NavigationSourceInvalid", "Navigation source referrer must be a referrer object.");
-    }
-
-    switch (referrer.type) {
-      case "known":
-        requireNavigationSourceKeys(referrer, ["type", "url"], "Navigation source referrer");
-
-        if (typeof referrer.url !== "string") {
-          throw codedError("NavigationSourceInvalid", "Navigation source referrer URL must be a string.");
-        }
-
-        return { type: "known", url: referrer.url };
-      case "unknown":
-        requireNavigationSourceKeys(referrer, ["type"], "Navigation source referrer");
-        return { type: "unknown" };
-      default:
-        throw codedError("NavigationSourceInvalid", `Unknown navigation source referrer type: ${referrer.type}.`);
-    }
-  }
-
-  function requireNavigationSourceKeys(object, allowedKeys, label) {
-    const allowed = new Set(allowedKeys);
-    const unknownKeys = Object.keys(object).filter((key) => !allowed.has(key));
-
-    if (unknownKeys.length > 0) {
-      throw codedError("NavigationSourceInvalid", `${label} has unknown key: ${unknownKeys[0]}.`);
-    }
-  }
-
   function isSafariRuntime(api) {
     return !!api.runtime
       && typeof api.runtime.getURL === "function"
@@ -1683,7 +1573,7 @@
           return;
         }
 
-        controller.redirectBlockedUrl(tabId, changeInfo.url, UNKNOWN_NAVIGATION_SOURCE)
+        controller.checkTabPage(tabId, changeInfo.url, ARRIVAL_PENDING)
           .catch((error) => console.error(`URL Blocker could not redirect updated tab. ${errorLogText(error)}`));
       });
     }

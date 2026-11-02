@@ -5,23 +5,15 @@ const core = require("../URLBlockerWebExtension/blocker.js");
 const defaultBlockedPages = require("../URLBlockerWebExtension/default-blocked-pages.json");
 const manifest = require("../URLBlockerWebExtension/manifest.json");
 
-const unknownSource = { type: "unknown" };
-const safariEmptySource = { type: "safariDocument", referrer: knownReferrer(""), navigationType: "navigate" };
-const safariReloadSource = { type: "safariDocument", referrer: knownReferrer(""), navigationType: "reload" };
-const sameDomainSource = { type: "document", referrer: knownReferrer("https://example.com/start"), navigationType: "navigate" };
-const unrelatedSource = { type: "document", referrer: knownReferrer("https://other.example/start"), navigationType: "navigate" };
-const unknownDocumentSource = { type: "document", referrer: { type: "unknown" }, navigationType: "navigate" };
-const unknownSafariSource = { type: "safariDocument", referrer: { type: "unknown" }, navigationType: "navigate" };
-const chromeTypedSource = { type: "chromiumCommitted", transitionType: "typed" };
-const chromeBookmarkSource = { type: "chromiumCommitted", transitionType: "auto_bookmark" };
-const chromeOmniboxSource = { type: "chromiumCommitted", transitionType: "generated" };
-const chromeReloadSource = { type: "chromiumCommitted", transitionType: "reload" };
-
+const pending = { type: "arrivalPending" };
+const continuing = { type: "continuing" };
+const inside = { type: "arrival", from: { type: "inside" } };
+const outside = { type: "arrival", from: { type: "outside" } };
 const hourMs = 60 * 60 * 1000;
 const streamingGroupId = core.DEFAULT_LIMIT_GROUPS[0].id;
 
-function knownReferrer(url) {
-  return { type: "known", url };
+function fromReferrer(url) {
+  return { type: "arrival", from: { type: "referrer", url } };
 }
 
 const ids = [
@@ -120,6 +112,7 @@ test("keeps default entries locked but configurable", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("x.com", 12)]
   }, defaultBlockedPages.slice(0, 1));
@@ -139,6 +132,7 @@ test("keeps default entries locked but configurable", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("example.com", 30)]
   }, defaultBlockedPages.slice(0, 1));
@@ -155,6 +149,7 @@ test("keeps default entries locked but configurable", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, defaultBlockedPages.slice(0, 1));
@@ -174,6 +169,7 @@ test("normalizes old linkedin feed default entries", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("linkedin.com", 30)]
   }, [linkedinDefault]);
@@ -406,6 +402,7 @@ test("repairs stored current states missing added defaults", () => {
     limitReset: { type: "daily", resetHour: 6 },
     settingsDelay: { delayMinutes: 17 },
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: core.domainLimitsForEntries(previousEntries, [{ domain: "youtube.com", limit: { type: "site", limitMinutes: 11 } }], core.DEFAULT_LIMIT_GROUPS)
   }, defaultBlockedPages);
@@ -431,25 +428,75 @@ test("migrates schema 16 states to default hard schedule", () => {
   assert.deepEqual(state.hardSchedule, { type: "off" });
 });
 
-test("open pages close only for exact URL entries or the hard schedule", () => {
+test("decides pages by policy, restriction, and visit", () => {
   const noon = new Date(2026, 0, 1, 12, 0);
   const inactive = { type: "dailyWindow", startMinute: 0, endMinute: 1 };
   const allDay = { type: "dailyWindow", startMinute: 0, endMinute: 1439 };
   const entries = [
     { id: ids[0], kind: "url", value: "x.com" },
     { id: ids[1], kind: "urlWithSubpaths", value: "netflix.com" },
-    { id: ids[2], kind: "domain", value: "example.com" }
+    { id: ids[2], kind: "domain", value: "example.com" },
+    { id: ids[3], kind: "regex", value: "^https://media\\.example\\.org/watch" }
   ];
   const state = validState(entries, inactive);
-  const overLimit = new Set(["x.com", "netflix.com", "example.com"]);
+  const overLimit = new Set(["x.com", "netflix.com", "example.com", "media.example.org"]);
+  const decide = (url, visit, limited = overLimit, decideState = state) => matchReason(core.decidePage(decideState, url, visit, limited, noon));
+  const blocked = { type: "match", reason: "limit" };
+  const allowed = { type: "none" };
 
-  assert.equal(core.findOpenPageBlock(state, "https://x.com/home", overLimit, noon).reason, "limitDirectMatch");
-  assert.equal(core.findOpenPageBlock(state, "https://x.com/messages", overLimit, noon).type, "none");
-  assert.equal(core.findOpenPageBlock(state, "https://www.netflix.com/watch/1", overLimit, noon).type, "none");
-  assert.equal(core.findOpenPageBlock(state, "https://example.com/feed", overLimit, noon).type, "none");
-  assert.equal(core.findOpenPageBlock(state, "https://x.com/home", new Set(), noon).type, "none");
-  assert.equal(core.findOpenPageBlock(validState(entries, allDay), "https://x.com/home", new Set(), noon).reason, "scheduleDirectMatch");
-  assert.equal(core.findOpenPageBlock(validState(entries, inactive, undefined, core.DEFAULT_LIMIT_RESET, allDay), "https://example.com/feed", new Set(), noon).reason, "hardScheduleDomain");
+  [continuing, pending, inside, outside].forEach((visit) => assert.deepEqual(decide("https://x.com/home", visit), blocked));
+  ["https://x.com/messages", "https://www.netflix.com/watch/1", "https://example.com/feed", "https://media.example.org/watch/1"].forEach((url) => {
+    assert.deepEqual(decide(url, continuing), allowed, url);
+    assert.deepEqual(decide(url, pending), allowed, url);
+    assert.deepEqual(decide(url, outside), allowed, url);
+    assert.deepEqual(decide(url, inside), blocked, url);
+  });
+  assert.deepEqual(decide("https://x.com/messages", fromReferrer("https://mobile.twitter.com/home")), blocked);
+  assert.deepEqual(decide("https://x.com/messages", fromReferrer("https://mail.example.net/")), allowed);
+  assert.deepEqual(decide("https://x.com/messages", fromReferrer("chrome-extension://abc/blocked.html")), blocked);
+  assert.deepEqual(decide("https://unlisted.example.net/", inside), allowed);
+  assert.deepEqual(decide("https://x.com/home", inside, new Set()), allowed);
+  assert.deepEqual(decide("https://x.com/home", inside, new Set(), validState(entries, allDay)), { type: "match", reason: "schedule" });
+  assert.deepEqual(decide("https://example.com/feed", inside, overLimit, validState(entries, inactive, undefined, core.DEFAULT_LIMIT_RESET, allDay)), { type: "match", reason: "hardSchedule" });
+});
+
+test("allowed pages stay open while restricted but not during the hard schedule", () => {
+  const noon = new Date(2026, 0, 1, 12, 0);
+  const allDay = { type: "dailyWindow", startMinute: 0, endMinute: 1439 };
+  const entries = [{ id: ids[0], kind: "url", value: "x.com" }, { id: ids[1], kind: "url", value: "youtube.com" }];
+  const state = { ...validState(entries, { type: "always" }), allowedPages: ["x.com/messages", "studio.youtube.com"] };
+  const hardScheduled = { ...state, hardSchedule: allDay };
+
+  assert.equal(core.decidePage(state, "https://x.com/messages/123", inside, new Set(), noon).type, "none");
+  assert.equal(core.decidePage(state, "https://studio.youtube.com/channel", inside, new Set(), noon).type, "none");
+  assert.equal(core.decidePage(state, "https://x.com/home", inside, new Set(), noon).type, "match");
+  assert.equal(core.decidePage(hardScheduled, "https://x.com/messages", inside, new Set(), noon).reason, "hardSchedule");
+});
+
+test("validates allowed pages", () => {
+  const state = validState([{ id: ids[0], kind: "url", value: "x.com" }]);
+  const valid = core.validateState({ ...state, allowedPages: ["https://www.X.com/messages/", "studio.youtube.com"] }, []);
+
+  assert.deepEqual(valid.state.allowedPages, ["x.com/messages", "studio.youtube.com"]);
+  assert.equal(core.validateState({ ...state, allowedPages: ["x.com/a", "x.com/a/"] }, []).type, "invalid");
+  assert.equal(core.validateState({ ...state, allowedPages: [""] }, []).type, "invalid");
+  assert.equal(core.validateState({ ...state, allowedPages: ["ftp://x.com"] }, []).type, "invalid");
+  assert.equal(core.validateState({ ...state, allowedPages: "x.com" }, []).type, "invalid");
+});
+
+test("migrates schema 21 states to drop per-site navigation settings", () => {
+  const { allowedPages, ...oldState } = validState([
+    { id: ids[0], kind: "url", value: "example.com" }
+  ]);
+  const state = validStoredState({
+    ...oldState,
+    schemaVersion: 21,
+    domainLimits: oldState.domainLimits.map((limit) => ({ ...limit, blockDirectVisits: false, blockInternalLinks: true }))
+  }, []);
+
+  assert.equal(state.schemaVersion, core.SCHEMA_VERSION);
+  assert.deepEqual(state.allowedPages, []);
+  assert.deepEqual(state.domainLimits, [domainLimit("example.com")]);
 });
 
 test("migrates schema 20 states to drop YouTube focus settings", () => {
@@ -485,6 +532,7 @@ test("migrates schema 19 states to the default limit groups", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     domainLimits: legacyDomainLimits(core.domainLimitsForEntries(previousEntries, [{ domain: "youtube.com", limit: { type: "site", limitMinutes: 11 } }], []))
   }, defaultBlockedPages);
   const limitFor = (domain) => state.domainLimits.find((limit) => limit.domain === domain);
@@ -549,9 +597,9 @@ test("limit groups sum usage across members and block every member once over", (
   ]);
   assert.deepEqual(core.overLimitDomains(state, underLimit, 20 * hourMs), new Set());
   assert.deepEqual(overLimitDomains, new Set(["hbomax.com", "netflix.com"]));
-  assert.equal(core.findBlockedMatchingEntry(state, "https://www.netflix.com/browse", overLimitDomains, unknownSource, evening).type, "match");
-  assert.equal(core.findBlockedMatchingEntry(state, "https://www.hbomax.com/", overLimitDomains, unknownSource, evening).type, "match");
-  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/", overLimitDomains, unknownSource, evening).type, "none");
+  assert.equal(core.decidePage(state, "https://www.netflix.com/browse", inside, overLimitDomains, evening).type, "match");
+  assert.equal(core.decidePage(state, "https://www.hbomax.com/", inside, overLimitDomains, evening).type, "match");
+  assert.equal(core.decidePage(state, "https://example.com/", inside, overLimitDomains, evening).type, "none");
 });
 
 test("validates short video hiding settings", () => {
@@ -612,50 +660,38 @@ test("short video sites get content scripts only while hiding is on", () => {
   assert.deepEqual(core.contentScriptOriginsForState(allOff), ["*://*.example.com/*"]);
 });
 
-test("single short videos beat route entries but not the hard schedule or full-domain entries", () => {
+test("single short videos open from outside links and never count as feeds", () => {
   const noon = new Date(2026, 0, 2, 12);
   const defaults = { ...core.emptyState(defaultBlockedPages), schedule: { type: "always" } };
   const youtubeOff = { ...defaults, shortVideoHiding: { ...defaults.shortVideoHiding, youtube: false } };
-  const facebookOff = { ...defaults, shortVideoHiding: { ...defaults.shortVideoHiding, facebook: false } };
   const hardScheduled = { ...defaults, hardSchedule: { type: "dailyWindow", startMinute: 0, endMinute: 1439 } };
-  const facebookDomain = validState([{ id: ids[0], kind: "domain", value: "facebook.com" }], { type: "always" });
-  const blocked = (state, url) => matchReason(core.findBlockedMatchingEntry(state, url, new Set(), unknownSource, noon));
+  const decide = (state, url, visit) => matchReason(core.decidePage(state, url, visit, new Set(), noon));
 
-  assert.deepEqual(core.findBlockedMatchingEntry(defaults, "https://www.youtube.com/shorts/abc", new Set(), unknownSource, noon), {
+  assert.deepEqual(core.decidePage(defaults, "https://www.youtube.com/shorts/abc", outside, new Set(), noon), {
     type: "singleVideoRedirect",
     url: "https://www.youtube.com/watch?v=abc",
     shortVideo: { type: "singleVideoRedirect", site: "youtube", url: "https://www.youtube.com/watch?v=abc" }
   });
-  assert.deepEqual(core.findBlockedMatchingEntry(defaults, "https://www.instagram.com/reel/Cx1/", new Set(), unknownSource, noon), {
-    type: "singleVideoRedirect",
-    url: "https://www.instagram.com/p/Cx1/",
-    shortVideo: { type: "singleVideoRedirect", site: "instagram", url: "https://www.instagram.com/p/Cx1/" }
-  });
-  assert.deepEqual(blocked(defaults, "https://www.facebook.com/reel/123"), { type: "none" });
-  assert.deepEqual(blocked(youtubeOff, "https://www.youtube.com/shorts/abc"), { type: "match", reason: "scheduleDirectMatch" });
-  assert.deepEqual(blocked(facebookOff, "https://www.facebook.com/reel/123"), { type: "match", reason: "scheduleDirectMatch" });
-  assert.deepEqual(blocked(hardScheduled, "https://www.youtube.com/shorts/abc"), { type: "match", reason: "hardScheduleDomain" });
-  assert.deepEqual(blocked(facebookDomain, "https://www.facebook.com/reel/123"), { type: "match", reason: "scheduleDirectMatch" });
+  assert.equal(core.decidePage(defaults, "https://www.instagram.com/reel/Cx1/", outside, new Set(), noon).type, "singleVideoRedirect");
+  assert.deepEqual(decide(defaults, "https://www.youtube.com/shorts/abc", pending), { type: "none" });
+  assert.deepEqual(decide(defaults, "https://www.youtube.com/shorts/abc", inside), { type: "match", reason: "schedule" });
+  assert.deepEqual(decide(defaults, "https://www.facebook.com/reel/123", outside), { type: "none" });
+  assert.deepEqual(decide(defaults, "https://www.facebook.com/reel/123", inside), { type: "match", reason: "schedule" });
+  assert.deepEqual(decide(youtubeOff, "https://www.youtube.com/shorts/abc", outside), { type: "none" });
+  assert.deepEqual(decide(youtubeOff, "https://www.youtube.com/shorts/abc", inside), { type: "match", reason: "schedule" });
+  assert.deepEqual(decide(hardScheduled, "https://www.youtube.com/shorts/abc", outside), { type: "match", reason: "hardSchedule" });
 });
 
 test("single short video redirects are judged with the current arrival first", () => {
   const noon = new Date(2026, 0, 2, 12);
   const state = { ...core.emptyState(defaultBlockedPages), schedule: { type: "dailyWindow", startMinute: 0, endMinute: 60 } };
   const overLimit = new Set(["youtube.com", "instagram.com"]);
-  const fromSearch = { type: "document", referrer: knownReferrer("https://www.youtube.com/results?search_query=x"), navigationType: "navigate" };
-  const fromInstagram = { type: "safariDocument", referrer: knownReferrer("https://www.instagram.com/"), navigationType: "navigate" };
-  const decide = (url, source) => core.findBlockedMatchingEntry(state, url, overLimit, source, noon);
+  const decide = (url, visit) => core.decidePage(state, url, visit, overLimit, noon);
 
-  assert.deepEqual(matchReason(decide("https://www.youtube.com/shorts/abc", fromSearch)), {
-    type: "match",
-    reason: "limitRootSameDomainNavigation"
-  });
-  assert.deepEqual(matchReason(decide("https://www.instagram.com/reel/Cx1/", fromInstagram)), {
-    type: "match",
-    reason: "limitRootSameDomainNavigation"
-  });
-  assert.equal(decide("https://www.youtube.com/shorts/abc", unrelatedSource).type, "singleVideoRedirect");
-  assert.equal(decide("https://www.instagram.com/reel/Cx1/", unrelatedSource).type, "singleVideoRedirect");
+  assert.deepEqual(matchReason(decide("https://www.youtube.com/shorts/abc", fromReferrer("https://www.youtube.com/results?search_query=x"))), { type: "match", reason: "limit" });
+  assert.deepEqual(matchReason(decide("https://www.instagram.com/reel/Cx1/", fromReferrer("https://www.instagram.com/"))), { type: "match", reason: "limit" });
+  assert.equal(decide("https://www.youtube.com/shorts/abc", fromReferrer("https://other.example/start")).type, "singleVideoRedirect");
+  assert.equal(decide("https://www.instagram.com/reel/Cx1/", fromReferrer("https://other.example/start")).type, "singleVideoRedirect");
 });
 
 test("maps URL alias source hosts to permissions", () => {
@@ -706,6 +742,7 @@ test("validates state strictly", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("example.com", 30)]
   }, []);
@@ -722,6 +759,7 @@ test("validates state strictly", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("example.com", 30)]
   }, []);
@@ -738,6 +776,7 @@ test("validates state strictly", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, []);
@@ -757,6 +796,7 @@ test("validates state strictly", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("example.com", 30)]
   }, []);
@@ -783,6 +823,7 @@ test("validates blocked page HTML and rejects old state", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, []);
@@ -799,6 +840,7 @@ test("validates blocked page HTML and rejects old state", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, []);
@@ -825,6 +867,7 @@ test("validates schedules and detects active windows", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, []);
@@ -841,6 +884,7 @@ test("validates schedules and detects active windows", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, []);
@@ -857,6 +901,7 @@ test("validates schedules and detects active windows", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, []);
@@ -873,6 +918,7 @@ test("validates schedules and detects active windows", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, []);
@@ -900,6 +946,7 @@ test("validates limit reset settings", () => {
     limitReset: { type: "daily", resetHour: 6.5 },
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, []);
@@ -918,6 +965,7 @@ test("validates settings delay settings", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: { delayMinutes: 0 },
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, []);
@@ -930,6 +978,7 @@ test("validates settings delay settings", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: { delayMinutes: -1 },
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, []);
@@ -940,85 +989,18 @@ test("validates settings delay settings", () => {
   assert.match(invalidDelay.errors[0].message, /between 0/);
 });
 
-test("matches only when the schedule is active", () => {
-  const state = validState(
-    [{ id: ids[0], kind: "url", value: "example.com" }],
-    { type: "dailyWindow", startMinute: 540, endMinute: 1020 }
-  );
-
-  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://example.com", new Set(), unknownSource, new Date(2026, 0, 1, 9, 30))), {
-    type: "match",
-    reason: "scheduleDirectMatch"
-  });
-  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com", new Set(), unknownSource, new Date(2026, 0, 1, 17, 0)).type, "none");
-});
-
-test("matches when the schedule is active or the domain is over limit", () => {
-  const state = validState(
-    [{ id: ids[0], kind: "url", value: "example.com/focus" }],
-    { type: "dailyWindow", startMinute: 540, endMinute: 1020 }
-  );
-
-  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://example.com/focus", new Set(), unknownSource, new Date(2026, 0, 1, 9, 30))), {
-    type: "match",
-    reason: "scheduleDirectMatch"
-  });
-  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/focus", new Set(), unknownSource, new Date(2026, 0, 1, 17, 0)).type, "none");
-  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://example.com/focus", new Set(["example.com"]), unknownSource, new Date(2026, 0, 1, 17, 0))), {
-    type: "match",
-    reason: "limitDirectMatch"
-  });
-  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/other", new Set(["example.com"]), unknownSource, new Date(2026, 0, 1, 17, 0)).type, "none");
-});
-
 test("hard schedule blocks whole domains for all entry kinds while active", () => {
   const hardSchedule = { type: "dailyWindow", startMinute: 540, endMinute: 1020 };
-  const pathState = validState(
-    [{ id: ids[0], kind: "url", value: "example.com/focus" }],
-    { type: "dailyWindow", startMinute: 0, endMinute: 1 },
-    undefined,
-    core.DEFAULT_LIMIT_RESET,
-    hardSchedule
-  );
-  const bareDomainState = validState(
-    [{ id: ids[1], kind: "url", value: "example.net" }],
-    { type: "always" },
-    [domainLimit("example.net", 30, { blockDirectVisits: false, blockInternalLinks: false })],
-    core.DEFAULT_LIMIT_RESET,
-    hardSchedule
-  );
-  const aliasState = validState(
-    [{ id: ids[2], kind: "url", value: "x.com" }],
-    { type: "dailyWindow", startMinute: 0, endMinute: 1 },
-    undefined,
-    core.DEFAULT_LIMIT_RESET,
-    hardSchedule
-  );
-  const regexState = validState(
-    [{ id: ids[3], kind: "regex", value: "^https://media\\.example\\.org/focus$" }],
-    { type: "dailyWindow", startMinute: 0, endMinute: 1 },
-    undefined,
-    core.DEFAULT_LIMIT_RESET,
-    hardSchedule
-  );
+  const inactive = { type: "dailyWindow", startMinute: 0, endMinute: 1 };
+  const decide = (entry, url, date) => matchReason(core.decidePage(validState([entry], inactive, undefined, core.DEFAULT_LIMIT_RESET, hardSchedule), url, outside, new Set(), date));
+  const morning = new Date(2026, 0, 1, 9, 30);
+  const hard = { type: "match", reason: "hardSchedule" };
 
-  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(pathState, "https://example.com/other", new Set(), unrelatedSource, new Date(2026, 0, 1, 9, 30))), {
-    type: "match",
-    reason: "hardScheduleDomain"
-  });
-  assert.equal(core.findBlockedMatchingEntry(pathState, "https://example.com/other", new Set(), unrelatedSource, new Date(2026, 0, 1, 17, 0)).type, "none");
-  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(bareDomainState, "https://example.net/deep/link", new Set(), unrelatedSource, new Date(2026, 0, 1, 9, 30))), {
-    type: "match",
-    reason: "hardScheduleDomain"
-  });
-  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(aliasState, "https://twitter.com/messages", new Set(), unrelatedSource, new Date(2026, 0, 1, 9, 30))), {
-    type: "match",
-    reason: "hardScheduleDomain"
-  });
-  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(regexState, "https://media.example.org/anything", new Set(), unrelatedSource, new Date(2026, 0, 1, 9, 30))), {
-    type: "match",
-    reason: "hardScheduleDomain"
-  });
+  assert.deepEqual(decide({ id: ids[0], kind: "url", value: "example.com/focus" }, "https://example.com/other", morning), hard);
+  assert.deepEqual(decide({ id: ids[0], kind: "url", value: "example.com/focus" }, "https://example.com/other", new Date(2026, 0, 1, 17, 0)), { type: "none" });
+  assert.deepEqual(decide({ id: ids[1], kind: "url", value: "example.net" }, "https://example.net/deep/link", morning), hard);
+  assert.deepEqual(decide({ id: ids[2], kind: "url", value: "x.com" }, "https://twitter.com/messages", morning), hard);
+  assert.deepEqual(decide({ id: ids[3], kind: "regex", value: "^https://media\\.example\\.org/focus$" }, "https://media.example.org/anything", morning), hard);
 });
 
 test("hard schedule takes precedence and supports wrap-around windows", () => {
@@ -1030,182 +1012,15 @@ test("hard schedule takes precedence and supports wrap-around windows", () => {
     { type: "dailyWindow", startMinute: 1320, endMinute: 420 }
   );
 
-  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://example.com/path", new Set(["example.com"]), unrelatedSource, new Date(2026, 0, 1, 23, 0))), {
+  assert.deepEqual(matchReason(core.decidePage(state, "https://example.com/path", outside, new Set(["example.com"]), new Date(2026, 0, 1, 23, 0))), {
     type: "match",
-    reason: "hardScheduleDomain"
+    reason: "hardSchedule"
   });
-  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://example.com/path", new Set(["example.com"]), unrelatedSource, new Date(2026, 0, 1, 6, 30))), {
+  assert.deepEqual(matchReason(core.decidePage(state, "https://example.com/path", outside, new Set(["example.com"]), new Date(2026, 0, 1, 6, 30))), {
     type: "match",
-    reason: "hardScheduleDomain"
+    reason: "hardSchedule"
   });
-  assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/path", new Set(["example.com"]), unrelatedSource, new Date(2026, 0, 1, 12, 0)).type, "none");
-});
-
-test("explains root URL expansion from direct navigation", () => {
-  const state = validState(
-    [{ id: ids[0], kind: "url", value: "example.com" }],
-    { type: "always" }
-  );
-
-  [safariEmptySource, chromeTypedSource, chromeOmniboxSource, chromeBookmarkSource].forEach((source) => {
-    assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://www.example.com/path", new Set(), source)), {
-      type: "match",
-      reason: "scheduleRootDirectNavigation"
-    }, source.type);
-  });
-});
-
-test("explains root URL expansion from same-domain navigation", () => {
-  const state = validState(
-    [{ id: ids[0], kind: "url", value: "example.com" }],
-    { type: "always" }
-  );
-
-  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://www.example.com/path", new Set(), sameDomainSource)), {
-    type: "match",
-    reason: "scheduleRootSameDomainNavigation"
-  });
-});
-
-test("explains root URL expansion after reaching a domain limit", () => {
-  const state = validState(
-    [{ id: ids[0], kind: "url", value: "example.com" }],
-    { type: "dailyWindow", startMinute: 0, endMinute: 1 }
-  );
-
-  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://www.example.com/path", new Set(["example.com"]), safariEmptySource)), {
-    type: "match",
-    reason: "limitRootDirectNavigation"
-  });
-  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://www.example.com/path", new Set(["example.com"]), sameDomainSource)), {
-    type: "match",
-    reason: "limitRootSameDomainNavigation"
-  });
-  assert.equal(core.findBlockedMatchingEntry(state, "https://www.example.com/path", new Set(["example.com"]), unrelatedSource).type, "none");
-});
-
-test("uses domain settings for root URL expansion", () => {
-  const directVisitsOff = validState(
-    [{ id: ids[0], kind: "url", value: "example.com" }],
-    { type: "always" },
-    [domainLimit("example.com", 30, { blockDirectVisits: false })]
-  );
-  const internalLinksOff = validState(
-    [{ id: ids[0], kind: "url", value: "example.com" }],
-    { type: "always" },
-    [domainLimit("example.com", 30, { blockInternalLinks: false })]
-  );
-
-  assert.equal(core.findBlockedMatchingEntry(directVisitsOff, "https://example.com/path", new Set(), safariEmptySource).type, "none");
-  assert.equal(core.findBlockedMatchingEntry(directVisitsOff, "https://example.com/path", new Set(), chromeTypedSource).type, "none");
-  assert.equal(core.findBlockedMatchingEntry(directVisitsOff, "https://example.com/path", new Set(), chromeOmniboxSource).type, "none");
-  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(directVisitsOff, "https://example.com/path", new Set(), sameDomainSource)), {
-    type: "match",
-    reason: "scheduleRootSameDomainNavigation"
-  });
-  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(internalLinksOff, "https://example.com/path", new Set(), safariEmptySource)), {
-    type: "match",
-    reason: "scheduleRootDirectNavigation"
-  });
-  assert.equal(core.findBlockedMatchingEntry(internalLinksOff, "https://example.com/path", new Set(), sameDomainSource).type, "none");
-});
-
-test("fails closed for root URL expansion with unknown document referrers", () => {
-  const bothToggles = validState(
-    [{ id: ids[0], kind: "url", value: "example.com" }],
-    { type: "always" }
-  );
-  const directOnly = validState(
-    [{ id: ids[0], kind: "url", value: "example.com" }],
-    { type: "always" },
-    [domainLimit("example.com", 30, { blockInternalLinks: false })]
-  );
-  const bothOff = validState(
-    [{ id: ids[0], kind: "url", value: "example.com" }],
-    { type: "always" },
-    [domainLimit("example.com", 30, { blockInternalLinks: false, blockDirectVisits: false })]
-  );
-  const unknownReloadSource = { type: "document", referrer: { type: "unknown" }, navigationType: "reload" };
-
-  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(bothToggles, "https://example.com/path", new Set(), unknownDocumentSource)), {
-    type: "match",
-    reason: "scheduleRootSameDomainNavigation"
-  });
-  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(directOnly, "https://example.com/path", new Set(), unknownDocumentSource)), {
-    type: "match",
-    reason: "scheduleRootDirectNavigation"
-  });
-  assert.equal(core.findBlockedMatchingEntry(bothOff, "https://example.com/path", new Set(), unknownDocumentSource).type, "none");
-  assert.equal(core.findBlockedMatchingEntry(bothToggles, "https://example.com/path", new Set(), unknownReloadSource).type, "none");
-  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(bothToggles, "https://example.com/path", new Set(), unknownSafariSource)), {
-    type: "match",
-    reason: "scheduleRootSameDomainNavigation"
-  });
-});
-
-test("explains schedule before limit when both apply", () => {
-  const state = validState(
-    [{ id: ids[0], kind: "url", value: "example.com" }],
-    { type: "always" }
-  );
-
-  assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://example.com", new Set(["example.com"]), unknownSource)), {
-    type: "match",
-    reason: "scheduleDirectMatch"
-  });
-});
-
-test("does not expand root URL blocks when only the &/# part of the URL changed", () => {
-  const state = validState(
-    [{ id: ids[0], kind: "url", value: "example.com" }],
-    { type: "always" }
-  );
-  const samePageReferrers = [
-    "https://example.com/path?tab=1&x=1",
-    "https://example.com/path?tab=1#section",
-    "https://example.com/path?tab=1"
-  ];
-
-  ["document", "safariDocument"].forEach((type) => {
-    samePageReferrers.forEach((referrer) => {
-      const source = { type, referrer: knownReferrer(referrer), navigationType: "navigate" };
-      assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/path?tab=1&x=2", new Set(), source).type, "none", `${type} ${referrer}`);
-    });
-
-    const firstParamSource = { type, referrer: knownReferrer("https://example.com/path?tab=1"), navigationType: "navigate" };
-    assert.deepEqual(matchReason(core.findBlockedMatchingEntry(state, "https://example.com/path?tab=2", new Set(), firstParamSource)), {
-      type: "match",
-      reason: "scheduleRootSameDomainNavigation"
-    }, type);
-
-    const unknownReferrerSource = { type, referrer: { type: "unknown" }, navigationType: "navigate" };
-    assert.notEqual(core.findBlockedMatchingEntry(state, "https://example.com/path?tab=1&x=2", new Set(), unknownReferrerSource).type, "none", type);
-  });
-});
-
-test("does not expand root URL blocks for reloads or unrelated sources", () => {
-  const state = validState(
-    [{ id: ids[0], kind: "url", value: "example.com" }],
-    { type: "always" }
-  );
-
-  [unknownSource, safariReloadSource, unrelatedSource, chromeReloadSource].forEach((source) => {
-    assert.equal(core.findBlockedMatchingEntry(state, "https://example.com/path", new Set(), source).type, "none", source.type);
-  });
-});
-
-test("keeps non-root URL and full domain matching unchanged", () => {
-  const pathState = validState(
-    [{ id: ids[0], kind: "url", value: "example.com/focus" }],
-    { type: "always" }
-  );
-  const domainState = validState(
-    [{ id: ids[1], kind: "domain", value: "example.com" }],
-    { type: "always" }
-  );
-
-  assert.equal(core.findBlockedMatchingEntry(pathState, "https://example.com/other", new Set(), safariEmptySource).type, "none");
-  assert.equal(core.findBlockedMatchingEntry(domainState, "https://example.com/other", new Set(), unknownSource).type, "match");
+  assert.equal(core.decidePage(state, "https://example.com/path", outside, new Set(["example.com"]), new Date(2026, 0, 1, 12, 0)).type, "none");
 });
 
 test("expands root URL blocks through URL host aliases", () => {
@@ -1214,7 +1029,8 @@ test("expands root URL blocks through URL host aliases", () => {
     { type: "always" }
   );
 
-  assert.equal(core.findBlockedMatchingEntry(state, "https://twitter.com/messages", new Set(), chromeTypedSource).type, "match");
+  assert.equal(core.decidePage(state, "https://twitter.com/messages", inside, new Set()).type, "match");
+  assert.equal(core.decidePage(state, "https://twitter.com/messages", outside, new Set()).type, "none");
 });
 
 test("finds screen time domains by host only", () => {
@@ -1279,6 +1095,7 @@ test("validates domain limits against associated domains", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: []
   }, []);
@@ -1295,6 +1112,7 @@ test("validates domain limits against associated domains", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("example.com", 30)]
   }, []);
@@ -1329,6 +1147,7 @@ test("rejects duplicate entries after normalization", () => {
     limitReset: core.DEFAULT_LIMIT_RESET,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: [domainLimit("x.com", 30)]
   }, []);
@@ -1568,6 +1387,7 @@ function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits, lim
     limitReset,
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
+    allowedPages: [],
     limitGroups: core.DEFAULT_LIMIT_GROUPS,
     domainLimits: core.domainLimitsForEntries(typedEntries, domainLimits === undefined ? [] : domainLimits, core.DEFAULT_LIMIT_GROUPS)
   }, []);
@@ -1588,18 +1408,12 @@ function matchReason(match) {
   }
 }
 
-function domainLimit(domain, limitMinutes = core.DEFAULT_LIMIT_MINUTES, overrides = {}) {
-  return {
-    domain,
-    limit: { type: "site", limitMinutes },
-    blockDirectVisits: true,
-    blockInternalLinks: true,
-    ...overrides
-  };
+function domainLimit(domain, limitMinutes = core.DEFAULT_LIMIT_MINUTES) {
+  return { domain, limit: { type: "site", limitMinutes } };
 }
 
 function groupDomainLimit(domain, groupId) {
-  return { domain, limit: { type: "group", groupId }, blockDirectVisits: true, blockInternalLinks: true };
+  return { domain, limit: { type: "group", groupId } };
 }
 
 function legacyDomainLimits(domainLimits) {
@@ -1648,13 +1462,13 @@ test("blocks apps like their site's home page", () => {
   const hardScheduled = { ...instagramOff, hardSchedule: { type: "dailyWindow", startMinute: 540, endMinute: 1020 } };
   const blocked = (state, packageName, overLimit, date) => matchReason(core.findBlockedApp(state, packageName, overLimit, date));
 
-  assert.deepEqual(blocked(defaults, "com.instagram.android", new Set(), noon), { type: "match", reason: "scheduleDirectMatch" });
-  assert.deepEqual(blocked(defaults, "com.twitter.android", new Set(), noon), { type: "match", reason: "scheduleDirectMatch" });
+  assert.deepEqual(blocked(defaults, "com.instagram.android", new Set(), noon), { type: "match", reason: "schedule" });
+  assert.deepEqual(blocked(defaults, "com.twitter.android", new Set(), noon), { type: "match", reason: "schedule" });
   assert.deepEqual(blocked(defaults, "com.instagram.android", new Set(), evening), { type: "none" });
-  assert.deepEqual(blocked(defaults, "com.instagram.android", new Set(["instagram.com"]), evening), { type: "match", reason: "limitDirectMatch" });
+  assert.deepEqual(blocked(defaults, "com.instagram.android", new Set(["instagram.com"]), evening), { type: "match", reason: "limit" });
   assert.deepEqual(blocked(defaults, "com.instagram.android", new Set(["facebook.com"]), evening), { type: "none" });
   assert.deepEqual(blocked(instagramOff, "com.instagram.android", new Set(["instagram.com"]), noon), { type: "none" });
-  assert.deepEqual(blocked(hardScheduled, "com.instagram.android", new Set(), noon), { type: "match", reason: "hardScheduleDomain" });
+  assert.deepEqual(blocked(hardScheduled, "com.instagram.android", new Set(), noon), { type: "match", reason: "hardSchedule" });
   assert.deepEqual(blocked(defaults, "com.example.unmapped", new Set(["instagram.com"]), noon), { type: "none" });
 });
 
@@ -1664,7 +1478,7 @@ test("blocks apps for full-domain entries and reports the matching entry", () =>
 
   assert.equal(match.type, "match");
   assert.equal(match.entry.value, "reddit.com");
-  assert.equal(match.reason, "scheduleDirectMatch");
+  assert.equal(match.reason, "schedule");
 });
 
 test("counts app screen time only for enabled blocklist domains", () => {

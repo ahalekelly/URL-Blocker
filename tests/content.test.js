@@ -5,67 +5,64 @@ const vm = require("node:vm");
 const assert = require("node:assert/strict");
 
 const contentScript = fs.readFileSync(path.join(__dirname, "../URLBlockerWebExtension/content.js"), "utf8");
-const referrerRecordPrefix = "referrerRecords:";
-const referrerRecordRetentionMs = 30 * 24 * 60 * 60 * 1000;
-const defaultSource = { type: "document", referrer: knownReferrer(""), navigationType: "navigate" };
 
-function knownReferrer(url) {
-  return { type: "known", url };
+function checkPage(url, referrer = "") {
+  return { type: "checkPage", url, referrer };
 }
 
-function unknownReferrer() {
-  return { type: "unknown" };
-}
+test("content script reports the startup URL with the document referrer", async () => {
+  const page = await runContentScript("https://x.com/home", { referrer: "https://search.example/" });
 
-function documentSource(referrer, navigationType = "navigate") {
-  return { type: "document", referrer: knownReferrer(referrer), navigationType };
-}
+  assert.deepEqual(page.messages, [checkPage("https://x.com/home", "https://search.example/")]);
+});
 
-function urlChanged(url, source = defaultSource) {
-  return { type: "urlChanged", url, source };
-}
+test("content script reports in-page URL changes with the previous URL as referrer", async () => {
+  const page = await runContentScript("https://www.youtube.com/watch?v=abc", { referrer: "https://search.example/" });
 
-function recheck(url) {
-  return { type: "recheckUrl", url };
-}
+  page.location.href = "https://www.youtube.com/watch?v=abc&t=30";
+  await page.dispatch("currententrychange");
+  await page.dispatch("currententrychange");
+  page.location.href = "https://www.youtube.com/watch?v=def";
+  await page.dispatch("currententrychange");
 
-test("content script reports the startup URL to the worker", async () => {
+  assert.deepEqual(page.messages, [
+    checkPage("https://www.youtube.com/watch?v=abc", "https://search.example/"),
+    checkPage("https://www.youtube.com/watch?v=abc&t=30", "https://www.youtube.com/watch?v=abc"),
+    checkPage("https://www.youtube.com/watch?v=abc&t=30", "https://www.youtube.com/watch?v=abc"),
+    checkPage("https://www.youtube.com/watch?v=def", "https://www.youtube.com/watch?v=abc&t=30")
+  ]);
+});
+
+test("content script polls screen time and the current page", async () => {
   const page = await runContentScript("https://x.com/home");
 
+  await page.tick();
+
   assert.deepEqual(page.messages, [
-    urlChanged("https://x.com/home")
+    checkPage("https://x.com/home"),
+    { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 5000 },
+    checkPage("https://x.com/home")
   ]);
 });
 
-test("content script reports changed pages once and rechecks repeats", async () => {
-  const page = await runContentScript("https://x.com");
+test("content script checks the page when it is shown again", async () => {
+  const page = await runContentScript("https://x.com/home");
 
-  page.location.href = "https://x.com/home";
-  await page.dispatch("currententrychange");
-  await page.dispatch("currententrychange");
-
-  assert.deepEqual(page.messages, [
-    urlChanged("https://x.com"),
-    urlChanged("https://x.com/home", documentSource("https://x.com")),
-    recheck("https://x.com/home")
-  ]);
-});
-
-test("content script reports SPA route changes as internal navigation", async () => {
-  const page = await runContentScript("https://www.youtube.com", { referrer: "https://search.example/" });
-
-  page.location.href = "https://www.youtube.com/watch?v=abc123";
-  await page.dispatch("currententrychange");
+  await page.dispatch("pageshow", 0, { persisted: false });
+  await page.dispatch("pageshow", 0, { persisted: true });
+  await page.setHidden(true);
+  await page.setHidden(false);
 
   assert.deepEqual(page.messages, [
-    urlChanged("https://www.youtube.com", documentSource("https://search.example/")),
-    urlChanged("https://www.youtube.com/watch?v=abc123", documentSource("https://www.youtube.com"))
+    checkPage("https://x.com/home"),
+    checkPage("https://x.com/home"),
+    checkPage("https://x.com/home")
   ]);
 });
 
 test("content script marks short video pages and locks single short videos", async () => {
   const page = await runContentScript("https://www.facebook.com/", {
-    urlChangedResponses: [
+    checkPageResponses: [
       { type: "allowed", shortVideo: { type: "feed", site: "facebook" } },
       { type: "allowed", shortVideo: { type: "singleVideo", site: "facebook" } },
       { type: "allowed", shortVideo: { type: "none" } }
@@ -108,7 +105,7 @@ test("content script marks short video pages and locks single short videos", asy
 test("content script ignores URL check responses for an earlier URL", async () => {
   let respond;
   const page = await runContentScript("https://www.instagram.com/", {
-    urlChangedResponses: [
+    checkPageResponses: [
       new Promise((resolve) => { respond = resolve; }),
       { type: "allowed", shortVideo: { type: "feed", site: "instagram" } }
     ]
@@ -133,21 +130,9 @@ test("content script logs elapsed time before changed URLs", async () => {
   await page.dispatch("currententrychange", 700);
 
   assert.deepEqual(page.messages, [
-    urlChanged("https://x.com"),
+    checkPage("https://x.com"),
     { type: "screenTimeElapsed", url: "https://x.com", elapsedMs: 700 },
-    urlChanged("https://x.com/home", documentSource("https://x.com"))
-  ]);
-});
-
-test("content script periodically rechecks unchanged pages", async () => {
-  const page = await runContentScript("https://x.com/home");
-
-  await page.tick();
-
-  assert.deepEqual(page.messages, [
-    urlChanged("https://x.com/home"),
-    { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 5000 },
-    recheck("https://x.com/home")
+    checkPage("https://x.com/home", "https://x.com")
   ]);
 });
 
@@ -158,7 +143,7 @@ test("content script logs elapsed time when the page hides", async () => {
   await page.tick();
 
   assert.deepEqual(page.messages, [
-    urlChanged("https://x.com/home"),
+    checkPage("https://x.com/home"),
     { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 900 }
   ]);
 });
@@ -170,18 +155,11 @@ test("content script ignores stale screen time after sleep", async () => {
   await page.tick();
 
   assert.deepEqual(page.messages, [
-    urlChanged("https://x.com/home"),
-    recheck("https://x.com/home"),
+    checkPage("https://x.com/home"),
+    checkPage("https://x.com/home"),
     { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 5000 },
-    recheck("https://x.com/home")
+    checkPage("https://x.com/home")
   ]);
-});
-
-test("content script reports referrer and navigation type", async () => {
-  const source = { type: "document", referrer: knownReferrer("https://x.com/from"), navigationType: "reload" };
-  const page = await runContentScript("https://x.com/home", { referrer: source.referrer.url, navigationType: source.navigationType });
-
-  assert.deepEqual(page.messages, [urlChanged("https://x.com/home", source)]);
 });
 
 test("content script logs plain object message errors with details", async () => {
@@ -195,204 +173,18 @@ test("content script logs plain object message errors with details", async () =>
   ]]);
 });
 
-test("content script writes referrer records on navigate loads", async () => {
-  const page = await runContentScript("https://example.com/path?tab=1&view=2", { referrer: "https://search.example/" });
-
-  assert.deepEqual(page.messages, [
-    urlChanged("https://example.com/path?tab=1&view=2", documentSource("https://search.example/"))
-  ]);
-  assert.deepEqual(page.storageData[`${referrerRecordPrefix}https://example.com/path?tab=1`], {
-    records: [{ referrer: "https://search.example/", recordedAt: 0 }]
-  });
-});
-
-test("content script writes referrer records on SPA hops", async () => {
-  const page = await runContentScript("https://example.com/start", { referrer: "https://search.example/" });
-
-  page.location.href = "https://example.com/next";
-  await page.dispatch("currententrychange");
-
-  assert.deepEqual(page.messages.at(-1), urlChanged("https://example.com/next", documentSource("https://example.com/start")));
-  assert.deepEqual(page.storageData[`${referrerRecordPrefix}https://example.com/next`], {
-    records: [{ referrer: "https://example.com/start", recordedAt: 0 }]
-  });
-});
-
-test("content script reports SPA hops from reload documents as navigate", async () => {
-  const page = await runContentScript("https://example.com/start", {
-    referrer: "https://search.example/",
-    navigationType: "reload"
-  });
-
-  page.location.href = "https://example.com/next";
-  await page.dispatch("currententrychange");
-
-  assert.deepEqual(page.messages.at(-1), urlChanged("https://example.com/next", documentSource("https://example.com/start", "navigate")));
-});
-
-test("content script reads the newest record for back and forward loads", async () => {
-  const page = await runContentScript("https://example.com/page", {
-    navigationType: "back_forward",
-    initialStorage: {
-      [`${referrerRecordPrefix}https://example.com/page`]: {
-        records: [
-          { referrer: "https://old.example/", recordedAt: 0 },
-          { referrer: "https://new.example/", recordedAt: 1 }
-        ]
-      }
-    }
-  });
-
-  assert.deepEqual(page.messages, [
-    urlChanged("https://example.com/page", { type: "document", referrer: knownReferrer("https://new.example/"), navigationType: "back_forward" })
-  ]);
-});
-
-test("content script reports unknown referrers for back and forward loads without records", async () => {
-  const page = await runContentScript("https://example.com/page", { navigationType: "back_forward" });
-
-  assert.deepEqual(page.messages, [
-    urlChanged("https://example.com/page", { type: "document", referrer: unknownReferrer(), navigationType: "back_forward" })
-  ]);
-});
-
-test("content script ignores expired back and forward records", async () => {
-  const page = await runContentScript("https://example.com/page", {
-    navigationType: "back_forward",
-    initialStorage: {
-      [`${referrerRecordPrefix}https://example.com/page`]: {
-        records: [{ referrer: "https://old.example/", recordedAt: -referrerRecordRetentionMs - 1 }]
-      }
-    }
-  });
-
-  assert.deepEqual(page.messages, [
-    urlChanged("https://example.com/page", { type: "document", referrer: unknownReferrer(), navigationType: "back_forward" })
-  ]);
-});
-
-test("content script fails closed when reading back and forward records fails", async () => {
-  const page = await runContentScript("https://example.com/page", {
-    navigationType: "back_forward",
-    storageGetError: { message: "Storage get failed.", code: "StorageGetTestError" }
-  });
-
-  assert.deepEqual(page.messages, [
-    urlChanged("https://example.com/page", { type: "document", referrer: unknownReferrer(), navigationType: "back_forward" })
-  ]);
-  assert.match(page.consoleErrors[0][0], /^URL Blocker could not read referrer records\. .*StorageGetTestError/);
-});
-
-test("content script force-checks bfcache restores with the stored SPA arrival", async () => {
-  const page = await runContentScript("https://example.com/a", { referrer: "https://search.example/" });
-
-  page.location.href = "https://example.com/b";
-  await page.dispatch("currententrychange");
-  await page.dispatch("pageshow", 0, { persisted: true });
-
-  assert.deepEqual(page.messages, [
-    urlChanged("https://example.com/a", documentSource("https://search.example/")),
-    urlChanged("https://example.com/b", documentSource("https://example.com/a")),
-    urlChanged("https://example.com/b", documentSource("https://example.com/a"))
-  ]);
-});
-
-test("content script appends referrer records and caps history at 20", async () => {
-  const storageData = {
-    [`${referrerRecordPrefix}https://example.com/page`]: {
-      records: Array.from({ length: 19 }, (_, index) => ({ referrer: `https://old${index}.example/`, recordedAt: index }))
-    }
-  };
-
-  await runContentScript("https://example.com/page", { referrer: "https://one.example/", storageData, now: 20 });
-  await runContentScript("https://example.com/page", { referrer: "https://two.example/", storageData, now: 21 });
-
-  assert.equal(storageData[`${referrerRecordPrefix}https://example.com/page`].records.length, 20);
-  assert.deepEqual(storageData[`${referrerRecordPrefix}https://example.com/page`].records.at(-2), {
-    referrer: "https://one.example/",
-    recordedAt: 20
-  });
-  assert.deepEqual(storageData[`${referrerRecordPrefix}https://example.com/page`].records.at(-1), {
-    referrer: "https://two.example/",
-    recordedAt: 21
-  });
-});
-
-test("content script rechecks &/# URL changes and keeps the page arrival", async () => {
-  const page = await runContentScript("https://example.com/watch?v=abc", { referrer: "https://search.example/" });
-
-  page.location.href = "https://example.com/watch?v=abc&t=30";
-  await page.dispatch("currententrychange");
-  page.location.href = "https://example.com/watch?v=abc&t=30#comments";
-  await page.dispatch("currententrychange");
-  page.location.href = "https://example.com/next";
-  await page.dispatch("currententrychange");
-
-  assert.deepEqual(page.messages, [
-    urlChanged("https://example.com/watch?v=abc", documentSource("https://search.example/")),
-    recheck("https://example.com/watch?v=abc&t=30"),
-    recheck("https://example.com/watch?v=abc&t=30#comments"),
-    urlChanged("https://example.com/next", documentSource("https://example.com/watch?v=abc&t=30#comments"))
-  ]);
-  assert.deepEqual(page.storageData[`${referrerRecordPrefix}https://example.com/watch?v=abc`], {
-    records: [{ referrer: "https://search.example/", recordedAt: 0 }]
-  });
-});
-
 test("content script falls back to the poll without the Navigation API", async () => {
   const page = await runContentScript("https://x.com", { navigationApi: false });
 
   page.location.href = "https://x.com/home";
   await page.tick();
 
-  assert.deepEqual(page.messages.at(-1), urlChanged("https://x.com/home", documentSource("https://x.com")));
+  assert.deepEqual(page.messages.at(-1), checkPage("https://x.com/home", "https://x.com"));
   assert.match(page.consoleErrors[0][0], /needs the Navigation API/);
 });
 
-test("content script fails closed on unrecognized navigation types", async () => {
-  const page = await runContentScript("https://example.com/page", { navigationType: "future_type" });
-
-  assert.deepEqual(page.messages, [
-    urlChanged("https://example.com/page", { type: "document", referrer: unknownReferrer(), navigationType: "future_type" })
-  ]);
-});
-
-test("content script reload loads reuse records without writing new ones", async () => {
-  const pageWithRecord = await runContentScript("https://example.com/page", {
-    navigationType: "reload",
-    referrer: "https://document.example/",
-    initialStorage: {
-      [`${referrerRecordPrefix}https://example.com/page`]: {
-        records: [{ referrer: "https://stored.example/", recordedAt: 0 }]
-      }
-    }
-  });
-  const pageWithoutRecord = await runContentScript("https://example.com/other", {
-    navigationType: "reload",
-    referrer: "https://document.example/"
-  });
-  const pageWithReadError = await runContentScript("https://example.com/error", {
-    navigationType: "reload",
-    referrer: "https://document.example/",
-    storageGetError: { message: "Storage get failed.", code: "StorageGetTestError" }
-  });
-
-  assert.deepEqual(pageWithRecord.messages, [
-    urlChanged("https://example.com/page", { type: "document", referrer: knownReferrer("https://stored.example/"), navigationType: "navigate" })
-  ]);
-  assert.deepEqual(pageWithRecord.storageSets, []);
-  assert.deepEqual(pageWithoutRecord.messages, [
-    urlChanged("https://example.com/other", { type: "document", referrer: knownReferrer("https://document.example/"), navigationType: "reload" })
-  ]);
-  assert.deepEqual(pageWithoutRecord.storageSets, []);
-  assert.deepEqual(pageWithReadError.messages, [
-    urlChanged("https://example.com/error", { type: "document", referrer: knownReferrer("https://document.example/"), navigationType: "reload" })
-  ]);
-});
-
 async function runContentScript(url, options = {}) {
-  const storageData = options.storageData || JSON.parse(JSON.stringify(options.initialStorage || {}));
-  const urlChangedResponses = [...(options.urlChangedResponses || [])];
+  const checkPageResponses = [...(options.checkPageResponses || [])];
   const documentElement = {
     attributes: {},
     setAttribute(name, value) {
@@ -413,40 +205,11 @@ async function runContentScript(url, options = {}) {
             throw options.sendError;
           }
 
-          if (message.type === "urlChanged" && urlChangedResponses.length > 0) {
-            return urlChangedResponses.shift();
+          if (message.type === "checkPage" && checkPageResponses.length > 0) {
+            return checkPageResponses.shift();
           }
 
           return { type: "allowed", shortVideo: { type: "none" } };
-        }
-      },
-      storage: {
-        local: {
-          async get(key) {
-            if (options.storageGetError) {
-              throw options.storageGetError;
-            }
-
-            if (key === null) {
-              return { ...storageData };
-            }
-
-            if (Array.isArray(key)) {
-              return Object.fromEntries(key.map((storageKey) => [storageKey, storageData[storageKey]]));
-            }
-
-            return { [key]: storageData[key] };
-          },
-          async set(value) {
-            if (options.storageSetError) {
-              throw options.storageSetError;
-            }
-
-            const plainValue = JSON.parse(JSON.stringify(value));
-
-            context.storageSets.push(plainValue);
-            Object.assign(storageData, plainValue);
-          }
         }
       }
     },
@@ -467,17 +230,7 @@ async function runContentScript(url, options = {}) {
     },
     consoleErrors: [],
     messages: [],
-    storageSets: [],
     now: options.now || 0,
-    performance: {
-      getEntriesByType(type) {
-        if (type !== "navigation") {
-          return [];
-        }
-
-        return [{ type: options.navigationType || "navigate" }];
-      }
-    },
     Date: {
       now() {
         return context.now;
@@ -511,8 +264,6 @@ async function runContentScript(url, options = {}) {
     get messages() {
       return JSON.parse(JSON.stringify(context.messages));
     },
-    storageData,
-    storageSets: context.storageSets,
     documentElement,
     hasListener(type) {
       return context.listeners.has(type);
