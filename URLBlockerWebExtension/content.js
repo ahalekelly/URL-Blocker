@@ -43,7 +43,7 @@
     }
 
     // The poll logs screen time and rechecks the page so it blocks soon after
-    // the hard schedule starts.
+    // the hard schedule starts, or a feed page runs out its limit.
     pollId = root.setInterval(() => {
       if (document.hidden) {
         return;
@@ -138,8 +138,8 @@
   }
 
   // Limits and the block schedule judge a page when it loads, is restored
-  // from the back/forward cache, or changes to another page; later checks of
-  // the same page only apply the hard schedule.
+  // from the back/forward cache, or changes to another page. Later checks of
+  // the same page only close it for the hard schedule or when it is a feed.
   async function sendCurrentUrl(restoredPage) {
     await initPromise;
 

@@ -1298,6 +1298,18 @@
     return { type: "none" };
   }
 
+  // An open page closes only for the hard schedule, or when it exactly matches
+  // a URL entry: those name feed pages, which scroll endlessly.
+  function findOpenPageBlock(state, rawUrl, overLimitDomains, date) {
+    const hardScheduleMatch = findHardScheduleMatchingEntry(state, rawUrl, date);
+
+    if (hardScheduleMatch.type === "match") {
+      return hardScheduleMatch;
+    }
+
+    return activeBlockedMatch(state, findEntryMatch(state.entries.filter((entry) => entry.kind === "url"), rawUrl), overLimitDomains, date);
+  }
+
   // An app counts as its site's home page, so it is blocked whenever the home
   // page would be blocked for a direct match.
   function findBlockedApp(state, packageName, overLimitDomains, date) {
@@ -2266,7 +2278,7 @@
     entryMatchesUrl,
     findBlockedApp,
     findBlockedMatchingEntry,
-    findHardScheduleMatchingEntry,
+    findOpenPageBlock,
     findMatchingEntry,
     isScheduleActive,
     newEntry,

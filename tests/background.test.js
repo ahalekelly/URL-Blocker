@@ -1262,7 +1262,42 @@ test("urlChanged blocks YouTube videos started from the homepage after block tim
   }]);
 });
 
-test("recheckUrl closes open pages only during the hard schedule", async () => {
+test("recheckUrl closes open feed pages once the limit runs out", async () => {
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "youtube.com" }
+  ], inactiveSchedule(), [
+    { domain: "youtube.com", limit: { type: "site", limitMinutes: 1 } }
+  ]);
+  api.storageData.screenTimeUsage = screenTimeUsage({
+    "youtube.com": { 20: 60000 }
+  });
+  const controller = createBackgroundController(api);
+
+  assert.deepEqual(await controller.handleMessage({ type: "recheckUrl", url: "https://www.youtube.com/watch?v=abc" }, { tab: { id: 7 } }), { type: "allowed" });
+  assert.deepEqual(await controller.handleMessage({ type: "recheckUrl", url: "https://www.youtube.com/" }, { tab: { id: 8 } }), { type: "redirected" });
+  assert.deepEqual(api.updatedTabs, [{
+    tabId: 8,
+    url: blockedUrl("https://www.youtube.com/", "limitDirectMatch")
+  }]);
+});
+
+test("recheckUrl closes open feed pages when the schedule starts", async () => {
+  const api = fakeApi();
+  api.storageData[core.STATE_KEY] = validState([
+    { id, kind: "url", value: "x.com" }
+  ], activeSchedule());
+  const controller = createBackgroundController(api);
+
+  assert.deepEqual(await controller.handleMessage({ type: "recheckUrl", url: "https://x.com/messages" }, { tab: { id: 7 } }), { type: "allowed" });
+  assert.deepEqual(await controller.handleMessage({ type: "recheckUrl", url: "https://x.com/home" }, { tab: { id: 8 } }), { type: "redirected" });
+  assert.deepEqual(api.updatedTabs, [{
+    tabId: 8,
+    url: blockedUrl("https://x.com/home", "scheduleDirectMatch")
+  }]);
+});
+
+test("recheckUrl leaves other open pages open until the hard schedule", async () => {
   const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
   const limits = [{ domain: "youtube.com", limit: { type: "site", limitMinutes: 1 } }];
   api.storageData[core.STATE_KEY] = validState([

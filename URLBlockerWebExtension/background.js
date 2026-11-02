@@ -223,8 +223,6 @@
       return redirectBlockedUrl(sender.tab.id, rawUrl, await contentNavigationSource(sender.tab.id, rawUrl, rawSource));
     }
 
-    // An open page stays open when its time limit runs out or the block
-    // schedule starts; only the hard schedule closes it.
     async function recheckUrl(rawUrl, sender) {
       if (!sender.tab || typeof sender.tab.id !== "number") {
         throw codedError("MissingSenderTab", "recheckUrl message must come from a tab.");
@@ -234,7 +232,11 @@
         throw codedError("BlockedUrlInvalid", "Rechecked URL must be a string.");
       }
 
-      return redirectFromMatch(sender.tab.id, rawUrl, core.findHardScheduleMatchingEntry(await loadState(), rawUrl, new Date()));
+      const state = await loadState();
+      const usage = await loadScreenTimeUsage();
+      const match = core.findOpenPageBlock(state, rawUrl, core.overLimitDomains(state, usage, currentTimeMs()), new Date());
+
+      return redirectFromMatch(sender.tab.id, rawUrl, match);
     }
 
     // The block page opens its target through here because Chromium sends no
@@ -440,9 +442,7 @@
           return undefined;
         }
 
-        const match = core.findBlockedMatchingEntry(state, tab.url, limitedDomains, UNKNOWN_NAVIGATION_SOURCE);
-
-        return redirectFromMatch(tab.id, tab.url, match);
+        return redirectFromMatch(tab.id, tab.url, core.findOpenPageBlock(state, tab.url, limitedDomains, new Date()));
       }));
     }
 

@@ -431,6 +431,27 @@ test("migrates schema 16 states to default hard schedule", () => {
   assert.deepEqual(state.hardSchedule, { type: "off" });
 });
 
+test("open pages close only for exact URL entries or the hard schedule", () => {
+  const noon = new Date(2026, 0, 1, 12, 0);
+  const inactive = { type: "dailyWindow", startMinute: 0, endMinute: 1 };
+  const allDay = { type: "dailyWindow", startMinute: 0, endMinute: 1439 };
+  const entries = [
+    { id: ids[0], kind: "url", value: "x.com" },
+    { id: ids[1], kind: "urlWithSubpaths", value: "netflix.com" },
+    { id: ids[2], kind: "domain", value: "example.com" }
+  ];
+  const state = validState(entries, inactive);
+  const overLimit = new Set(["x.com", "netflix.com", "example.com"]);
+
+  assert.equal(core.findOpenPageBlock(state, "https://x.com/home", overLimit, noon).reason, "limitDirectMatch");
+  assert.equal(core.findOpenPageBlock(state, "https://x.com/messages", overLimit, noon).type, "none");
+  assert.equal(core.findOpenPageBlock(state, "https://www.netflix.com/watch/1", overLimit, noon).type, "none");
+  assert.equal(core.findOpenPageBlock(state, "https://example.com/feed", overLimit, noon).type, "none");
+  assert.equal(core.findOpenPageBlock(state, "https://x.com/home", new Set(), noon).type, "none");
+  assert.equal(core.findOpenPageBlock(validState(entries, allDay), "https://x.com/home", new Set(), noon).reason, "scheduleDirectMatch");
+  assert.equal(core.findOpenPageBlock(validState(entries, inactive, undefined, core.DEFAULT_LIMIT_RESET, allDay), "https://example.com/feed", new Set(), noon).reason, "hardScheduleDomain");
+});
+
 test("migrates schema 20 states to drop YouTube focus settings", () => {
   const oldState = validState([
     { id: ids[0], kind: "domain", value: "example.com" }
