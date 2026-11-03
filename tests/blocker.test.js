@@ -480,6 +480,17 @@ test("allowed pages stay open while restricted and during the hard schedule", ()
   assert.equal(core.decidePage(homeAllowed, "https://x.com/messages", inside, new Set(), noon).type, "match");
 });
 
+test("URL entries with ports match only that port", () => {
+  const noon = new Date(2026, 0, 1, 12, 0);
+  const state = validState([{ id: ids[0], kind: "urlWithSubpaths", value: "media.example.net:8096" }], { type: "always" });
+  const allowedState = { ...validState([{ id: ids[0], kind: "domain", value: "example.net" }], { type: "always" }), allowedPages: ["media.example.net:8096"] };
+
+  assert.equal(core.decidePage(state, "http://media.example.net:8096/web/index.html", inside, new Set(), noon).type, "match");
+  assert.equal(core.decidePage(state, "https://media.example.net/web", inside, new Set(), noon).type, "none");
+  assert.equal(core.decidePage(allowedState, "http://media.example.net:8096/web", inside, new Set(), noon).type, "none");
+  assert.equal(core.decidePage(allowedState, "https://media.example.net/web", inside, new Set(), noon).type, "match");
+});
+
 test("validates allowed pages", () => {
   const state = validState([{ id: ids[0], kind: "url", value: "x.com" }]);
   const valid = core.validateState({ ...state, allowedPages: ["https://www.X.com/messages/", "studio.youtube.com"] }, []);
@@ -726,7 +737,8 @@ test("normalizes URL entries for path-based matching", () => {
   assert.equal(core.normalizeUrlEntryValue("https://old.reddit.com/r/safari/top?t=month"), "reddit.com/r/*");
   assert.throws(() => core.normalizeUrlEntryValue("ftp://example.com"), /http or https/);
   assert.throws(() => core.normalizeUrlEntryValue("https://user@example.com"), /usernames/);
-  assert.throws(() => core.normalizeUrlEntryValue("https://example.com:8443/path"), /non-default ports/);
+  assert.equal(core.normalizeUrlEntryValue("http://Jellyfin.local:8096/web/"), "jellyfin.local:8096/web");
+  assert.equal(core.normalizeUrlEntryValue("http://example.com:443/path"), "example.com/path");
   assert.throws(() => core.normalizeUrlEntryValue("exa_mple.com/path"), /lowercase ASCII/);
 });
 

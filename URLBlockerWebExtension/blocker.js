@@ -778,14 +778,12 @@
       throw new Error("URL entries cannot include usernames or passwords.");
     }
 
-    if (url.port !== "") {
-      throw new Error("URL entries cannot include non-default ports.");
-    }
-
     const host = normalizeHost(url.hostname);
+    // Entries are stored without a scheme, so 80 and 443 are default ports for either one.
+    const port = url.port === "" || url.port === "80" || url.port === "443" ? "" : `:${url.port}`;
     const path = stripTrailingSlashes(url.pathname);
     const storedPath = path === "/" ? "" : path;
-    return `${host}${storedPath}`;
+    return `${host}${port}${storedPath}`;
   }
 
   function normalizeHost(rawHost) {
@@ -1862,15 +1860,15 @@
   }
 
   function makeUrlRegex(entry) {
-    const { host, path } = splitStoredUrl(entry.value);
+    const { hostWithPort, path } = splitStoredUrl(entry.value);
 
-    return `^https?://(?:[^./?#]+\\.)*${escapeRegex(host)}${escapeRegex(path)}$`;
+    return `^https?://(?:[^./?#]+\\.)*${escapeRegex(hostWithPort)}${escapeRegex(path)}$`;
   }
 
   function makeUrlWithSubpathsRegex(entry) {
-    const { host, path } = splitStoredUrl(entry.value);
+    const { hostWithPort, path } = splitStoredUrl(entry.value);
 
-    return `^https?://(?:[^./?#]+\\.)*${escapeRegex(host)}${escapeRegex(path)}(?:/[^?#]*)?$`;
+    return `^https?://(?:[^./?#]+\\.)*${escapeRegex(hostWithPort)}${escapeRegex(path)}(?:/[^?#]*)?$`;
   }
 
   function normalizePageUrl(rawUrl) {
@@ -2030,7 +2028,7 @@
     const url = parseUrlEntryValue(value);
     const path = url.pathname === "/" ? "" : url.pathname;
 
-    return { host: url.hostname, path };
+    return { host: url.hostname, hostWithPort: url.host, path };
   }
 
   function parseUrlEntryValue(rawValue) {
