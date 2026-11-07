@@ -102,7 +102,7 @@ It builds the extension, prints the CDP URL, extension ID, and options URL as JS
 - `docs/block-decision-flowchart.html` describes the block decision. Limits and the regular schedule close an already-open page only when it exactly matches a `url` entry (a feed, like `x.com/home`); other pages open from outside links and block on typed visits and links within the site.
 - A fresh profile writes its default state shortly after startup and can overwrite state written right away; write it again before the first check.
 - Background tabs skip the 5-second recheck until they become visible; activate a tab before waiting for it to close.
-- CDP `Target.createTarget` tabs commit as `start_page`, like links from other apps, so they count as outside links. `Page.navigate` defaults to a `typed` transition; pass `transitionType: "link"` with a `referrer` to simulate a link.
+- CDP `Target.createTarget` tabs commit as `start_page`, like links from other apps and Vivaldi's typed URLs, so they count as typed visits. `Page.navigate` defaults to a `typed` transition; pass `transitionType: "link"` with a `referrer` to simulate a link.
 
 Build the signed iOS app, signed macOS app, and unpacked Chrome extension:
 

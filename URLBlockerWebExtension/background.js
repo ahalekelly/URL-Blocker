@@ -26,8 +26,9 @@
   const COMMITTED_NAVIGATION_PREFIX = "committedNavigation:";
   const PAGE_PASS_PREFIX = "pagePasses:";
   const MAX_PAGE_PASSES = 100;
-  // Chromium reports links opened from other apps as start_page.
-  const OUTSIDE_TRANSITIONS = new Set(["link", "start_page", "form_submit"]);
+  // Chromium reports links opened from other apps as start_page, but Vivaldi
+  // also reports typed and pasted URLs that way, so start_page counts as typed.
+  const OUTSIDE_TRANSITIONS = new Set(["link", "form_submit"]);
   const ARRIVAL_PENDING = { type: "arrivalPending" };
 
   function createBackgroundController(api) {

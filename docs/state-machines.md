@@ -121,13 +121,13 @@ Each check classifies the visit, then calls `decidePage`:
 | continuing | the tab holds a pass for the page | open |
 | arrivalPending | arrival not known yet | open, no pass saved |
 | arrival from outside | link from another site or app | open, pass saved |
-| arrival from inside | typed, bookmark, Back/Forward, in-site link, block page | blocked |
+| arrival from inside | typed, bookmark, Back/Forward, in-site link, block page, and on Chromium a link from another app | blocked |
 
 | Event | Visit |
 | --- | --- |
 | `webNavigation.onBeforeNavigate` | arrivalPending |
-| `onCommitted`, link, start page, form submit, or reload | arrivalPending; the page's referrer decides |
-| `onCommitted`, Back/Forward or any other transition | arrival from inside |
+| `onCommitted`, link, form submit, or reload | arrivalPending; the page's referrer decides |
+| `onCommitted`, Back/Forward or any other transition, including start page | arrival from inside |
 | `tabs.onUpdated` with a URL | arrivalPending |
 | page check with a referrer | arrival judged by the referrer's site |
 | page check without a referrer, Safari | arrival from outside |

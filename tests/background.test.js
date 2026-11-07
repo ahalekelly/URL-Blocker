@@ -429,7 +429,7 @@ test("checkPage counts empty Safari referrers as outside links", async () => {
   assert.equal((await controller.handleMessage(checkPageMessage("https://example.com/path", ""), { tab: { id: 7 } })).type, "allowed");
 });
 
-test("checkPage judges empty Chromium referrers by the committed transition", async () => {
+test("checkPage judges empty Chromium referrers by the committed transition, with start_page as typed", async () => {
   const api = fakeApi({ runtimeScheme: "chrome-extension" });
   api.storageData[core.STATE_KEY] = validState([
     { id, kind: "url", value: "example.com" }
@@ -441,7 +441,7 @@ test("checkPage judges empty Chromium referrers by the committed transition", as
   await controller.redirectCommittedNavigation({ frameId: 0, tabId: 8, transitionType: "start_page", transitionQualifiers: [], url: "https://example.com/from-app" });
 
   assert.equal((await check(7, "https://example.com/linked")).type, "allowed");
-  assert.equal((await check(8, "https://example.com/from-app")).type, "allowed");
+  assert.equal((await check(8, "https://example.com/from-app")).type, "redirected");
   assert.equal((await check(9, "https://example.com/typed")).type, "allowed");
   assert.equal((await controller.redirectCommittedNavigation({ frameId: 0, tabId: 9, transitionType: "typed", transitionQualifiers: [], url: "https://example.com/typed" })).type, "redirected");
 });
@@ -456,6 +456,7 @@ test("committed typed navigations count as inside arrivals and reloads keep the 
 
   assert.equal((await commit(7, "typed", "https://example.com/path")).type, "redirected");
   assert.equal((await commit(8, "auto_bookmark", "https://example.com/path")).type, "redirected");
+  assert.equal((await commit(13, "start_page", "https://example.com/path")).type, "redirected");
   assert.equal((await commit(9, "link", "https://example.com/path")).type, "allowed");
   assert.equal((await controller.handleMessage(checkPageMessage("https://example.com/path"), { tab: { id: 10 } })).type, "allowed");
   assert.equal((await commit(10, "reload", "https://example.com/path")).type, "allowed");
@@ -463,7 +464,7 @@ test("committed typed navigations count as inside arrivals and reloads keep the 
   assert.equal((await controller.handleMessage(checkPageMessage("https://example.com/path", "https://example.com/"), { tab: { id: 11 } })).type, "redirected");
   assert.equal((await commit(12, "reload", "https://example.com/path")).type, "allowed");
   assert.equal((await controller.handleMessage(checkPageMessage("https://example.com/path"), { tab: { id: 12 } })).type, "allowed");
-  assert.deepEqual(api.updatedTabs.map((tab) => tab.tabId), [7, 8, 11]);
+  assert.deepEqual(api.updatedTabs.map((tab) => tab.tabId), [7, 8, 13, 11]);
 });
 
 test("committed Chromium subframe navigation is ignored", async () => {
