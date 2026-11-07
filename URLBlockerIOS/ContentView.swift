@@ -430,6 +430,13 @@ private struct BlocklistWebView: UIViewRepresentable {
           registerContentScripts: () => Promise.resolve(),
           unregisterContentScripts: () => Promise.resolve()
         },
+        storage: {
+          session: {
+            get: () => Promise.resolve({}),
+            remove: () => Promise.resolve(),
+            set: () => Promise.resolve()
+          }
+        },
         tabs: {
           create: () => Promise.resolve(),
           getCurrent: () => Promise.resolve(null),
