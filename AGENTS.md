@@ -35,6 +35,7 @@
 - `URLBlockerShared/`: Swift shared state validation and storage.
 - `URLBlockerMac/` and `URLBlockerExtensionMac/`: macOS targets.
 - `URLBlockerAndroid/`: Android app (Kotlin, Gradle). An accessibility service runs `blocker.js` in a headless WebView through `app/src/main/assets/engine.js` and covers apps from `APP_SITE_DOMAINS` in `blocker.js`. The build copies `blocker.js`, `supabase-sync.js`, `supabase-config.json`, `default-blocked-pages.json`, `blocked.html`, and `blocked.css` into the app's assets; the app's own `assets/blocked.js` fills the block page.
+- `docs/state-machines.md`: states, invariants, and transitions of settings activation, sync, screen time, tab memory, and the UIs, plus known gaps. Keep it current when changing any of them.
 - `tests/`: Node tests for extension JavaScript behavior.
 - `scripts/build-chrome-extension.mjs`: builds the unpacked Chrome extension in `build/chrome-extension`.
 - `scripts/install-chromium-extension.mjs`: updates or reloads the unpacked Chrome extension in a Chromium-based browser profile.
