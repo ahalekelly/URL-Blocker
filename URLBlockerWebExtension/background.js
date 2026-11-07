@@ -734,6 +734,30 @@
       });
     }
 
+    // Chromium orphans an updated or reloaded extension's content scripts, so
+    // open pages, including long-lived single-page sites, would go unchecked
+    // and untimed until they reload.
+    async function injectContentScriptIntoOpenTabs() {
+      const origins = core.contentScriptOriginsForState(await loadState());
+
+      if (origins.length === 0) {
+        return;
+      }
+
+      const tabs = await api.tabs.query({ url: origins, discarded: false });
+      const results = await Promise.allSettled(tabs.map(async (tab) => {
+        const target = { tabId: tab.id };
+
+        await api.scripting.insertCSS({ target, files: CONTENT_SCRIPT_CSS });
+        await api.scripting.executeScript({ target, files: CONTENT_SCRIPT_JS });
+      }));
+      const errors = results.filter((result) => result.status === "rejected").map((result) => errorMessage(result.reason));
+
+      if (errors.length > 0) {
+        throw codedError("ContentScriptInjectionFailed", `Could not inject into ${errors.length} open tabs: ${errors.join("; ")}`);
+      }
+    }
+
     function contentScriptAlreadyRegistered(registered, origins) {
       if (registered.length !== 1) {
         return false;
@@ -1168,6 +1192,7 @@
       getScreenTimeStats,
       getDefaultState,
       handleMessage,
+      injectContentScriptIntoOpenTabs,
       loadState,
       logScreenTime,
       openOptions,
@@ -1568,6 +1593,17 @@
 
       return true;
     });
+
+    if (!isSafariRuntime(api)) {
+      api.runtime.onInstalled.addListener(({ reason }) => {
+        if (reason !== "install" && reason !== "update") {
+          return;
+        }
+
+        controller.injectContentScriptIntoOpenTabs()
+          .catch((error) => console.error(`URL Blocker could not check open tabs. ${errorLogText(error)}`));
+      });
+    }
 
     if (action && action.onClicked) {
       action.onClicked.addListener(() => {

@@ -147,9 +147,9 @@ Per document; `content.js`.
 | `arrival` | `history` after a Back/Forward load or bfcache restore; `referrer` otherwise, becoming the previous URL after each in-page URL change, except a replace |
 | screen time | idle (`screenTimeUrl === ""`) or timing a URL since `screenTimeStartedAt`; hidden pages stop timing |
 | `singleVideoLocked` | swallows scroll and arrow keys on a single short video page |
-| `stopped` | the extension was reloaded or removed; the script tears itself down |
+| `stopped` | the extension was updated, reloaded, or removed; the script tears itself down |
 
-A response for a URL the page has since left is dropped. Elapsed chunks over 30 seconds are dropped, so a suspended tab never logs its suspension.
+On Chromium, an update or reload leaves no live script in open tabs, so the worker injects one into each open tab matching the active state. A response for a URL the page has since left is dropped. Elapsed chunks over 30 seconds are dropped, so a suspended tab never logs its suspension.
 
 ## Content script registration
 
@@ -186,5 +186,6 @@ These are known and not fixed.
 - **Activation regression window.** `saveState` settles the activation, writes the saved state, then writes the new pending activation built from the activation it settled. A page check that activates the old pending state in between gets overwritten, briefly returning to the state before it. The window is one storage write, and only when the old pending state comes due inside it.
 - **iOS app and Safari extension share storage across processes.** Both run a background controller over the same app group keys. The queues are per process, so simultaneous edits from both can still lose a write.
 - **Chromium prerendering.** Prerendered pages may report navigation events with a nonzero frame ID, which the worker ignores, so a prerendered visit may only ever be judged as arrivalPending. Brave does not prerender, and branded Chrome will not load the unpacked extension, so this is untested.
+- **Safari updates.** The worker does not inject into open tabs after a Safari update. Whether Safari keeps their scripts alive is untested.
 - **Background settings pulls.** The extension pulls synced settings only when the options page opens or saves, unlike Android. Changes made on another device reach a browser after its options page next opens.
 - **Overlapping token refreshes.** A settings sync and a screen time sync can refresh an expiring session at the same time with the same refresh token. Supabase's refresh token reuse interval accepts both.

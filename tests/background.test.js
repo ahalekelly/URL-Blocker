@@ -2056,6 +2056,32 @@ async function flushPromises() {
   }
 }
 
+test("an update injects the content script into open tabs of blocked sites", async () => {
+  const api = fakeApi({ tabs: [{ id: 3, url: "https://x.com/someone/status/1" }, { id: 4, url: "https://x.com/home" }] });
+  const state = validState([{ id, kind: "domain", value: "x.com" }], inactiveSchedule());
+  const queries = [];
+  const injections = [];
+
+  api.storageData[core.STATE_KEY] = state;
+  api.storageData.settingsActivation = { schemaVersion: 1, activeState: state, pending: { type: "none" } };
+  api.tabs.query = async (query) => {
+    queries.push(query);
+    return api.tabsData;
+  };
+  api.scripting.insertCSS = async ({ target, files }) => injections.push(["css", target.tabId, files]);
+  api.scripting.executeScript = async ({ target, files }) => injections.push(["js", target.tabId, files]);
+
+  await createBackgroundController(api).injectContentScriptIntoOpenTabs();
+
+  assert.deepEqual(queries, [{ url: core.contentScriptOriginsForState(state), discarded: false }]);
+  assert.deepEqual(injections, [
+    ["css", 3, ["content.css"]],
+    ["css", 4, ["content.css"]],
+    ["js", 3, ["content.js"]],
+    ["js", 4, ["content.js"]]
+  ]);
+});
+
 function fakeApi(overrides = {}) {
   const api = {
     storageData: {},
