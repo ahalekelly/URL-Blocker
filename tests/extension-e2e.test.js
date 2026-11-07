@@ -59,6 +59,36 @@ test("options renders local data before startup sync finishes", async () => {
   await app.optionsApi.finishSyncNow();
 });
 
+test("options keeps edits made before startup sync finishes", async () => {
+  const app = createExtensionApp({ delaySyncNow: true });
+
+  app.backgroundApi.storageData[core.STATE_KEY] = validState([]);
+
+  const page = await openOptionsPage(app);
+  const allowedPagesInput = page.byId("allowedPagesInput");
+
+  allowedPagesInput.value = "example.com/docs";
+  await allowedPagesInput.dispatch("input");
+  await app.optionsApi.finishSyncNow();
+
+  assert.equal(page.byId("allowedPagesInput").value, "example.com/docs");
+});
+
+test("options keeps unsaved edits through Sync now", async () => {
+  const app = createExtensionApp({ supabaseConfig: configuredSupabase() });
+
+  app.backgroundApi.storageData[core.STATE_KEY] = validState([]);
+
+  const page = await openOptionsPage(app);
+  const allowedPagesInput = page.byId("allowedPagesInput");
+
+  allowedPagesInput.value = "example.com/docs";
+  await allowedPagesInput.dispatch("input");
+  await page.byId("syncNowButton").dispatch("click");
+
+  assert.equal(page.byId("allowedPagesInput").value, "example.com/docs");
+});
+
 test("options keeps the editor hidden until local data loads", async () => {
   const app = createExtensionApp({ delayGetLocalState: true });
 

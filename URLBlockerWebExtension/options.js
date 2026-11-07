@@ -175,6 +175,13 @@
     switch (result.type) {
       case "synced":
         state.syncStatus = result.status;
+
+        // The sync can finish after the user starts editing.
+        if (draftHasUnsavedChanges()) {
+          render();
+          return;
+        }
+
         await loadLocalState();
         return;
       case "syncError":
@@ -1229,7 +1236,11 @@
     switch (response.type) {
       case "synced":
         state.syncStatus = normalizeSyncStatus(response.status);
-        await loadLocalState();
+
+        if (!draftHasUnsavedChanges()) {
+          await loadLocalState();
+        }
+
         render();
         return;
       case "error":
