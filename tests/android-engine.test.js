@@ -171,6 +171,27 @@ test("signing out mid-sync keeps the device signed out", async () => {
   assert.deepEqual(engine.requests.map((request) => new URL(request.url).pathname), ["/auth/v1/token"]);
 });
 
+test("signing out lets the next account's older settings apply", async () => {
+  const alwaysBlock = { ...core.emptyState(defaultBlockedPages), schedule: { type: "always" } };
+  let remoteSettings = settingsRow(core.emptyState(defaultBlockedPages), startMs - HOUR_MS);
+  const engine = startEngine(
+    { "supabase-session.json": JSON.stringify(session(startMs)) },
+    {
+      "/rest/v1/user_settings": () => remoteSettings,
+      "/rest/v1/screen_time_buckets": () => []
+    }
+  );
+
+  engine.call("sync", true);
+  await settle();
+  engine.call("signOut");
+  remoteSettings = settingsRow(alwaysBlock, startMs - 2 * HOUR_MS);
+  engine.call("completeSignIn", `urlblocker://supabase-auth#access_token=${session(startMs).accessToken}&refresh_token=refresh&expires_in=3600`);
+  await settle();
+
+  assert.deepEqual(engine.json("settings-activation.json").pending.state, alwaysBlock);
+});
+
 test("supabaseErrorMessage includes Supabase error details", () => {
   assert.equal(sync.supabaseErrorMessage(400, ""), "Supabase request failed: 400");
   assert.equal(sync.supabaseErrorMessage(400, JSON.stringify({ message: "bad", code: "42702" })), "Supabase request failed: 400. bad 42702");

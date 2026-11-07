@@ -16,6 +16,9 @@
   const CONTENT_SCRIPT_CSS = ["content.css"];
   const HOUR_MS = 60 * 60 * 1000;
   const MAX_SCREEN_TIME_ELAPSED_MS = 30 * 1000;
+  // A stalled request would otherwise hold the settings queue, and every save
+  // behind it, until the worker stops.
+  const REQUEST_TIMEOUT_MS = 30 * 1000;
   const SCREEN_TIME_USAGE_KEY = "screenTimeUsage";
   const SETTINGS_SYNC_KEY = "settingsSync";
   const SETTINGS_ACTIVATION_KEY = "settingsActivation";
@@ -37,9 +40,17 @@
     // Per-tab memory lives in session storage because Safari and Chromium
     // stop the service worker when idle, such as while the phone is locked.
     const tabStorage = api.storage.session;
+    // Settings saves and syncs read the sync metadata, wait on the network,
+    // then write it back, so they run one at a time.
+    const inSettingsQueue = createQueue();
+    // Short read-modify-writes of screen time, page passes, and content
+    // script registration. Tasks in it never wait on each other.
+    const inLocalQueue = createQueue();
     let defaultEntriesLoad;
     let configPromise;
-    let lastSyncError = "";
+    // Settings and screen time sync separately, so one succeeding must not
+    // hide the other's failure.
+    const syncErrors = { settings: "", screenTime: "" };
     let activationTimer = 0;
     let activationTimerAtMs = 0;
     let usageSyncTimer = 0;
@@ -56,9 +67,6 @@
         case "getBlockedPageHtml":
           requireKeys(message, ["type"], "getBlockedPageHtml message");
           return getBlockedPageHtml();
-        case "getState":
-          requireKeys(message, ["type"], "getState message");
-          return getState();
         case "getDefaultState":
           requireKeys(message, ["type"], "getDefaultState message");
           return getDefaultState();
@@ -115,16 +123,6 @@
       }
     }
 
-    async function getState() {
-      try {
-        await syncRemoteStateIfPossible();
-
-        return { type: "state", state: await loadState() };
-      } catch (error) {
-        return errorResponse("stateError", error);
-      }
-    }
-
     async function getLocalState() {
       try {
         const state = await loadSavedState();
@@ -165,36 +163,29 @@
       }
     }
 
-    async function saveState(rawState) {
-      const defaultEntries = await loadDefaultEntries();
-      const result = core.validateState(rawState, defaultEntries);
+    function saveState(rawState) {
+      return inSettingsQueue(async () => {
+        const defaultEntries = await loadDefaultEntries();
+        const result = core.validateState(rawState, defaultEntries);
 
-      if (result.type === "invalid") {
-        return { type: "validationError", errors: result.errors };
-      }
+        if (result.type === "invalid") {
+          return { type: "validationError", errors: result.errors };
+        }
 
-      await requireWebsiteAccess(result.state);
-      const currentActivation = await loadSettledSettingsActivation();
-      const storageResponse = await stateStorage.saveState(result.state);
+        await requireWebsiteAccess(result.state);
+        const currentActivation = await loadSettledSettingsActivation();
+        const storageResponse = await stateStorage.saveState(result.state);
+        const activation = await saveSettingsActivation(storageResponse.state, currentActivation);
 
-      if (storageResponse.type === "validationError") {
-        return storageResponse;
-      }
+        const settingsSync = await loadSettingsSync();
 
-      if (storageResponse.type !== "saved") {
-        throw errorFromResponse(storageResponse);
-      }
-
-      const activation = await saveSettingsActivation(storageResponse.state, currentActivation);
-
-      const settingsSync = await loadSettingsSync();
-
-      await settingsSyncStorage.saveSync(sync.dirtySettingsSync(settingsSync, currentTimeMs(), createId));
-      return { type: "saved", state: storageResponse.state, activation: settingsActivationStatus(activation) };
+        await settingsSyncStorage.saveSync(sync.dirtySettingsSync(settingsSync, currentTimeMs(), createId));
+        return { type: "saved", state: storageResponse.state, activation: settingsActivationStatus(activation) };
+      });
     }
 
     async function finishSavedState() {
-      const savedState = await syncSettingsIfPossible(await loadSavedState());
+      const savedState = await syncSavedSettings();
       const activation = await loadSettledSettingsActivation();
       const activeState = activation.activeState;
 
@@ -390,13 +381,15 @@
 
     // A tab keeps a pass for every page it was allowed onto, so Back and
     // Forward return to them while other pages on the site stay blocked.
-    async function savePagePass(tabId, rawUrl) {
-      const passes = await loadTabValue(PAGE_PASS_PREFIX, tabId) || [];
-      const page = core.pageChangeKey(rawUrl);
+    function savePagePass(tabId, rawUrl) {
+      return inLocalQueue(async () => {
+        const passes = await loadTabValue(PAGE_PASS_PREFIX, tabId) || [];
+        const page = core.pageChangeKey(rawUrl);
 
-      if (!passes.includes(page)) {
-        await tabStorage.set({ [`${PAGE_PASS_PREFIX}${tabId}`]: [...passes, page].slice(-MAX_PAGE_PASSES) });
-      }
+        if (!passes.includes(page)) {
+          await tabStorage.set({ [`${PAGE_PASS_PREFIX}${tabId}`]: [...passes, page].slice(-MAX_PAGE_PASSES) });
+        }
+      });
     }
 
     // Before the request goes out, only feeds and the hard schedule can
@@ -496,9 +489,7 @@
       }
 
       if (core.hasUnsupportedBlocklistVersion(result.errors)) {
-        const repair = await resetBlocklist(defaultEntries, await loadSettingsSync(), currentTimeMs());
-
-        return repair.state;
+        return resetBlocklist(defaultEntries);
       }
 
       throw new Error(result.errors.map((error) => error.message).join("\n"));
@@ -610,7 +601,7 @@
         activationTimer = 0;
         activationTimerAtMs = 0;
         loadSettledSettingsActivation()
-          .catch((error) => rememberSyncError(error));
+          .catch((error) => rememberSyncError("settings", error));
       }, Math.max(0, activation.pending.effectiveAtMs - currentTimeMs()));
 
       if (activationTimer && typeof activationTimer.unref === "function") {
@@ -618,24 +609,30 @@
       }
     }
 
+    // A site this device just put over its limit syncs at once so other
+    // devices see it promptly.
     async function saveScreenTimeAndSync(state, domain, elapsedMs) {
       const nowMs = currentTimeMs();
-      const hour = currentHour(nowMs);
-      const usage = await saveScreenTime(domain, elapsedMs, hour, nowMs);
+      let wasOverLimit = false;
+      const usage = await updateScreenTimeUsage((current) => {
+        wasOverLimit = core.overLimitDomains(state, current, nowMs).has(domain);
+        sync.addScreenTime(current, domain, currentHour(nowMs), elapsedMs, nowMs);
+      });
       const isOverLimit = core.overLimitDomains(state, usage, nowMs).has(domain);
 
-      await syncScreenTimeIfReady(state, { force: isOverLimit });
+      await syncScreenTimeIfReady(state, { force: isOverLimit && !wasOverLimit });
 
       return { type: "logged", domain, isOverLimit };
     }
 
-    async function saveScreenTime(domain, elapsedMs, hour, nowMs) {
-      const usage = await loadScreenTimeUsage();
-      sync.addScreenTime(usage, domain, hour, elapsedMs, nowMs);
+    function updateScreenTimeUsage(change) {
+      return inLocalQueue(async () => {
+        const usage = await loadScreenTimeUsage();
 
-      await screenTimeStorage.saveUsage(usage);
-
-      return usage;
+        await change(usage);
+        await screenTimeStorage.saveUsage(usage);
+        return usage;
+      });
     }
 
     async function loadScreenTimeUsage() {
@@ -708,29 +705,33 @@
       }
     }
 
-    async function syncContentScripts(state) {
-      const origins = core.contentScriptOriginsForState(state);
-      const registered = await api.scripting.getRegisteredContentScripts({ ids: [CONTENT_SCRIPT_ID] });
+    // Overlapping calls would both unregister or both register the script,
+    // and the browser rejects the second.
+    function syncContentScripts(state) {
+      return inLocalQueue(async () => {
+        const origins = core.contentScriptOriginsForState(state);
+        const registered = await api.scripting.getRegisteredContentScripts({ ids: [CONTENT_SCRIPT_ID] });
 
-      if (contentScriptAlreadyRegistered(registered, origins)) {
-        return;
-      }
+        if (contentScriptAlreadyRegistered(registered, origins)) {
+          return;
+        }
 
-      if (registered.length > 0) {
-        await api.scripting.unregisterContentScripts({ ids: [CONTENT_SCRIPT_ID] });
-      }
+        if (registered.length > 0) {
+          await api.scripting.unregisterContentScripts({ ids: [CONTENT_SCRIPT_ID] });
+        }
 
-      if (origins.length === 0) {
-        return;
-      }
+        if (origins.length === 0) {
+          return;
+        }
 
-      await api.scripting.registerContentScripts([{
-        id: CONTENT_SCRIPT_ID,
-        js: CONTENT_SCRIPT_JS,
-        css: CONTENT_SCRIPT_CSS,
-        matches: origins,
-        runAt: "document_start"
-      }]);
+        await api.scripting.registerContentScripts([{
+          id: CONTENT_SCRIPT_ID,
+          js: CONTENT_SCRIPT_JS,
+          css: CONTENT_SCRIPT_CSS,
+          matches: origins,
+          runAt: "document_start"
+        }]);
+      });
     }
 
     function contentScriptAlreadyRegistered(registered, origins) {
@@ -774,17 +775,17 @@
         const config = await loadSupabaseConfig();
 
         if (!sync.configIsReady(config)) {
-          return { type: "syncStatus", status: "unconfigured", error: lastSyncError };
+          return { type: "syncStatus", status: "unconfigured", error: syncErrorText() };
         }
 
         const sessionResult = sync.parseSession(await sessionStorage.loadSession());
 
         if (sessionResult.type === "signedOut") {
           if (await usesNativeStorage(api)) {
-            return { type: "syncStatus", status: "nativeSignInRequired", error: lastSyncError };
+            return { type: "syncStatus", status: "nativeSignInRequired", error: syncErrorText() };
           }
 
-          return { type: "syncStatus", status: "signedOut", error: lastSyncError };
+          return { type: "syncStatus", status: "signedOut", error: syncErrorText() };
         }
 
         const settingsSync = await loadSettingsSync();
@@ -794,19 +795,16 @@
           status: "signedIn",
           userId: sync.sessionUserId(sessionResult.session),
           lastSuccessfulSyncAgeMs: lastSuccessfulSyncAgeMs(settingsSync),
-          error: lastSyncError
+          error: syncErrorText()
         };
       } catch (error) {
-        lastSyncError = errorMessage(error);
-        return { type: "syncStatus", status: "error", error: lastSyncError };
+        return { type: "syncStatus", status: "error", error: errorMessage(error) };
       }
     }
 
     async function syncNow() {
-      const savedState = await syncSettingsIfPossible(await loadSavedState());
-      const activeState = await loadState();
-
-      await syncScreenTimeIfReady(activeState, { force: true });
+      await syncSavedSettings();
+      await syncScreenTimeIfReady(await loadState(), { force: true });
 
       return { type: "synced", status: await getSyncStatus() };
     }
@@ -856,19 +854,23 @@
       return { type: "signedIn" };
     }
 
+    // The next account's settings count as newer than the last account's,
+    // unless this device has edits that never synced.
     async function signOut() {
-      await sessionStorage.clearSession();
-      await clearRemoteScreenTimeBuckets();
-      lastSyncError = "";
+      await inSettingsQueue(async () => {
+        await sessionStorage.clearSession();
+
+        if (!(await loadSettingsSync()).dirty) {
+          await settingsSyncStorage.saveSync(sync.parseSettingsSync(undefined, createId));
+        }
+      });
+      await updateScreenTimeUsage((usage) => {
+        usage.remoteBuckets = {};
+      });
+      syncErrors.settings = "";
+      syncErrors.screenTime = "";
 
       return { type: "signedOut" };
-    }
-
-    async function clearRemoteScreenTimeBuckets() {
-      const usage = await loadScreenTimeUsage();
-
-      usage.remoteBuckets = {};
-      await screenTimeStorage.saveUsage(usage);
     }
 
     async function launchWebAuthFlow(details) {
@@ -902,40 +904,8 @@
       return sync.oauthUrl(config, provider, runtimeUrl("options.html"));
     }
 
-    async function syncRemoteStateIfPossible() {
-      try {
-        const active = await activeSupabaseSession();
-
-        if (active.type !== "active") {
-          return;
-        }
-
-        const rawSync = await settingsSyncStorage.loadSync();
-        const settingsSync = sync.parseSettingsSync(rawSync, createId, currentTimeMs());
-
-        if (settingsSync.dirty) {
-          await syncSettingsIfPossible(await loadSavedState());
-          return;
-        }
-
-        const remoteSettings = await sync.loadRemoteSettings(active.config, active.session, fetchJson);
-
-        if (!remoteSettings) {
-          await markSyncSuccessful(settingsSync);
-          lastSyncError = "";
-          return;
-        }
-
-        if (rawSync === undefined || sync.remoteSettingsAreNewer(settingsSync, remoteSettings)) {
-          await applyRemoteSettings(active, remoteSettings, settingsSync);
-          return;
-        }
-
-        await markSyncSuccessful(settingsSync);
-        lastSyncError = "";
-      } catch (error) {
-        rememberSyncError(error);
-      }
+    function syncSavedSettings() {
+      return inSettingsQueue(async () => syncSettingsIfPossible(await loadSavedState()));
     }
 
     async function syncSettingsIfPossible(localState) {
@@ -953,32 +923,29 @@
 
         if (!remoteSettings) {
           await markSyncSuccessful(settingsSync);
-          lastSyncError = "";
+          syncErrors.settings = "";
           return localState;
         }
 
         if (sync.remoteSettingsAreNewer(settingsSync, remoteSettings)) {
-          return applyRemoteSettings(active, remoteSettings, settingsSync);
+          // Awaited so the catch below records its errors.
+          return await applyRemoteSettings(remoteSettings, settingsSync);
         }
 
         await settingsSyncStorage.saveSync(sync.cleanSettingsSync(settingsSync, remoteSettings, currentTimeMs()));
-        lastSyncError = "";
+        syncErrors.settings = "";
         return localState;
       } catch (error) {
-        rememberSyncError(error);
+        rememberSyncError("settings", error);
         return localState;
       }
     }
 
-    async function applyRemoteSettings(active, remoteSettings, settingsSync) {
+    async function applyRemoteSettings(remoteSettings, settingsSync) {
       const defaultEntries = await loadDefaultEntries();
       const result = core.validateStoredState(remoteSettings.state, defaultEntries);
 
       if (result.type === "invalid") {
-        if (core.hasUnsupportedBlocklistVersion(result.errors)) {
-          return resetRemoteBlocklist(active, remoteSettings, settingsSync, defaultEntries);
-        }
-
         throw codedError("RemoteSettingsInvalid", result.errors.map((error) => error.message).join("\n"));
       }
 
@@ -988,34 +955,25 @@
       const activation = await saveSettingsActivation(result.state, currentActivation);
       await settingsSyncStorage.saveSync(sync.cleanSettingsSync(settingsSync, remoteSettings, currentTimeMs()));
       await syncWebsiteAccessForKnownPermissions(activation.activeState);
-      lastSyncError = "";
+      syncErrors.settings = "";
 
       return result.state;
     }
 
-    async function resetRemoteBlocklist(active, remoteSettings, settingsSync, defaultEntries) {
-      const updatedAtMs = Math.max(currentTimeMs(), remoteSettings.updated_at_ms + 1);
-      const repair = await resetBlocklist(defaultEntries, settingsSync, updatedAtMs);
-      const savedRemoteSettings = await sync.saveRemoteSettings(active.config, active.session, repair.state, repair.dirtySync, fetchJson);
-
-      await settingsSyncStorage.saveSync(sync.cleanSettingsSync(repair.dirtySync, savedRemoteSettings, currentTimeMs()));
-      return repair.state;
-    }
-
-    async function resetBlocklist(defaultEntries, settingsSync, updatedAtMs) {
+    // The defaults count as never synced, so the account's settings replace
+    // them instead of the defaults replacing the account's.
+    async function resetBlocklist(defaultEntries) {
       const state = core.emptyState(defaultEntries);
-      const dirtySync = sync.dirtySettingsSync(settingsSync, updatedAtMs, createId);
 
       await stateStorage.saveState(state);
       await settingsActivationStorage.saveActivation(core.activeSettingsActivation(state));
       await blockedPageHtmlStorage.saveHtml(state.blockedPageHtml);
-      await settingsSyncStorage.saveSync(dirtySync);
+      await settingsSyncStorage.saveSync(sync.parseSettingsSync(undefined, createId));
       await syncWebsiteAccessForKnownPermissions(state);
       await redirectOpenBlockedTabs(state);
       await removeUnusedWebsiteAccessForStates([state]);
-      lastSyncError = "";
 
-      return { state, dirtySync };
+      return state;
     }
 
     async function syncWebsiteAccessForKnownPermissions(state) {
@@ -1031,48 +989,54 @@
     async function syncScreenTimeIfReady(state, options) {
       const usage = await loadScreenTimeUsage();
       const config = await loadSupabaseConfig().catch((error) => {
-        rememberSyncError(error);
+        rememberSyncError("screenTime", error);
         return undefined;
       });
 
       if (!config) {
-        return usage;
+        return;
       }
 
       const syncAgeMs = config.screenTimeSyncAgeMs || sync.SCREEN_TIME_SYNC_AGE_MS;
 
       if (!options.force && !sync.shouldSyncScreenTime(usage, currentTimeMs(), syncAgeMs)) {
         scheduleScreenTimeSync(state, usage, syncAgeMs);
-        return usage;
+        return;
       }
 
       try {
         const active = await activeSupabaseSession(config);
 
         if (active.type !== "active") {
-          return usage;
+          return;
         }
 
         const dirtyBuckets = sync.dirtyScreenTimeBuckets(usage);
-
-        if (dirtyBuckets.length > 0) {
-          const savedBuckets = await sync.saveRemoteScreenTime(active.config, active.session, dirtyBuckets, fetchJson);
-          const syncedBuckets = sync.normalizeSyncedScreenTimeRows(savedBuckets, core);
-
-          sync.markScreenTimeSynced(usage, syncedBuckets);
-        }
-
+        const syncedBuckets = dirtyBuckets.length === 0
+          ? []
+          : sync.normalizeSyncedScreenTimeRows(await sync.saveRemoteScreenTime(active.config, active.session, dirtyBuckets, fetchJson), core);
         const remoteRows = await sync.loadRemoteScreenTime(active.config, active.session, core.usageWindow(state.limitReset, currentTimeMs()), fetchJson);
 
-        sync.mergeRemoteScreenTimeBuckets(usage, sync.normalizeRemoteScreenTimeRows(remoteRows, core));
-        await screenTimeStorage.saveUsage(usage);
-        await markSyncSuccessful(await loadSettingsSync());
-        lastSyncError = "";
-      } catch (error) {
-        rememberSyncError(error);
-      }
+        const userId = sync.sessionUserId(active.session);
 
-      return usage;
+        // Pages log time while the requests run, so the results apply to the
+        // stored usage rather than to the copy read before them. A sign-out
+        // meanwhile already cleared the account's buckets.
+        await updateScreenTimeUsage(async (current) => {
+          const session = sync.parseSession(await sessionStorage.loadSession());
+
+          if (session.type === "signedOut" || sync.sessionUserId(session.session) !== userId) {
+            return;
+          }
+
+          sync.markScreenTimeSynced(current, syncedBuckets);
+          sync.mergeRemoteScreenTimeBuckets(current, sync.normalizeRemoteScreenTimeRows(remoteRows, core));
+        });
+        await inSettingsQueue(async () => markSyncSuccessful(await loadSettingsSync()));
+        syncErrors.screenTime = "";
+      } catch (error) {
+        rememberSyncError("screenTime", error);
+      }
     }
 
     function scheduleScreenTimeSync(state, usage, syncAgeMs) {
@@ -1091,7 +1055,7 @@
       usageSyncTimer = setTimer(() => {
         usageSyncTimer = 0;
         syncScreenTimeIfReady(state, { force: false })
-          .catch((error) => rememberSyncError(error));
+          .catch((error) => rememberSyncError("screenTime", error));
       }, delayMs);
     }
 
@@ -1120,7 +1084,7 @@
     }
 
     async function loadSettingsSync() {
-      return sync.parseSettingsSync(await settingsSyncStorage.loadSync(), createId, currentTimeMs());
+      return sync.parseSettingsSync(await settingsSyncStorage.loadSync(), createId);
     }
 
     async function markSyncSuccessful(settingsSync) {
@@ -1145,7 +1109,7 @@
     }
 
     async function fetchJson(url, options) {
-      const response = await fetch(url, options);
+      const response = await fetch(url, { ...options, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
 
       if (!response.ok) {
         throw codedError(`HTTP ${response.status}`, sync.supabaseErrorMessage(response.status, await response.text()));
@@ -1154,8 +1118,12 @@
       return response.json();
     }
 
-    function rememberSyncError(error) {
-      lastSyncError = errorMessage(error);
+    function syncErrorText() {
+      return [syncErrors.settings, syncErrors.screenTime].filter((error) => error !== "").join("\n");
+    }
+
+    function rememberSyncError(kind, error) {
+      syncErrors[kind] = errorMessage(error);
       console.error(`URL Blocker sync failed. ${errorLogText(error)}`);
     }
 
@@ -1198,7 +1166,6 @@
       getLocalScreenTimeStats,
       getScreenTimeLog,
       getScreenTimeStats,
-      getState,
       getDefaultState,
       handleMessage,
       loadState,
@@ -1214,6 +1181,17 @@
       syncNow,
       syncContentScripts,
       syncWebsiteAccess
+    };
+  }
+
+  function createQueue() {
+    let tail = Promise.resolve();
+
+    return (task) => {
+      const run = tail.then(task);
+
+      tail = run.catch(() => {});
+      return run;
     };
   }
 

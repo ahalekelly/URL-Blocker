@@ -93,6 +93,7 @@
     "com.wbd.stream": "hbomax.com"
   };
   const UNSUPPORTED_BLOCKLIST_VERSION_MESSAGE = "Unsupported blocklist version. Reset the blocklist to repair it.";
+  const NEWER_BLOCKLIST_VERSION_MESSAGE = "These settings come from a newer version of URL Blocker. Update URL Blocker on this device to use them.";
   const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const URL_ALIASES = [
     { type: "exact", source: "x.com/home", target: "x.com" },
@@ -159,6 +160,11 @@
 
     if (!isPlainObject(rawState)) {
       return invalid([{ index: null, message: "Blocklist data must be an object." }]);
+    }
+
+    // Resetting newer settings would overwrite them on every synced device.
+    if (Number.isInteger(rawState.schemaVersion) && rawState.schemaVersion > SCHEMA_VERSION) {
+      return invalid([{ index: null, message: NEWER_BLOCKLIST_VERSION_MESSAGE }]);
     }
 
     if (rawState.schemaVersion !== SCHEMA_VERSION) {
@@ -1256,8 +1262,9 @@
     return { type: "none" };
   }
 
-  // Precedence: the hard schedule, then single short video redirects, which
-  // are judged by their destination, then the allow list and the page policy.
+  // Precedence: the allow list, then the hard schedule, then single short
+  // video redirects, which are judged by their destination, then the page
+  // policy.
   //
   // A visit is "continuing" when the tab already holds a pass for the page,
   // "arrivalPending" when it is new but how it arrived is not known yet, or an

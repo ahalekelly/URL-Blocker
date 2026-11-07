@@ -219,12 +219,13 @@
     return usage;
   }
 
-  function parseSettingsSync(rawSync, createDeviceId, nowMs) {
+  // A device that has never synced takes any remote settings as newer.
+  function parseSettingsSync(rawSync, createDeviceId) {
     if (rawSync === undefined) {
       return {
         schemaVersion: SETTINGS_SYNC_SCHEMA_VERSION,
         deviceId: createDeviceId(),
-        updatedAtMs: nowMs,
+        updatedAtMs: 0,
         revisionId: createDeviceId(),
         dirty: false,
         lastSuccessfulSyncMs: null

@@ -103,9 +103,9 @@ test("saveState keeps matching content script registration", async () => {
   assert.deepEqual(api.registeredScripts[0].matches, core.permissionOriginsForState(defaultState));
 });
 
-test("getState loads default blocked pages when storage is empty", async () => {
+test("getLocalState loads default blocked pages when storage is empty", async () => {
   const controller = createBackgroundController(fakeApi());
-  const response = await controller.getState();
+  const response = await controller.getLocalState();
 
   assert.equal(response.type, "state");
   assert.deepEqual(response.state.entries, core.emptyState(defaultBlockedPages).entries);
@@ -115,14 +115,14 @@ test("getState loads default blocked pages when storage is empty", async () => {
   assert.deepEqual(response.state.domainLimits, core.emptyState(defaultBlockedPages).domainLimits);
 });
 
-test("getState reports plain object errors with details", async () => {
+test("getLocalState reports plain object errors with details", async () => {
   const api = fakeApi();
 
   api.storage.local.get = async () => {
     throw { message: "Storage request failed.", code: "StorageTestError" };
   };
 
-  const response = await createBackgroundController(api).getState();
+  const response = await createBackgroundController(api).getLocalState();
 
   assert.deepEqual(response, {
     type: "stateError",
@@ -137,7 +137,7 @@ test("getLocalState resets unsupported stored blocklist versions", async () => {
 
   api.storageData[core.STATE_KEY] = {
     ...validState([]),
-    schemaVersion: core.SCHEMA_VERSION + 1
+    schemaVersion: 5
   };
 
   const response = await createBackgroundController(api).getLocalState();
@@ -146,7 +146,8 @@ test("getLocalState resets unsupported stored blocklist versions", async () => {
   assert.deepEqual(response.state, defaultState);
   assert.deepEqual(api.storageData[core.STATE_KEY], defaultState);
   assert.deepEqual(api.storageData[core.BLOCKED_PAGE_HTML_KEY], { html: defaultState.blockedPageHtml });
-  assert.equal(api.storageData.settingsSync.dirty, true);
+  assert.equal(api.storageData.settingsSync.dirty, false, "the account's settings replace the defaults");
+  assert.equal(api.storageData.settingsSync.updatedAtMs, 0);
   assert.deepEqual(api.registeredScripts[0].matches, core.permissionOriginsForState(defaultState));
 });
 
@@ -190,7 +191,7 @@ test("getBlockedPageHtml backfills the cached HTML", async () => {
   assert.deepEqual(api.storageData[core.BLOCKED_PAGE_HTML_KEY], { html: state.blockedPageHtml });
 });
 
-test("getState loads default blocked pages without runtime getURL", async () => {
+test("getLocalState loads default blocked pages without runtime getURL", async () => {
   const api = fakeApi();
   const fetch = globalThis.fetch;
   const location = Object.getOwnPropertyDescriptor(globalThis, "location");
@@ -222,7 +223,7 @@ test("getState loads default blocked pages without runtime getURL", async () => 
   };
 
   try {
-    const response = await createBackgroundController(api).getState();
+    const response = await createBackgroundController(api).getLocalState();
 
     assert.equal(response.type, "state");
     assert.deepEqual(response.state.entries, core.emptyState(defaultBlockedPages).entries);
@@ -1332,7 +1333,7 @@ test("saveState returns after local write before Supabase follow-up", async () =
   }
 });
 
-test("getState applies newer remote settings with strict selected columns", async () => {
+test("syncNow applies newer remote settings with strict selected columns", async () => {
   const fetch = globalThis.fetch;
   const userSettingsUrls = [];
   const api = fakeApi({
@@ -1362,11 +1363,9 @@ test("getState applies newer remote settings with strict selected columns", asyn
 
   try {
     const controller = createBackgroundController(api);
-    const response = await controller.getState();
+    await controller.syncNow();
     const defaultState = core.emptyState(defaultBlockedPages);
 
-    assert.equal(response.type, "state");
-    assert.deepEqual(response.state, defaultState);
     assert.deepEqual(api.storageData[core.STATE_KEY], remoteState);
     assert.deepEqual(api.storageData.settingsActivation.activeState, defaultState);
     assert.deepEqual(api.storageData.settingsActivation.pending.state, remoteState);
@@ -1437,41 +1436,110 @@ test("syncNow repairs remote settings missing added defaults", async () => {
   }
 });
 
-test("getState resets unsupported remote blocklist versions", async () => {
+test("syncNow leaves settings from a newer version in place", async () => {
   const fetch = globalThis.fetch;
-  const defaultState = core.emptyState(defaultBlockedPages);
   const api = fakeApi({
     now: 20 * 60 * 60 * 1000,
     supabaseConfig: configuredSupabase()
   });
-  let savedBody;
+  const localState = validState([{ id, kind: "domain", value: "example.com" }]);
+  const requests = [];
 
+  restrictState(api, localState);
+  api.storageData.supabaseSession = supabaseSession();
+  globalThis.fetch = remoteSettingsFetch(fetch, requests, () => remoteSettingsRow({ ...validState([]), schemaVersion: core.SCHEMA_VERSION + 1 }, 72000001));
+
+  try {
+    const response = await createBackgroundController(api).syncNow();
+
+    assert.match(response.status.error, /newer version of URL Blocker/);
+    assert.deepEqual(api.storageData[core.STATE_KEY], localState);
+    assert.deepEqual(api.storageData.settingsActivation.activeState, localState);
+    assert.equal(requests.some((request) => request.url.includes("/rpc/save_user_settings")), false);
+  } finally {
+    globalThis.fetch = fetch;
+  }
+});
+
+test("signing in on a new device takes the account's older settings", async () => {
+  const fetch = globalThis.fetch;
+  const api = fakeApi({
+    now: 20 * 60 * 60 * 1000,
+    supabaseConfig: configuredSupabase()
+  });
+  const remoteState = validState([{ id, kind: "domain", value: "reddit.com" }]);
+
+  api.storageData.supabaseSession = supabaseSession();
+  globalThis.fetch = remoteSettingsFetch(fetch, [], () => remoteSettingsRow(remoteState, 1000));
+
+  try {
+    await createBackgroundController(api).syncNow();
+
+    assert.deepEqual(api.storageData[core.STATE_KEY], remoteState);
+    assert.deepEqual(api.storageData.settingsActivation.pending.state, remoteState);
+  } finally {
+    globalThis.fetch = fetch;
+  }
+});
+
+test("signing out lets the next account's older settings apply", async () => {
+  const fetch = globalThis.fetch;
+  const api = fakeApi({
+    now: 20 * 60 * 60 * 1000,
+    supabaseConfig: configuredSupabase()
+  });
+  const nextAccountState = validState([{ id, kind: "domain", value: "reddit.com" }]);
+
+  api.storageData.settingsSync = { schemaVersion: 2, deviceId: "device", updatedAtMs: 71000000, revisionId: "first-account", dirty: false, lastSuccessfulSyncMs: 71000000 };
+  api.storageData.supabaseSession = supabaseSession();
+  globalThis.fetch = remoteSettingsFetch(fetch, [], () => remoteSettingsRow(nextAccountState, 1000));
+
+  try {
+    const controller = createBackgroundController(api);
+
+    await controller.signOut();
+    api.storageData.supabaseSession = supabaseSession();
+    await controller.syncNow();
+
+    assert.deepEqual(api.storageData.settingsActivation.pending.state, nextAccountState);
+  } finally {
+    globalThis.fetch = fetch;
+  }
+});
+
+test("signing out keeps edits that never synced", async () => {
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
+  const unsynced = { schemaVersion: 2, deviceId: "device", updatedAtMs: 72000000, revisionId: "local", dirty: true, lastSuccessfulSyncMs: null };
+
+  api.storageData.settingsSync = unsynced;
+  api.storageData.supabaseSession = supabaseSession();
+  await createBackgroundController(api).signOut();
+
+  assert.deepEqual(api.storageData.settingsSync, unsynced);
+});
+
+test("a screen time sync that ends after sign-out keeps other devices' time cleared", async () => {
+  const fetch = globalThis.fetch;
+  const api = fakeApi({
+    now: 20 * 60 * 60 * 1000,
+    supabaseConfig: configuredSupabase()
+  });
+  let releaseDownload;
+  let downloadStarted;
+  const download = new Promise((resolve) => { releaseDownload = resolve; });
+  const started = new Promise((resolve) => { downloadStarted = resolve; });
+
+  api.storageData[core.STATE_KEY] = validState([{ id, kind: "domain", value: "example.com" }], inactiveSchedule());
   api.storageData.supabaseSession = supabaseSession();
   globalThis.fetch = async (url, options = {}) => {
     if (String(url).includes("/user_settings")) {
-      return jsonResponse([{
-        user_id: "22222222-2222-4222-8222-222222222222",
-        state: {
-          ...validState([]),
-          schemaVersion: core.SCHEMA_VERSION + 1
-        },
-        updated_at_ms: 72000001,
-        revision_id: "remote-revision",
-        device_id: "remote-device",
-        updated_at: "2026-05-23T00:00:00.000Z"
-      }]);
+      return jsonResponse([]);
     }
 
-    if (String(url).includes("/rpc/save_user_settings")) {
-      savedBody = JSON.parse(options.body);
-      return jsonResponse({
-        user_id: "22222222-2222-4222-8222-222222222222",
-        state: savedBody.p_state,
-        updated_at_ms: savedBody.p_updated_at_ms,
-        revision_id: savedBody.p_revision_id,
-        device_id: savedBody.p_device_id,
-        updated_at: "2026-05-23T00:00:01.000Z"
-      });
+    if (String(url).includes("/screen_time_buckets")) {
+      downloadStarted();
+      await download;
+      return jsonResponse([{ device_id: "other-device", domain: "example.com", hour_number: 20, total_ms: 60000 }]);
     }
 
     return fetch(url, options);
@@ -1479,20 +1547,187 @@ test("getState resets unsupported remote blocklist versions", async () => {
 
   try {
     const controller = createBackgroundController(api);
-    const response = await controller.getState();
-    const status = await controller.handleMessage({ type: "getSyncStatus" }, {});
+    const syncing = controller.syncNow();
 
-    assert.equal(response.type, "state");
-    assert.deepEqual(response.state, defaultState);
-    assert.deepEqual(api.storageData[core.STATE_KEY], defaultState);
-    assert.deepEqual(api.storageData[core.BLOCKED_PAGE_HTML_KEY], { html: defaultState.blockedPageHtml });
-    assert.deepEqual(savedBody.p_state, defaultState);
-    assert.equal(savedBody.p_updated_at_ms, 72000002);
-    assert.equal(api.storageData.settingsSync.dirty, false);
-    assert.equal(status.error, "");
+    await started;
+    await controller.signOut();
+    releaseDownload();
+    await syncing;
+
+    assert.deepEqual(api.storageData.screenTimeUsage.remoteBuckets, {});
   } finally {
     globalThis.fetch = fetch;
   }
+});
+
+test("a settings sync that ends after a save keeps the save unsynced", async () => {
+  const fetch = globalThis.fetch;
+  const api = fakeApi({
+    now: 20 * 60 * 60 * 1000,
+    supabaseConfig: configuredSupabase()
+  });
+  const remote = remoteSettingsRow(validState([]), 1000, "revision");
+  let releaseLoad;
+  const load = new Promise((resolve) => { releaseLoad = resolve; });
+
+  restrictState(api, validState([]));
+  api.storageData.settingsSync = { schemaVersion: 2, deviceId: "device", updatedAtMs: 1000, revisionId: "revision", dirty: false, lastSuccessfulSyncMs: 1000 };
+  api.storageData.supabaseSession = supabaseSession();
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).includes("/rpc/save_user_settings")) {
+      return httpErrorResponse(503, { message: "Offline" });
+    }
+
+    if (String(url).includes("/rest/v1/user_settings")) {
+      await load;
+      return jsonResponse([remote]);
+    }
+
+    if (String(url).includes("/screen_time_buckets")) {
+      return jsonResponse([]);
+    }
+
+    return fetch(url, options);
+  };
+
+  try {
+    const controller = createBackgroundController(api);
+    const opening = controller.syncNow();
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const saving = controller.saveState(validState([{ id, kind: "domain", value: "example.com" }]))
+      .then(() => controller.finishSavedState());
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    releaseLoad();
+    await Promise.all([opening, saving]);
+
+    assert.equal(api.storageData.settingsSync.dirty, true);
+  } finally {
+    globalThis.fetch = fetch;
+  }
+});
+
+test("screen time logged during a sync is kept", async () => {
+  const fetch = globalThis.fetch;
+  const api = fakeApi({
+    now: 20 * 60 * 60 * 1000,
+    supabaseConfig: configuredSupabase()
+  });
+  let releaseUpload;
+  const upload = new Promise((resolve) => { releaseUpload = resolve; });
+
+  api.storageData[core.STATE_KEY] = validState([{ id, kind: "domain", value: "example.com" }], inactiveSchedule());
+  api.storageData.supabaseSession = supabaseSession();
+  api.storageData.screenTimeUsage = { ...screenTimeUsage({ "example.com": { 20: 5000 } }), dirtySinceMs: 0 };
+  api.storageData.screenTimeUsage.localBuckets["example.com"][20].syncedMs = 0;
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).includes("/rpc/sync_screen_time_buckets")) {
+      await upload;
+      return jsonResponse(JSON.parse(options.body).p_buckets);
+    }
+
+    if (String(url).includes("/screen_time_buckets")) {
+      return jsonResponse([]);
+    }
+
+    return fetch(url, options);
+  };
+
+  try {
+    const controller = createBackgroundController(api);
+    const log = () => controller.handleMessage({ type: "screenTimeElapsed", url: "https://example.com/", elapsedMs: 5000 }, { tab: { id: 7 } });
+    const logs = [log()];
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    logs.push(log(), log());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    releaseUpload();
+    await Promise.all(logs);
+
+    assert.equal(api.storageData.screenTimeUsage.localBuckets["example.com"][20].totalMs, 20000);
+  } finally {
+    globalThis.fetch = fetch;
+  }
+});
+
+test("screen time syncs at once only when a site crosses its limit", async () => {
+  const fetch = globalThis.fetch;
+  const uploads = [];
+  const api = fakeApi({
+    now: 20 * 60 * 60 * 1000,
+    supabaseConfig: configuredSupabase()
+  });
+
+  api.storageData[core.STATE_KEY] = validState([{ id, kind: "domain", value: "example.com" }], inactiveSchedule(), [
+    { domain: "example.com", limit: { type: "site", limitMinutes: 1 } }
+  ]);
+  api.storageData.supabaseSession = supabaseSession();
+  api.storageData.screenTimeUsage = screenTimeUsage({ "example.com": { 20: 55000 } });
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).includes("/rpc/sync_screen_time_buckets")) {
+      uploads.push(JSON.parse(options.body).p_buckets);
+      return jsonResponse(JSON.parse(options.body).p_buckets);
+    }
+
+    if (String(url).includes("/screen_time_buckets")) {
+      return jsonResponse([]);
+    }
+
+    return fetch(url, options);
+  };
+
+  try {
+    const controller = createBackgroundController(api);
+    const log = () => controller.handleMessage({ type: "screenTimeElapsed", url: "https://example.com/", elapsedMs: 5000 }, { tab: { id: 7 } });
+
+    assert.equal((await log()).isOverLimit, true);
+    assert.equal((await log()).isOverLimit, true);
+    assert.equal(uploads.length, 1);
+  } finally {
+    globalThis.fetch = fetch;
+  }
+});
+
+test("overlapping settings activations register the content script once", async () => {
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
+  const pendingState = validState([{ id, kind: "domain", value: "example.com" }], inactiveSchedule());
+
+  api.storageData[core.STATE_KEY] = pendingState;
+  api.storageData.settingsActivation = {
+    schemaVersion: 1,
+    activeState: validState([], inactiveSchedule()),
+    pending: { type: "pending", state: pendingState, effectiveAtMs: 20 * 60 * 60 * 1000 }
+  };
+  api.registeredScripts = [{ id: "url-blocker-content", js: ["content.js"], css: ["content.css"], matches: ["*://*.old.example/*"], runAt: "document_start" }];
+  api.scripting.unregisterContentScripts = async ({ ids }) => {
+    await Promise.resolve();
+
+    if (!api.registeredScripts.some((script) => ids.includes(script.id))) {
+      throw new Error(`Nonexistent script ID '${ids[0]}'`);
+    }
+
+    api.registeredScripts = api.registeredScripts.filter((script) => !ids.includes(script.id));
+  };
+  api.scripting.registerContentScripts = async (scripts) => {
+    await Promise.resolve();
+
+    if (api.registeredScripts.some((script) => scripts.some((added) => added.id === script.id))) {
+      throw new Error(`Duplicate script ID '${scripts[0].id}'`);
+    }
+
+    api.registeredScripts.push(...scripts);
+  };
+
+  const controller = createBackgroundController(api);
+  const checks = await Promise.all([
+    controller.handleMessage(checkPageMessage("https://example.com/a"), { tab: { id: 7 } }),
+    controller.handleMessage(checkPageMessage("https://example.com/b"), { tab: { id: 8 } })
+  ]);
+
+  assert.deepEqual(checks.map((check) => check.type), ["allowed", "allowed"]);
+  assert.equal(api.registeredScripts.length, 1);
+  assert.deepEqual(api.registeredScripts[0].matches, core.contentScriptOriginsForState(pendingState));
 });
 
 test("getLocalState reads storage without remote settings sync", async () => {
@@ -1617,6 +1852,7 @@ test("saveState closes open feeds that match the new state", async () => {
       { id: 8, url: "https://x.com/messages" }
     ]
   });
+  restrictState(api, { ...validState([], inactiveSchedule()), settingsDelay: { delayMinutes: 0 } });
   const controller = createBackgroundController(api);
   const response = await controller.saveState(validState([
     { id, kind: "url", value: "x.com" }
@@ -1630,6 +1866,36 @@ test("saveState closes open feeds that match the new state", async () => {
     url: blockedUrl("https://x.com/home", "schedule")
   }]);
 });
+
+function remoteSettingsRow(state, updatedAtMs, revisionId = "remote-revision") {
+  return {
+    user_id: "22222222-2222-4222-8222-222222222222",
+    state,
+    updated_at_ms: updatedAtMs,
+    revision_id: revisionId,
+    device_id: "remote-device",
+    updated_at: "2026-05-23T00:00:00.000Z"
+  };
+}
+
+// Answers settings requests with settingsResponse(options); screen time requests get no rows.
+function remoteSettingsFetch(fetch, requests, settingsResponse) {
+  return async (url, options = {}) => {
+    if (!String(url).startsWith("https://project.supabase.co")) {
+      return fetch(url, options);
+    }
+
+    requests.push({ url: String(url), options });
+
+    if (String(url).includes("user_settings")) {
+      const row = await settingsResponse(options);
+
+      return jsonResponse(options.method === "POST" || Array.isArray(row) ? row : [row]);
+    }
+
+    return jsonResponse([]);
+  };
+}
 
 function validState(entries, schedule = core.DEFAULT_SCHEDULE, domainLimits, limitReset = core.DEFAULT_LIMIT_RESET, hardSchedule = core.DEFAULT_HARD_SCHEDULE) {
   const stateEntries = stateEntriesWithDefaults(entries);
@@ -1911,6 +2177,7 @@ function fakeApi(overrides = {}) {
       },
       async update(tabId, { url }) {
         api.updatedTabs.push({ tabId, url });
+        api.tabsData = api.tabsData.map((tab) => (tab.id === tabId ? { ...tab, url } : tab));
       }
     }
   };

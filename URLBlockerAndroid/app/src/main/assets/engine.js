@@ -50,8 +50,7 @@
     defaultEntries = JSON.parse(defaultsText);
     usage = loadUsage();
     activation = loadActivation();
-    // A device that has never synced takes any remote settings as newer.
-    settingsSync = sync.parseSettingsSync(readJson(SETTINGS_SYNC_FILE), () => crypto.randomUUID(), 0);
+    settingsSync = sync.parseSettingsSync(readJson(SETTINGS_SYNC_FILE), () => crypto.randomUUID());
     const sessionResult = sync.parseSession(readJson(SESSION_FILE));
     account = sessionResult.type === "session" ? signedIn(sessionResult.session) : { type: "signedOut" };
     reportStatus();
@@ -251,8 +250,9 @@
     writeJson(SETTINGS_SYNC_FILE, settingsSync);
   }
 
+  // A stalled request would otherwise leave syncing set for good.
   async function fetchJson(url, options) {
-    const response = await fetch(url, options);
+    const response = await fetch(url, { ...options, signal: AbortSignal.timeout(30 * 1000) });
 
     if (!response.ok) {
       throw new Error(sync.supabaseErrorMessage(response.status, await response.text()));
@@ -284,9 +284,13 @@
     reportStatus();
   }
 
+  // The next account's settings count as newer than the last account's. This
+  // device never edits settings, so it has none unsynced.
   function signOut() {
     account = { type: "signedOut" };
     host.remove(SESSION_FILE);
+    host.remove(SETTINGS_SYNC_FILE);
+    settingsSync = sync.parseSettingsSync(undefined, () => crypto.randomUUID());
     usage.remoteBuckets = {};
     usageDirty = true;
     syncError = "";
