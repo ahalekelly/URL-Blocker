@@ -209,19 +209,35 @@ async function runContentScript(url, options = {}) {
   const checkPageResponses = [...(options.checkPageResponses || [])];
   const documentElement = {
     attributes: {},
+    children: [],
+    getAttribute(name) {
+      return this.attributes[name] ?? null;
+    },
     setAttribute(name, value) {
       this.attributes[name] = value;
     },
     removeAttribute(name) {
       delete this.attributes[name];
+    },
+    append(child) {
+      this.children.push(child);
     }
   };
+  const pausedMedia = [];
+
+  if (options.staleCover) {
+    documentElement.children.push({ ...options.staleCover, remove() { documentElement.children = []; } });
+  }
   const context = {
     browser: {
       runtime: {
         id: "test-extension",
         async sendMessage(message) {
           context.messages.push(message);
+
+          if (options.silent?.()) {
+            return new Promise(() => {});
+          }
 
           if (options.sendError) {
             throw options.sendError;
@@ -240,7 +256,30 @@ async function runContentScript(url, options = {}) {
         context.consoleErrors.push(args);
       }
     },
-    document: { hidden: false, referrer: options.referrer || "", documentElement },
+    document: {
+      hidden: false,
+      referrer: options.referrer || "",
+      documentElement,
+      createElement() {
+        const element = {
+          attributes: {},
+          setAttribute(name, value) {
+            this.attributes[name] = value;
+          },
+          remove() {
+            documentElement.children = documentElement.children.filter((child) => child !== element);
+          }
+        };
+
+        return element;
+      },
+      getElementById(id) {
+        return documentElement.children.find((child) => child.id === id) || null;
+      },
+      querySelectorAll(selector) {
+        return selector === "video, audio" ? [{ pause: () => pausedMedia.push("video") }] : [];
+      }
+    },
     performance: {
       getEntriesByType(type) {
         return type === "navigation" ? [{ type: options.navigationType || "navigate" }] : [];
@@ -292,6 +331,11 @@ async function runContentScript(url, options = {}) {
       return JSON.parse(JSON.stringify(context.messages));
     },
     documentElement,
+    pausedMedia,
+    runtime: context.browser.runtime,
+    get coverText() {
+      return context.document.getElementById("url-blocker-cover")?.textContent;
+    },
     hasListener(type) {
       return context.listeners.has(type);
     },
@@ -320,3 +364,88 @@ async function runContentScript(url, options = {}) {
     }
   }
 }
+
+test("content script covers the page after two polls without a reply and reports the silence once answered", async () => {
+  let silent = false;
+  const page = await runContentScript("https://x.com/home", { now: 1000, silent: () => silent });
+
+  silent = true;
+  await page.tick();
+  await page.tick();
+  assert.equal(page.coverText, undefined);
+
+  await page.tick();
+  assert.match(page.coverText, /isn't responding/);
+  assert.deepEqual(page.pausedMedia, ["video"]);
+
+  silent = false;
+  await page.tick();
+
+  assert.equal(page.coverText, undefined);
+  assert.deepEqual(page.messages.at(-1), { type: "reportSilence", url: "https://x.com/home", sinceMs: 6000 });
+});
+
+test("content script does not cover the page for a slow reply", async () => {
+  let respond;
+  const page = await runContentScript("https://x.com/home", {
+    checkPageResponses: [new Promise((resolve) => { respond = resolve; })]
+  });
+
+  await page.tick();
+  respond({ type: "allowed", shortVideo: { type: "none" } });
+  await page.tick();
+  await page.tick();
+
+  assert.equal(page.coverText, undefined);
+  assert.equal(page.messages.some((message) => message.type === "reportSilence"), false);
+});
+
+test("content script restarts the silent poll count when a hidden page is shown again", async () => {
+  const page = await runContentScript("https://x.com/home", { silent: () => true });
+
+  await page.tick();
+  await page.setHidden(true);
+  await page.setHidden(false);
+  await page.tick();
+  assert.equal(page.coverText, undefined);
+
+  await page.tick();
+  assert.match(page.coverText, /isn't responding/);
+});
+
+test("content script covers the page when the extension stops running", async () => {
+  const page = await runContentScript("https://x.com/home");
+
+  page.runtime.id = undefined;
+  await page.tick();
+
+  assert.match(page.coverText, /Reload the page/);
+});
+
+test("an orphaned content script leaves the page to the script that replaced it", async () => {
+  const page = await runContentScript("https://x.com/home");
+
+  page.documentElement.attributes["data-url-blocker-script"] = "newer script";
+  page.runtime.id = undefined;
+  await page.tick();
+
+  assert.equal(page.coverText, undefined);
+});
+
+test("an orphaned content script with a check in flight does not cover the replaced page", async () => {
+  const page = await runContentScript("https://x.com/home", { silent: () => true });
+
+  await page.tick();
+  page.documentElement.attributes["data-url-blocker-script"] = "newer script";
+  await page.tick();
+
+  assert.equal(page.coverText, undefined);
+});
+
+test("content script removes a cover left by the script it replaced", async () => {
+  const page = await runContentScript("https://x.com/home", {
+    staleCover: { id: "url-blocker-cover", textContent: "URL Blocker stopped running on this page." }
+  });
+
+  assert.equal(page.coverText, undefined);
+});

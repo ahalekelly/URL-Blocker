@@ -735,6 +735,9 @@ async function runContentScript(app, url, tabId) {
       documentElement: {
         setAttribute() {},
         removeAttribute() {}
+      },
+      getElementById() {
+        return null;
       }
     },
     location: { href: url },

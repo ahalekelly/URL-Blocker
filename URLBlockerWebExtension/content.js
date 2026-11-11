@@ -8,6 +8,27 @@
   const PATH_ATTRIBUTE = "data-url-blocker-path";
   const SINGLE_SHORT_VIDEO_ATTRIBUTE = "data-url-blocker-single-short-video";
   const SINGLE_VIDEO_NAVIGATION_KEYS = new Set(["ArrowDown", "ArrowUp", "PageDown", "PageUp"]);
+  const SILENT_POLLS_BEFORE_COVER = 2;
+  const COVER_ID = "url-blocker-cover";
+  // Chromium injects a new script into open tabs after an update, so the
+  // orphaned one must not cover a page the new one now watches.
+  const SCRIPT_ATTRIBUTE = "data-url-blocker-script";
+  const scriptId = String(Math.random());
+  const COVER_STYLE = [
+    "all: initial",
+    "position: fixed",
+    "inset: 0",
+    "z-index: 2147483647",
+    "display: flex",
+    "align-items: center",
+    "justify-content: center",
+    "padding: 24px",
+    "background: #fff",
+    "color: #111",
+    "font: 600 20px/1.5 -apple-system, system-ui, sans-serif",
+    "text-align: center",
+    "white-space: pre-line"
+  ].map((rule) => `${rule} !important`).join("; ");
   let singleVideoLocked = false;
   let currentPageUrl = location.href;
   // Back/Forward reloads a page with the referrer of the document's first
@@ -19,17 +40,23 @@
   let screenTimeStartedAt = 0;
   let pollId = 0;
   let stopped = false;
+  // answered: the last page check got a reply. waiting: checks have gone
+  // unanswered since sinceMs, through `polls` visible polls. covered: the
+  // page is covered until a check gets a reply.
+  let silence = { type: "answered" };
 
   start();
 
   function start() {
-    checkCurrentUrl();
+    document.documentElement.setAttribute(SCRIPT_ATTRIBUTE, scriptId);
+    removeCover();
     watchPage();
+    checkCurrentUrl();
   }
 
   function watchPage() {
     root.addEventListener("pageshow", pageShown);
-    root.addEventListener("pagehide", stopScreenTime);
+    root.addEventListener("pagehide", pageHidden);
     root.addEventListener("visibilitychange", syncVisibility);
 
     // The Navigation API reports every same-document URL change, including
@@ -57,6 +84,7 @@
 
       const now = Date.now();
 
+      countSilentPoll();
       updateScreenTimeUrl(now);
       sendScreenTime(now);
       sendCurrentUrl();
@@ -72,21 +100,81 @@
     }
   }
 
+  // The extension was updated, reloaded, or removed, so nothing checks this
+  // page until it reloads.
   function teardown() {
+    if (stopped) {
+      return;
+    }
+
     stopped = true;
     setSingleVideoLock(false);
-    if (pollId !== 0) {
-      root.clearInterval(pollId);
-      pollId = 0;
-    }
+    root.clearInterval(pollId);
+    showCover("URL Blocker stopped running on this page.\nReload the page to continue.");
   }
 
   function syncVisibility() {
     if (document.hidden) {
-      stopScreenTime();
+      pageHidden();
     } else {
       checkCurrentUrl();
     }
+  }
+
+  // A hidden page may be frozen with a check in flight, so the count starts
+  // over once it is visible again.
+  function pageHidden() {
+    stopScreenTime();
+
+    if (silence.type === "waiting") {
+      silence = { ...silence, polls: 0 };
+    }
+  }
+
+  function countSilentPoll() {
+    if (silence.type !== "waiting") {
+      return;
+    }
+
+    if (silence.polls + 1 < SILENT_POLLS_BEFORE_COVER) {
+      silence = { ...silence, polls: silence.polls + 1 };
+      return;
+    }
+
+    silence = { type: "covered", sinceMs: silence.sinceMs };
+    showCover("URL Blocker isn't responding.\nThis page stays covered until it answers.");
+  }
+
+  function checkAnswered() {
+    if (silence.type === "covered") {
+      removeCover();
+      sendMessage(
+        { type: "reportSilence", url: location.href, sinceMs: silence.sinceMs },
+        (error) => console.error(`URL Blocker could not report its silence. ${errorLogText(error)}`),
+      );
+    }
+
+    silence = { type: "answered" };
+  }
+
+  function showCover(text) {
+    if (document.documentElement.getAttribute(SCRIPT_ATTRIBUTE) !== scriptId) {
+      return;
+    }
+
+    removeCover();
+
+    const cover = document.createElement("div");
+
+    cover.id = COVER_ID;
+    cover.setAttribute("style", COVER_STYLE);
+    cover.textContent = text;
+    document.documentElement.append(cover);
+    document.querySelectorAll("video, audio").forEach((media) => media.pause());
+  }
+
+  function removeCover() {
+    document.getElementById(COVER_ID)?.remove();
   }
 
   function checkCurrentUrl() {
@@ -154,10 +242,17 @@
       currentPageUrl = currentUrl;
     }
 
+    if (silence.type === "answered") {
+      silence = { type: "waiting", sinceMs: Date.now(), polls: 0 };
+    }
+
     sendMessage(
       { type: "checkPage", url: currentUrl, arrival },
       (error) => console.error(`URL Blocker could not check the current URL. ${errorLogText(error)}`),
-      (response) => applyCheckPageResponse(response, currentUrl),
+      (response) => {
+        checkAnswered();
+        applyCheckPageResponse(response, currentUrl);
+      },
     );
   }
 
