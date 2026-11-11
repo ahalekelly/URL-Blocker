@@ -66,6 +66,11 @@ test("blocked page is not exposed to every website", () => {
   assert.equal(chromeManifest.web_accessible_resources, undefined);
 });
 
+test("Safari runs the background as an event page and Chromium as a service worker", () => {
+  assert.deepEqual(sharedManifest.background, { scripts: ["blocker.js", "supabase-sync.js", "background.js"], persistent: false });
+  assert.deepEqual(chromeManifest.background, { service_worker: "background.js" });
+});
+
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

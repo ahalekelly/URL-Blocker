@@ -27,7 +27,12 @@
     "*://*.youtube.com/*"
   ],
   "background": {
-    "service_worker": "background.js"
+    "scripts": [
+      "blocker.js",
+      "supabase-sync.js",
+      "background.js"
+    ],
+    "persistent": false
   },
   "action": {
     "default_title": "URL Blocker",
