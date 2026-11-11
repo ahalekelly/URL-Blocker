@@ -47,13 +47,11 @@ test("loads default blocked pages for new installs", () => {
     { type: "default", kind: "url", value: "x.com", enabled: true },
     { type: "default", kind: "url", value: "instagram.com", enabled: true },
     { type: "default", kind: "url", value: "instagram.com/explore", enabled: true },
-    { type: "default", kind: "url", value: "instagram.com/reels", enabled: true },
     { type: "default", kind: "url", value: "tiktok.com", enabled: true },
     { type: "default", kind: "url", value: "tiktok.com/following", enabled: true },
     { type: "default", kind: "url", value: "tiktok.com/discover", enabled: true },
     { type: "default", kind: "url", value: "facebook.com", enabled: true },
     { type: "default", kind: "url", value: "facebook.com/watch", enabled: true },
-    { type: "default", kind: "urlWithSubpaths", value: "facebook.com/reel", enabled: true },
     { type: "default", kind: "url", value: "facebook.com/groups/feed", enabled: true },
     { type: "default", kind: "url", value: "threads.com", enabled: true },
     { type: "default", kind: "url", value: "threads.com/following", enabled: true },
@@ -65,7 +63,6 @@ test("loads default blocked pages for new installs", () => {
     { type: "default", kind: "url", value: "linkedin.com", enabled: true },
     { type: "default", kind: "url", value: "youtube.com", enabled: true },
     { type: "default", kind: "url", value: "youtube.com/feed/subscriptions", enabled: true },
-    { type: "default", kind: "urlWithSubpaths", value: "youtube.com/shorts", enabled: true },
     { type: "default", kind: "url", value: "reddit.com", enabled: true },
     { type: "default", kind: "url", value: "reddit.com/r/*", enabled: true },
     { type: "default", kind: "url", value: "ycombinator.com", enabled: true },
@@ -307,10 +304,7 @@ test("migrates schema 8 states to default rolling limit resets", () => {
 });
 
 test("migrates schema 12 settings delay modes to minute values", () => {
-  const previousDefaults = defaultBlockedPages.filter((entry) => ![
-    "youtube.com/feed/subscriptions",
-    "youtube.com/shorts"
-  ].includes(entry.value));
+  const previousDefaults = defaultBlockedPages.filter((entry) => entry.value !== "youtube.com/feed/subscriptions");
   const oldState = {
     schemaVersion: 12,
     entries: previousDefaults.map((entry) => ({ ...entry, enabled: entry.value === "youtube.com" })),
@@ -332,7 +326,6 @@ test("migrates schema 12 settings delay modes to minute values", () => {
   assert.deepEqual(immediate.settingsDelay, { delayMinutes: 0 });
   assert.deepEqual(immediate.limitReset, { type: "daily", resetHour: 6 });
   assert.equal(immediate.entries.find((entry) => entry.value === "youtube.com/feed/subscriptions").enabled, true);
-  assert.equal(immediate.entries.find((entry) => entry.value === "youtube.com/shorts").enabled, true);
   assert.deepEqual(immediate.domainLimits.find((limit) => limit.domain === "youtube.com"), {
     ...domainLimit("youtube.com", 11)
   });
@@ -340,10 +333,7 @@ test("migrates schema 12 settings delay modes to minute values", () => {
 });
 
 test("migrates schema 13 states to add YouTube subscriptions", () => {
-  const previousDefaults = defaultBlockedPages.filter((entry) => ![
-    "youtube.com/feed/subscriptions",
-    "youtube.com/shorts"
-  ].includes(entry.value));
+  const previousDefaults = defaultBlockedPages.filter((entry) => entry.value !== "youtube.com/feed/subscriptions");
   const previousEntries = previousDefaults.map((entry) => ({ ...entry, enabled: entry.value === "youtube.com" }));
   const state = validStoredState({
     schemaVersion: 13,
@@ -358,17 +348,13 @@ test("migrates schema 13 states to add YouTube subscriptions", () => {
 
   assert.equal(state.schemaVersion, core.SCHEMA_VERSION);
   assert.equal(state.entries.find((entry) => entry.value === "youtube.com/feed/subscriptions").enabled, true);
-  assert.equal(state.entries.find((entry) => entry.value === "youtube.com/shorts").enabled, true);
 });
 
 test("migrates schema 14 states to current path defaults", () => {
-  const previousEntries = defaultBlockedPages.map((entry) => {
-    if (entry.value === "facebook.com/reel") {
-      return { ...entry, kind: "url", value: "facebook.com/reel/*", enabled: true };
-    }
-
-    return { ...entry, enabled: true };
-  });
+  const previousEntries = [
+    ...defaultBlockedPages.map((entry) => ({ ...entry, enabled: true })),
+    { type: "default", id: "10000000-0000-4000-8000-000000000018", kind: "url", value: "facebook.com/reel/*", enabled: true }
+  ];
   const state = validStoredState({
     schemaVersion: 14,
     entries: previousEntries,
@@ -379,19 +365,15 @@ test("migrates schema 14 states to current path defaults", () => {
     settingsDelay: core.DEFAULT_SETTINGS_DELAY,
     domainLimits: legacyDomainLimits(core.domainLimitsForEntries(previousEntries, [], []))
   }, defaultBlockedPages);
-  const reelEntry = state.entries.find((entry) => entry.id === "10000000-0000-4000-8000-000000000018");
   const subredditEntry = state.entries.find((entry) => entry.id === "10000000-0000-4000-8000-000000000029");
 
   assert.equal(state.schemaVersion, core.SCHEMA_VERSION);
-  assert.deepEqual({ kind: reelEntry.kind, value: reelEntry.value }, { kind: "urlWithSubpaths", value: "facebook.com/reel" });
+  assert.equal(state.entries.some((entry) => entry.id === "10000000-0000-4000-8000-000000000018"), false);
   assert.deepEqual({ kind: subredditEntry.kind, value: subredditEntry.value }, { kind: "url", value: "reddit.com/r/*" });
 });
 
 test("repairs stored current states missing added defaults", () => {
-  const previousDefaults = defaultBlockedPages.filter((entry) => ![
-    "youtube.com/feed/subscriptions",
-    "youtube.com/shorts"
-  ].includes(entry.value));
+  const previousDefaults = defaultBlockedPages.filter((entry) => entry.value !== "youtube.com/feed/subscriptions");
   const previousEntries = previousDefaults.map((entry) => ({ ...entry, enabled: entry.value === "youtube.com" }));
   const state = validStoredState({
     schemaVersion: core.SCHEMA_VERSION,
@@ -408,9 +390,26 @@ test("repairs stored current states missing added defaults", () => {
   }, defaultBlockedPages);
 
   assert.equal(state.entries.find((entry) => entry.value === "youtube.com/feed/subscriptions").enabled, true);
-  assert.equal(state.entries.find((entry) => entry.value === "youtube.com/shorts").enabled, true);
   assert.deepEqual(state.limitReset, { type: "daily", resetHour: 6 });
   assert.deepEqual(state.settingsDelay, { delayMinutes: 17 });
+});
+
+test("migrates schema 22 states to drop the short video defaults", () => {
+  const shortVideoDefaults = [
+    { type: "default", id: "10000000-0000-4000-8000-000000000010", kind: "url", value: "instagram.com/reels", enabled: true },
+    { type: "default", id: "10000000-0000-4000-8000-000000000018", kind: "urlWithSubpaths", value: "facebook.com/reel", enabled: false },
+    { type: "default", id: "10000000-0000-4000-8000-000000000031", kind: "urlWithSubpaths", value: "youtube.com/shorts", enabled: true }
+  ];
+  const entries = [...core.emptyState(defaultBlockedPages).entries, ...shortVideoDefaults];
+  const state = validStoredState({
+    ...core.emptyState(defaultBlockedPages),
+    schemaVersion: 22,
+    entries,
+    domainLimits: core.domainLimitsForEntries(entries, [], core.DEFAULT_LIMIT_GROUPS)
+  }, defaultBlockedPages);
+
+  assert.equal(state.schemaVersion, core.SCHEMA_VERSION);
+  assert.deepEqual(state.entries, core.emptyState(defaultBlockedPages).entries);
 });
 
 test("migrates schema 16 states to default hard schedule", () => {
@@ -656,10 +655,14 @@ test("short video pages follow each site's toggle", () => {
   });
   assert.deepEqual(core.shortVideoPage(state, "https://www.instagram.com/someone/reel/Cx1/").url, "https://www.instagram.com/p/Cx1/");
   assert.deepEqual(core.shortVideoPage(state, "https://www.instagram.com/reels/Cx1/").url, "https://www.instagram.com/p/Cx1/");
-  assert.deepEqual(core.shortVideoPage(state, "https://www.instagram.com/reels/"), { type: "feed", site: "instagram" });
+  assert.deepEqual(core.shortVideoPage(state, "https://www.instagram.com/reels/"), { type: "videoFeed", site: "instagram" });
+  assert.deepEqual(core.shortVideoPage(state, "https://www.instagram.com/explore/"), { type: "sitePage", site: "instagram" });
   assert.deepEqual(core.shortVideoPage(state, "https://www.facebook.com/reel/123456"), { type: "singleVideo", site: "facebook" });
-  assert.deepEqual(core.shortVideoPage(state, "https://www.linkedin.com/feed/"), { type: "feed", site: "linkedin" });
-  assert.deepEqual(core.shortVideoPage(state, "https://www.youtube.com/shorts"), { type: "feed", site: "youtube" });
+  assert.deepEqual(core.shortVideoPage(state, "https://www.facebook.com/reel/"), { type: "videoFeed", site: "facebook" });
+  assert.deepEqual(core.shortVideoPage(state, "https://www.facebook.com/reels-creator"), { type: "sitePage", site: "facebook" });
+  assert.deepEqual(core.shortVideoPage(state, "https://www.linkedin.com/feed/"), { type: "sitePage", site: "linkedin" });
+  assert.deepEqual(core.shortVideoPage(state, "https://www.youtube.com/shorts"), { type: "videoFeed", site: "youtube" });
+  assert.deepEqual(core.shortVideoPage(state, "https://www.youtube.com/shorts/"), { type: "videoFeed", site: "youtube" });
   assert.deepEqual(core.shortVideoPage(state, "https://example.com/shorts/abc"), { type: "none" });
   assert.deepEqual(core.shortVideoPage(youtubeOff, "https://www.youtube.com/shorts/abc"), { type: "none" });
 });
@@ -678,11 +681,41 @@ test("short video sites get content scripts only while hiding is on", () => {
   assert.deepEqual(core.contentScriptOriginsForState(allOff), ["*://*.example.com/*"]);
 });
 
-test("single short videos open from outside links and never count as feeds", () => {
+test("short video pages follow their own rule at all hours", () => {
+  const noon = new Date(2026, 0, 2, 12);
+  const defaults = core.emptyState(defaultBlockedPages);
+  const offSchedule = { ...defaults, schedule: { type: "dailyWindow", startMinute: 0, endMinute: 60 } };
+  const scheduled = { ...defaults, schedule: { type: "always" } };
+  const facebookOff = { ...offSchedule, shortVideoHiding: { ...defaults.shortVideoHiding, facebook: false } };
+  const hardScheduled = { ...offSchedule, hardSchedule: { type: "dailyWindow", startMinute: 0, endMinute: 1439 } };
+  const allowed = { ...offSchedule, allowedPages: ["youtube.com/shorts"] };
+  const reel = "https://www.facebook.com/reel/123";
+  const decide = (state, url, visit) => matchReason(core.decidePage(state, url, visit, new Set(), noon));
+  const shortVideoBlock = { type: "match", reason: "shortVideo" };
+
+  for (const state of [offSchedule, scheduled]) {
+    assert.deepEqual(decide(state, reel, outside), { type: "none" });
+    assert.deepEqual(decide(state, reel, fromReferrer("https://news.example/")), { type: "none" });
+    assert.deepEqual(decide(state, reel, continuing), { type: "none" });
+    assert.deepEqual(decide(state, reel, pending), { type: "none" });
+    assert.deepEqual(decide(state, reel, inside), shortVideoBlock);
+    assert.deepEqual(decide(state, reel, fromReferrer("https://www.facebook.com/reel/456")), shortVideoBlock);
+    assert.deepEqual(decide(state, reel, fromReferrer("https://m.facebook.com/")), shortVideoBlock);
+    assert.deepEqual(decide(state, "https://www.youtube.com/shorts", outside), shortVideoBlock);
+    assert.deepEqual(decide(state, "https://www.instagram.com/reels/", continuing), shortVideoBlock);
+    assert.deepEqual(decide(state, "https://www.facebook.com/reel/", outside), shortVideoBlock);
+  }
+
+  assert.deepEqual(decide(facebookOff, reel, inside), { type: "none" });
+  assert.deepEqual(decide({ ...facebookOff, schedule: { type: "always" } }, reel, inside), { type: "match", reason: "schedule" });
+  assert.deepEqual(decide(hardScheduled, reel, outside), { type: "match", reason: "hardSchedule" });
+  assert.deepEqual(decide(allowed, "https://www.youtube.com/shorts", inside), { type: "none" });
+  assert.equal(core.decidePage(allowed, "https://www.youtube.com/shorts", inside, new Set(), noon).shortVideo.type, "videoFeed");
+});
+
+test("single short videos that redirect open at any arrival the destination allows", () => {
   const noon = new Date(2026, 0, 2, 12);
   const defaults = { ...core.emptyState(defaultBlockedPages), schedule: { type: "always" } };
-  const youtubeOff = { ...defaults, shortVideoHiding: { ...defaults.shortVideoHiding, youtube: false } };
-  const hardScheduled = { ...defaults, hardSchedule: { type: "dailyWindow", startMinute: 0, endMinute: 1439 } };
   const decide = (state, url, visit) => matchReason(core.decidePage(state, url, visit, new Set(), noon));
 
   assert.deepEqual(core.decidePage(defaults, "https://www.youtube.com/shorts/abc", outside, new Set(), noon), {
@@ -693,11 +726,7 @@ test("single short videos open from outside links and never count as feeds", () 
   assert.equal(core.decidePage(defaults, "https://www.instagram.com/reel/Cx1/", outside, new Set(), noon).type, "singleVideoRedirect");
   assert.deepEqual(decide(defaults, "https://www.youtube.com/shorts/abc", pending), { type: "none" });
   assert.deepEqual(decide(defaults, "https://www.youtube.com/shorts/abc", inside), { type: "match", reason: "schedule" });
-  assert.deepEqual(decide(defaults, "https://www.facebook.com/reel/123", outside), { type: "none" });
-  assert.deepEqual(decide(defaults, "https://www.facebook.com/reel/123", inside), { type: "match", reason: "schedule" });
-  assert.deepEqual(decide(youtubeOff, "https://www.youtube.com/shorts/abc", outside), { type: "none" });
-  assert.deepEqual(decide(youtubeOff, "https://www.youtube.com/shorts/abc", inside), { type: "match", reason: "schedule" });
-  assert.deepEqual(decide(hardScheduled, "https://www.youtube.com/shorts/abc", outside), { type: "match", reason: "hardSchedule" });
+  assert.equal(core.decidePage({ ...defaults, schedule: { type: "dailyWindow", startMinute: 0, endMinute: 60 } }, "https://www.youtube.com/shorts/abc", inside, new Set(), noon).type, "singleVideoRedirect");
 });
 
 test("single short video redirects are judged with the current arrival first", () => {
@@ -1491,13 +1520,10 @@ test("blocks apps like their site's home page", () => {
   assert.deepEqual(blocked(defaults, "com.example.unmapped", new Set(["instagram.com"]), noon), { type: "none" });
 });
 
-test("blocks apps for full-domain entries and reports the matching entry", () => {
+test("blocks apps for full-domain entries", () => {
   const state = validState([{ id: ids[0], kind: "domain", value: "reddit.com" }], { type: "always" });
-  const match = core.findBlockedApp(state, "com.reddit.frontpage", new Set(), new Date(2026, 0, 2, 12));
 
-  assert.equal(match.type, "match");
-  assert.equal(match.entry.value, "reddit.com");
-  assert.equal(match.reason, "schedule");
+  assert.deepEqual(matchReason(core.findBlockedApp(state, "com.reddit.frontpage", new Set(), new Date(2026, 0, 2, 12))), { type: "match", reason: "schedule" });
 });
 
 test("counts app screen time only for enabled blocklist domains", () => {

@@ -116,7 +116,7 @@ A tab closing deletes both. A browser restart clears session storage.
 
 Each check classifies the visit, then calls `decidePage`:
 
-| Visit | Meaning | Outside-link pages |
+| Visit | Meaning | Outside-link pages and single short videos |
 | --- | --- | --- |
 | continuing | the tab holds a pass for the page | open |
 | arrivalPending | arrival not known yet | open, no pass saved |
@@ -144,7 +144,7 @@ Per document; `content.js`.
 
 | Variable | States |
 | --- | --- |
-| `arrival` | `history` after a Back/Forward load or bfcache restore; `referrer` otherwise, becoming the previous URL after each in-page URL change, except a replace |
+| `arrival` | `history` after a Back/Forward load or bfcache restore; `referrer` otherwise, becoming the previous URL after each in-page URL change, except a replace, unless it moves a single short video page to another path |
 | screen time | idle (`screenTimeUrl === ""`) or timing a URL since `screenTimeStartedAt`; hidden pages stop timing |
 | `singleVideoLocked` | swallows scroll and arrow keys on a single short video page |
 | `silence` | `answered`, `waiting` (no decision since `sinceMs`, counting visible polls), or `covered` |

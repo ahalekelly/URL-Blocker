@@ -22,13 +22,6 @@
   },
   {
     "type": "default",
-    "id": "10000000-0000-4000-8000-000000000010",
-    "kind": "url",
-    "value": "instagram.com/reels",
-    "enabled": true
-  },
-  {
-    "type": "default",
     "id": "10000000-0000-4000-8000-000000000011",
     "kind": "url",
     "value": "tiktok.com",
@@ -60,13 +53,6 @@
     "id": "10000000-0000-4000-8000-000000000017",
     "kind": "url",
     "value": "facebook.com/watch",
-    "enabled": true
-  },
-  {
-    "type": "default",
-    "id": "10000000-0000-4000-8000-000000000018",
-    "kind": "urlWithSubpaths",
-    "value": "facebook.com/reel",
     "enabled": true
   },
   {
@@ -144,13 +130,6 @@
     "id": "10000000-0000-4000-8000-000000000030",
     "kind": "url",
     "value": "youtube.com/feed/subscriptions",
-    "enabled": true
-  },
-  {
-    "type": "default",
-    "id": "10000000-0000-4000-8000-000000000031",
-    "kind": "urlWithSubpaths",
-    "value": "youtube.com/shorts",
     "enabled": true
   },
   {

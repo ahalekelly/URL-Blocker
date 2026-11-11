@@ -65,8 +65,10 @@
     if (root.navigation) {
       root.navigation.addEventListener("currententrychange", (event) => {
         // Sites rewrite their own URL in place, like Reddit adding a title
-        // slug, so a replace keeps the page's referrer.
-        if (event.navigationType === "replace") {
+        // slug, so a replace keeps the page's referrer. Facebook moves to the
+        // next reel with a replace, so leaving a single short video for
+        // another path counts as a hop.
+        if (event.navigationType === "replace" && !(singleVideoLocked && pathChanged(currentPageUrl, location.href))) {
           currentPageUrl = location.href;
         }
 
@@ -279,6 +281,12 @@
     );
   }
 
+  function pathChanged(fromUrl, toUrl) {
+    const path = (url) => new URL(url).pathname.replace(/\/+$/, "");
+
+    return path(fromUrl) !== path(toUrl);
+  }
+
   function historyLoad() {
     const [entry] = performance.getEntriesByType("navigation");
 
@@ -329,7 +337,8 @@
         html.removeAttribute(PATH_ATTRIBUTE);
         setSingleVideoLock(false);
         return;
-      case "feed":
+      case "sitePage":
+      case "videoFeed":
       case "singleVideo":
         html.setAttribute(SHORT_VIDEO_SITE_ATTRIBUTE, shortVideo.site);
         html.setAttribute(PATH_ATTRIBUTE, path);

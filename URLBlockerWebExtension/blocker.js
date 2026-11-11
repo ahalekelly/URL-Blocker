@@ -3,7 +3,8 @@
 
   const STATE_KEY = "blockerState";
   const BLOCKED_PAGE_HTML_KEY = "blockedPageHtml";
-  const SCHEMA_VERSION = 22;
+  const SCHEMA_VERSION = 23;
+  const ALLOWED_PAGES_SCHEMA_VERSION = 22;
   const OPEN_PAGES_SCHEMA_VERSION = 21;
   const SHARED_LIMIT_GROUPS_SCHEMA_VERSION = 20;
   const LIMIT_GROUPS_SCHEMA_VERSION = 19;
@@ -22,16 +23,17 @@
   const HARD_SCHEDULE_SCHEMA_VERSION = 16;
   const SUBREDDIT_FEEDS_VALUE = "reddit.com/r/*";
   const YOUTUBE_SUBSCRIPTIONS_VALUE = "youtube.com/feed/subscriptions";
-  const YOUTUBE_SHORTS_VALUE = "youtube.com/shorts";
   const ADDED_DEFAULT_PARENT_VALUES = new Map([
     [SUBREDDIT_FEEDS_VALUE, "reddit.com"],
-    [YOUTUBE_SUBSCRIPTIONS_VALUE, "youtube.com"],
-    [YOUTUBE_SHORTS_VALUE, "youtube.com"]
+    [YOUTUBE_SUBSCRIPTIONS_VALUE, "youtube.com"]
   ]);
   const REMOVED_DEFAULT_IDS = new Set([
+    "10000000-0000-4000-8000-000000000010",
     "10000000-0000-4000-8000-000000000012",
     "10000000-0000-4000-8000-000000000016",
-    "10000000-0000-4000-8000-000000000019"
+    "10000000-0000-4000-8000-000000000018",
+    "10000000-0000-4000-8000-000000000019",
+    "10000000-0000-4000-8000-000000000031"
   ]);
   const MAX_ENTRIES = 1000;
   const MINUTE_MS = 60 * 1000;
@@ -63,16 +65,24 @@
     linkedin: "linkedin.com"
   };
   const DEFAULT_SHORT_VIDEO_HIDING = { youtube: true, instagram: true, facebook: true, linkedin: true };
-  // Single short video URLs per site. A redirect target shows the video
-  // without a swipe feed; "inPlace" pages keep their URL and content.js locks
-  // navigation to the next video.
-  const SINGLE_SHORT_VIDEO_PAGES = {
-    youtube: [{ type: "redirect", pathPattern: /^\/shorts\/([A-Za-z0-9_-]+)\/?$/, target: (id) => `/watch?v=${id}` }],
+  // Short video pages per site, first match wins. A redirect target shows a
+  // single video without a swipe feed. An "inPlace" single video keeps its
+  // URL, and content.js locks navigation to the next one. A feed has no
+  // single video to open.
+  const SHORT_VIDEO_PAGES = {
+    youtube: [
+      { type: "redirect", pathPattern: /^\/shorts\/([A-Za-z0-9_-]+)\/?$/, target: (id) => `/watch?v=${id}` },
+      { type: "feed", pathPattern: /^\/shorts\/?$/ }
+    ],
     instagram: [
       { type: "redirect", pathPattern: /^\/(?:[A-Za-z0-9._]+\/)?reel\/([A-Za-z0-9_-]+)\/?$/, target: (id) => `/p/${id}/` },
-      { type: "redirect", pathPattern: /^\/reels\/([A-Za-z0-9_-]+)\/?$/, target: (id) => `/p/${id}/` }
+      { type: "redirect", pathPattern: /^\/reels\/([A-Za-z0-9_-]+)\/?$/, target: (id) => `/p/${id}/` },
+      { type: "feed", pathPattern: /^\/reels\/?$/ }
     ],
-    facebook: [{ type: "inPlace", pathPattern: /^\/reel\/[0-9]+\/?$/ }],
+    facebook: [
+      { type: "inPlace", pathPattern: /^\/reel\/[0-9]+\/?$/ },
+      { type: "feed", pathPattern: /^\/reel\/?$/ }
+    ],
     linkedin: []
   };
   // Android apps that open a blocklist site's home feed.
@@ -396,6 +406,7 @@
       SETTINGS_DELAY_SCHEMA_VERSION,
       SETTINGS_DELAY_MODE_SCHEMA_VERSION,
       SCHEMA_VERSION,
+      ALLOWED_PAGES_SCHEMA_VERSION,
       OPEN_PAGES_SCHEMA_VERSION,
       SHARED_LIMIT_GROUPS_SCHEMA_VERSION,
       LIMIT_GROUPS_SCHEMA_VERSION,
@@ -461,7 +472,7 @@
   }
 
   function storedStateWithCurrentShape(rawState) {
-    if (rawState.schemaVersion === SCHEMA_VERSION) {
+    if (rawState.schemaVersion === SCHEMA_VERSION || rawState.schemaVersion === ALLOWED_PAGES_SCHEMA_VERSION) {
       return rawState;
     }
 
@@ -1262,9 +1273,8 @@
     return { type: "none" };
   }
 
-  // Precedence: the allow list, then the hard schedule, then single short
-  // video redirects, which are judged by their destination, then the page
-  // policy.
+  // Precedence: the allow list, then the hard schedule, then short video
+  // pages, which follow their own rule at all hours, then the page policy.
   //
   // A visit is "continuing" when the tab already holds a pass for the page,
   // "arrivalPending" when it is new but how it arrived is not known yet, or an
@@ -1288,13 +1298,27 @@
       return hardScheduleMatch;
     }
 
-    if (shortVideo.type === "singleVideoRedirect") {
-      const target = pageDecision(state, shortVideo.url, shortVideoPage(state, shortVideo.url), visit, overLimitDomains, date);
+    // The single video rule is at least as strict as any page policy: a
+    // single short video is never a feed, and other policies open what it
+    // opens.
+    switch (shortVideo.type) {
+      case "videoFeed":
+        return { type: "match", reason: "shortVideo" };
+      case "singleVideo":
+        return visitAllowsPage(visit, SHORT_VIDEO_SITE_DOMAINS[shortVideo.site]) ? { type: "none" } : { type: "match", reason: "shortVideo" };
+      case "singleVideoRedirect": {
+        const target = pageDecision(state, shortVideo.url, shortVideoPage(state, shortVideo.url), visit, overLimitDomains, date);
 
-      return target.type === "match" || visit.type === "arrivalPending" ? target : { type: "singleVideoRedirect", url: shortVideo.url };
+        return target.type === "match" || visit.type === "arrivalPending" ? target : { type: "singleVideoRedirect", url: shortVideo.url };
+      }
+      case "none":
+      case "sitePage":
+        break;
+      default:
+        throw new Error(`Unknown short video page: ${shortVideo.type}`);
     }
 
-    const policy = pagePolicy(state, rawUrl, shortVideo);
+    const policy = pagePolicy(state, rawUrl);
 
     if (policy.type === "unrestricted") {
       return { type: "none" };
@@ -1309,24 +1333,21 @@
 
     switch (policy.type) {
       case "feed":
-        return { type: "match", entry: policy.entry, reason };
+        return { type: "match", reason };
       case "outsideLinksOnly":
-        return visitAllowsPage(visit, domain) ? { type: "none" } : { type: "match", entry: policy.entry, reason };
+        return visitAllowsPage(visit, domain) ? { type: "none" } : { type: "match", reason };
       default:
         throw new Error(`Unknown page policy: ${policy.type}`);
     }
   }
 
   // Exact URL entries name feed pages. Every other entry match, and the rest
-  // of a bare-domain URL entry's site, opens only from outside links. A single
-  // short video is never a feed.
-  function pagePolicy(state, rawUrl, shortVideo) {
-    if (shortVideo.type !== "singleVideo") {
-      const feed = findEntryMatch(state.entries.filter((entry) => entry.kind === "url"), rawUrl);
+  // of a bare-domain URL entry's site, opens only from outside links.
+  function pagePolicy(state, rawUrl) {
+    const feed = findEntryMatch(state.entries.filter((entry) => entry.kind === "url"), rawUrl);
 
-      if (feed.type === "match") {
-        return { type: "feed", entry: feed.entry };
-      }
+    if (feed.type === "match") {
+      return { type: "feed", entry: feed.entry };
     }
 
     const match = findEntryMatch(state.entries, rawUrl);
@@ -1397,7 +1418,7 @@
 
     for (const entry of state.entries) {
       if (entryIsEnabled(entry) && domainMatchesHost(associatedDomainForEntry(entry), result.url.limitHost)) {
-        return { type: "match", entry, reason: "hardSchedule" };
+        return { type: "match", reason: "hardSchedule" };
       }
     }
 
@@ -1430,6 +1451,8 @@
         return "This page is blocked during your schedule.";
       case "limit":
         return "You've reached your time limit for this site.";
+      case "shortVideo":
+        return "Short videos open only from links on other sites.";
       default:
         throw new Error(`Unknown blocked page reason: ${reason}`);
     }
@@ -1452,7 +1475,8 @@
   }
 
   // Short video hiding is always on for enabled sites, independent of the
-  // blocklist, schedules, and limits.
+  // blocklist, schedules, and limits. Every other page on the site is a
+  // "sitePage", where content.css hides short videos.
   function shortVideoPage(state, rawUrl) {
     const result = normalizePageUrl(rawUrl);
 
@@ -1469,7 +1493,7 @@
 
     const url = new URL(rawUrl);
 
-    for (const page of SINGLE_SHORT_VIDEO_PAGES[site]) {
+    for (const page of SHORT_VIDEO_PAGES[site]) {
       const match = url.pathname.match(page.pathPattern);
 
       if (!match) {
@@ -1481,12 +1505,14 @@
           return { type: "singleVideoRedirect", site, url: `${url.origin}${page.target(match[1])}` };
         case "inPlace":
           return { type: "singleVideo", site };
+        case "feed":
+          return { type: "videoFeed", site };
         default:
-          throw new Error(`Unknown single short video page type: ${page.type}`);
+          throw new Error(`Unknown short video page type: ${page.type}`);
       }
     }
 
-    return { type: "feed", site };
+    return { type: "sitePage", site };
   }
 
   function screenTimeDomainForUrl(state, rawUrl) {
@@ -2115,6 +2141,7 @@
   function stateKeys(schemaVersion) {
     switch (schemaVersion) {
       case SCHEMA_VERSION:
+      case ALLOWED_PAGES_SCHEMA_VERSION:
         return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "hardSchedule", "limitReset", "settingsDelay", "shortVideoHiding", "allowedPages", "limitGroups", "domainLimits"];
       case OPEN_PAGES_SCHEMA_VERSION:
         return ["schemaVersion", "entries", "blockedPageHtml", "schedule", "hardSchedule", "limitReset", "settingsDelay", "shortVideoHiding", "limitGroups", "domainLimits"];

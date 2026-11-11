@@ -540,6 +540,24 @@ test("checkPage opens single short videos and keeps the redirected page open", a
   ]);
 });
 
+test("checkPage keeps single short videos to outside links outside the schedule", async () => {
+  const api = fakeApi();
+  api.storageData[core.STATE_KEY] = validState([{ id, kind: "url", value: "facebook.com" }], inactiveSchedule());
+  const controller = createBackgroundController(api);
+  const reel = "https://www.facebook.com/reel/123";
+  const nextReel = "https://www.facebook.com/reel/456";
+
+  assert.equal((await controller.handleMessage(checkPageMessage(reel, "https://news.example/"), { tab: { id: 7 } })).type, "allowed");
+  assert.equal((await controller.handleMessage(checkPageMessage(reel, reel), { tab: { id: 7 } })).type, "allowed");
+  assert.equal((await controller.handleMessage(checkPageMessage(nextReel, reel), { tab: { id: 7 } })).type, "redirected");
+  assert.equal((await controller.handleMessage(checkPageMessage("https://www.facebook.com/reel/", "https://news.example/"), { tab: { id: 8 } })).type, "redirected");
+  assert.deepEqual(api.updatedTabs, [
+    { tabId: 7, url: blockedUrl(nextReel, "shortVideo") },
+    { tabId: 8, url: blockedUrl("https://www.facebook.com/reel/", "shortVideo") }
+  ]);
+  assert.match(core.blockedReasonText("shortVideo"), /links on other sites/);
+});
+
 test("checkPage reports short video hiding for allowed pages", async () => {
   const api = fakeApi();
   api.storageData[core.STATE_KEY] = validState([
@@ -1384,10 +1402,7 @@ test("syncNow repairs remote settings missing added defaults", async () => {
     now: 20 * 60 * 60 * 1000,
     supabaseConfig: configuredSupabase()
   });
-  const previousDefaults = defaultBlockedPages.filter((entry) => ![
-    "youtube.com/feed/subscriptions",
-    "youtube.com/shorts"
-  ].includes(entry.value));
+  const previousDefaults = defaultBlockedPages.filter((entry) => entry.value !== "youtube.com/feed/subscriptions");
   const previousEntries = previousDefaults.map((entry) => ({ ...entry, enabled: entry.value === "youtube.com" }));
   const remoteState = {
     schemaVersion: core.SCHEMA_VERSION,
@@ -1427,11 +1442,9 @@ test("syncNow repairs remote settings missing added defaults", async () => {
     const controller = createBackgroundController(api);
     const response = await controller.syncNow();
     const repairedSubscriptions = api.storageData[core.STATE_KEY].entries.find((entry) => entry.value === "youtube.com/feed/subscriptions");
-    const repairedShorts = api.storageData[core.STATE_KEY].entries.find((entry) => entry.value === "youtube.com/shorts");
 
     assert.equal(response.status.error, "");
     assert.equal(repairedSubscriptions.enabled, true);
-    assert.equal(repairedShorts.enabled, true);
   } finally {
     globalThis.fetch = fetch;
   }

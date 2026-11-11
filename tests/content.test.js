@@ -32,6 +32,25 @@ test("content script keeps the page referrer when the site replaces its URL", as
   ]);
 });
 
+test("content script counts a replace from one single short video to another as a hop inside the site", async () => {
+  const singleVideo = { type: "allowed", shortVideo: { type: "singleVideo", site: "facebook" } };
+  const page = await runContentScript("https://www.facebook.com/reel/123", {
+    referrer: "https://news.example/",
+    checkPageResponses: [singleVideo, singleVideo]
+  });
+
+  page.location.href = "https://www.facebook.com/reel/123/?s=share";
+  await page.dispatch("currententrychange", 0, { navigationType: "replace" });
+  page.location.href = "https://www.facebook.com/reel/456";
+  await page.dispatch("currententrychange", 0, { navigationType: "replace" });
+
+  assert.deepEqual(page.messages, [
+    checkPage("https://www.facebook.com/reel/123", "https://news.example/"),
+    checkPage("https://www.facebook.com/reel/123/?s=share", "https://news.example/"),
+    checkPage("https://www.facebook.com/reel/456", "https://www.facebook.com/reel/123/?s=share")
+  ]);
+});
+
 test("content script reports in-page URL changes with the previous URL as referrer", async () => {
   const page = await runContentScript("https://www.youtube.com/watch?v=abc", { referrer: "https://search.example/" });
 
@@ -85,7 +104,7 @@ test("content script reports Back and Forward loads as history", async () => {
 test("content script marks short video pages and locks single short videos", async () => {
   const page = await runContentScript("https://www.facebook.com/", {
     checkPageResponses: [
-      { type: "allowed", shortVideo: { type: "feed", site: "facebook" } },
+      { type: "allowed", shortVideo: { type: "sitePage", site: "facebook" } },
       { type: "allowed", shortVideo: { type: "singleVideo", site: "facebook" } },
       { type: "allowed", shortVideo: { type: "none" } }
     ]
@@ -129,12 +148,12 @@ test("content script ignores URL check responses for an earlier URL", async () =
   const page = await runContentScript("https://www.instagram.com/", {
     checkPageResponses: [
       new Promise((resolve) => { respond = resolve; }),
-      { type: "allowed", shortVideo: { type: "feed", site: "instagram" } }
+      { type: "allowed", shortVideo: { type: "sitePage", site: "instagram" } }
     ]
   });
 
   page.location.href = "https://www.instagram.com/explore/";
-  respond({ type: "allowed", shortVideo: { type: "feed", site: "instagram" } });
+  respond({ type: "allowed", shortVideo: { type: "sitePage", site: "instagram" } });
   await page.flush();
 
   assert.equal(page.documentElement.attributes["data-url-blocker-short-video"], undefined);

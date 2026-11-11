@@ -82,6 +82,11 @@
       <div class="result"><div class="box pill block"><div class="t">BLOCKED</div></div></div>
     </div>
     <div class="step">
+      <div class="box decision"><div class="t">Is it a short video page, with short video hiding on for its site?</div><div class="d">At all hours. A feed of short videos, like <code>youtube.com/shorts</code> or <code>instagram.com/reels</code>, always blocks. A single short video, like Facebook <code>/reel/&lt;id&gt;</code>, opens only with a pass or from outside the site: <code>shortVideo</code></div></div>
+      <div class="arrow">YES</div>
+      <div class="result"><div class="box pill block"><div class="t">BLOCKED</div><div class="d">unless a single video with a pass or from outside</div></div></div>
+    </div>
+    <div class="step">
       <div class="box decision"><div class="t">Does an enabled entry cover the page?</div><div class="d"><b>Feed:</b> an exact “URL” entry match, like <code>x.com/home</code> or <code>reddit.com/r/*</code>.<br><b>Outside links only:</b> any other entry match (full domain, URL+subpaths, regex), or any other page on the site of a bare-domain “URL” entry like <code>youtube.com</code></div></div>
       <div class="arrow no">NO</div>
       <div class="result"><div class="box pill pass"><div class="t">Not blocked</div></div></div>
@@ -117,10 +122,10 @@
     <b>Passes.</b> Every page a tab is allowed onto, whether or not its site is restricted, gives that tab a pass for the page. The tab keeps its passes until it closes, and they survive the browser idling the extension. Back and Forward count as arriving from inside the site, so they return only to pages the tab holds a pass for. A browser restart clears it; a restored or reloaded tab is then judged by the referrer it was first opened with.
   </p>
   <p class="note">
-    <b>Outside links.</b> A referrer from another site or an Android app counts as outside. A site rewriting its own URL in place keeps the page’s referrer. Some links arrive with no referrer: Chromium tells them apart from typed visits by the navigation’s transition (link or form submit). Chromium reports links opened from other apps with the same transition Vivaldi gives typed and pasted URLs, so those count as typed, while Safari counts every empty referrer as outside, because iOS apps open links without one. Before the page reports its referrer, only feeds and the hard schedule can block.
+    <b>Outside links.</b> A referrer from another site or an Android app counts as outside. A site rewriting its own URL in place keeps the page’s referrer, unless it moves a single short video page to another path, as Facebook does for the next reel. Some links arrive with no referrer: Chromium tells them apart from typed visits by the navigation’s transition (link or form submit). Chromium reports links opened from other apps with the same transition Vivaldi gives typed and pasted URLs, so those count as typed, while Safari counts every empty referrer as outside, because iOS apps open links without one. Before the page reports its referrer, only feeds, short video feeds, and the hard schedule can block.
   </p>
   <p class="note">
-    <b>Single short videos.</b> With short video hiding on, a link to one short video opens as a single video: YouTube <code>/shorts/&lt;id&gt;</code> redirects to <code>/watch?v=&lt;id&gt;</code> and Instagram <code>/reel/&lt;code&gt;</code> to <code>/p/&lt;code&gt;</code>. The destination runs through these steps first with the same arrival, and the tab gets a pass for it. A Facebook <code>/reel/&lt;id&gt;</code> page stays put with swiping disabled. A single short video is never a feed.
+    <b>Single short videos.</b> With short video hiding on, YouTube <code>/shorts/&lt;id&gt;</code> redirects to <code>/watch?v=&lt;id&gt;</code> and Instagram <code>/reel/&lt;code&gt;</code> to <code>/p/&lt;code&gt;</code>, pages without a swipe feed, at any arrival. The destination runs through these steps first with the same arrival, and the tab gets a pass for it. A Facebook <code>/reel/&lt;id&gt;</code> page stays put with swiping disabled, and moving to the next reel counts as a link within the site, so it blocks.
   </p>
   <p class="note">
     <b>Android apps</b> count as their site’s home page opened directly, checked for as long as they are on screen.
