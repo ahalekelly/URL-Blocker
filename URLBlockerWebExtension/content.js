@@ -9,6 +9,7 @@
   const SINGLE_SHORT_VIDEO_ATTRIBUTE = "data-url-blocker-single-short-video";
   const SINGLE_VIDEO_NAVIGATION_KEYS = new Set(["ArrowDown", "ArrowUp", "PageDown", "PageUp"]);
   const SILENT_POLLS_BEFORE_COVER = 2;
+  const NO_REPLY = "URL Blocker isn't responding.";
   const COVER_ID = "url-blocker-cover";
   // Chromium injects a new script into open tabs after an update, so the
   // orphaned one must not cover a page the new one now watches.
@@ -40,9 +41,9 @@
   let screenTimeStartedAt = 0;
   let pollId = 0;
   let stopped = false;
-  // answered: the last page check got a reply. waiting: checks have gone
-  // unanswered since sinceMs, through `polls` visible polls. covered: the
-  // page is covered until a check gets a reply.
+  // answered: the last page check got a decision. waiting: checks have gone
+  // without one since sinceMs, through `polls` visible polls, because of
+  // `problem`. covered: the page is covered until a check gets a decision.
   let silence = { type: "answered" };
 
   start();
@@ -141,8 +142,33 @@
       return;
     }
 
-    silence = { type: "covered", sinceMs: silence.sinceMs };
-    showCover("URL Blocker isn't responding.\nThis page stays covered until it answers.");
+    silence = { type: "covered", sinceMs: silence.sinceMs, problem: silence.problem };
+    showSilenceCover();
+  }
+
+  function showSilenceCover() {
+    showCover(`${silence.problem}\nThis page stays covered until URL Blocker can check it.`);
+  }
+
+  // An error reply is no decision, so a check that keeps failing covers the
+  // page like silence does, showing the error.
+  function checkFailed(error) {
+    const problem = `URL Blocker can't check this page: ${error}`;
+
+    switch (silence.type) {
+      case "answered":
+        silence = { type: "waiting", sinceMs: Date.now(), polls: 0, problem };
+        return;
+      case "waiting":
+        silence = { ...silence, problem };
+        return;
+      case "covered":
+        silence = { ...silence, problem };
+        showSilenceCover();
+        return;
+      default:
+        throw new Error(`Unknown silence state: ${silence.type}`);
+    }
   }
 
   function checkAnswered() {
@@ -243,16 +269,13 @@
     }
 
     if (silence.type === "answered") {
-      silence = { type: "waiting", sinceMs: Date.now(), polls: 0 };
+      silence = { type: "waiting", sinceMs: Date.now(), polls: 0, problem: NO_REPLY };
     }
 
     sendMessage(
       { type: "checkPage", url: currentUrl, arrival },
       (error) => console.error(`URL Blocker could not check the current URL. ${errorLogText(error)}`),
-      (response) => {
-        checkAnswered();
-        applyCheckPageResponse(response, currentUrl);
-      },
+      (response) => applyCheckPageResponse(response, currentUrl),
     );
   }
 
@@ -269,6 +292,8 @@
 
     switch (response.type) {
       case "allowed":
+        checkAnswered();
+
         // A newer check covers the current URL, so a response for an earlier
         // URL would tag the page with stale settings.
         if (checkedUrl !== location.href) {
@@ -278,9 +303,11 @@
         setShortVideo(response.shortVideo, new URL(checkedUrl).pathname);
         return;
       case "redirected":
+        checkAnswered();
         return;
       case "error":
         console.error(`URL Blocker could not check the current URL. ${response.error} (${response.errorCode || response.type})`);
+        checkFailed(response.error);
         return;
       default:
         throw new Error(`Unknown URL check response: ${response.type}`);

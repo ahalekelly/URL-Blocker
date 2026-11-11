@@ -2109,7 +2109,7 @@ test("a screen time sync logs each step and uploads the event log", async () => 
     await controller.syncNow();
 
     assert.deepEqual(uploads.map((upload) => upload.p_events.map((event) => [event.type, event.message])), [[
-      ["pageSilence", "x.com got no answer for 12 s from 1970-01-01T19:59:48.000Z."],
+      ["pageSilence", "x.com got no decision for 12 s from 1970-01-01T19:59:48.000Z."],
       ["screenTimeSync", "Uploading 0 buckets."],
       ["screenTimeSync", "Downloading other devices' screen time."],
       ["screenTimeSync", "Saving the results."],

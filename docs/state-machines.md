@@ -147,10 +147,10 @@ Per document; `content.js`.
 | `arrival` | `history` after a Back/Forward load or bfcache restore; `referrer` otherwise, becoming the previous URL after each in-page URL change, except a replace |
 | screen time | idle (`screenTimeUrl === ""`) or timing a URL since `screenTimeStartedAt`; hidden pages stop timing |
 | `singleVideoLocked` | swallows scroll and arrow keys on a single short video page |
-| `silence` | `answered`, `waiting` (a page check unanswered since `sinceMs`, counting visible polls), or `covered` |
+| `silence` | `answered`, `waiting` (no decision since `sinceMs`, counting visible polls), or `covered` |
 | `stopped` | the extension was updated, reloaded, or removed; the script tears itself down and covers the page, asking for a reload |
 
-The blocker fails closed: only the worker decides, so a page whose checks go unanswered is covered.
+The blocker fails closed: only the worker decides, so a page whose checks get no decision ("allowed" or "redirected") is covered. Silence and error replies both count; the cover shows the last error.
 
 | From | Event | To |
 | --- | --- | --- |
@@ -158,8 +158,8 @@ The blocker fails closed: only the worker decides, so a page whose checks go una
 | waiting(n) | visible poll, n + 1 < 2 | waiting(n + 1) |
 | waiting(1) | visible poll | covered: cover the page and pause its media |
 | waiting | page hides | waiting(0), since a hidden page may be frozen with a check in flight |
-| waiting | page check reply, including an error reply | answered |
-| covered | page check reply | answered: uncover and send `reportSilence` for the event log |
+| waiting | decision | answered |
+| covered | decision | answered: uncover and send `reportSilence` for the event log |
 
 A rejected send is not a reply, so a worker that cannot be reached also covers the page. Other messages, like screen time logs, may wait on a sync and do not count.
 

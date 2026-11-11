@@ -323,7 +323,7 @@
 
       const seconds = Math.round((currentTimeMs() - sinceMs) / 1000);
 
-      recordEvent("pageSilence", `${new URL(rawUrl).hostname} got no answer for ${seconds} s from ${new Date(sinceMs).toISOString()}.`);
+      recordEvent("pageSilence", `${new URL(rawUrl).hostname} got no decision for ${seconds} s from ${new Date(sinceMs).toISOString()}.`);
       return { type: "recorded" };
     }
 

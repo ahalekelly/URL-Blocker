@@ -385,6 +385,21 @@ test("content script covers the page after two polls without a reply and reports
   assert.deepEqual(page.messages.at(-1), { type: "reportSilence", url: "https://x.com/home", sinceMs: 6000 });
 });
 
+test("content script covers the page while checks keep failing and shows the error", async () => {
+  const failure = { type: "error", error: "Native storage did not answer.", errorCode: "NativeTimeout" };
+  const page = await runContentScript("https://x.com/home", { now: 1000, checkPageResponses: [failure, failure, failure] });
+
+  await page.tick();
+  assert.equal(page.coverText, undefined);
+
+  await page.tick();
+  assert.match(page.coverText, /can't check this page: Native storage did not answer\./);
+
+  await page.tick();
+  assert.equal(page.coverText, undefined);
+  assert.deepEqual(page.messages.at(-1), { type: "reportSilence", url: "https://x.com/home", sinceMs: 1000 });
+});
+
 test("content script does not cover the page for a slow reply", async () => {
   let respond;
   const page = await runContentScript("https://x.com/home", {
