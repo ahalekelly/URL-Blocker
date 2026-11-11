@@ -2083,7 +2083,7 @@ test("an update injects the content script into open tabs of blocked sites", asy
   ]);
 });
 
-test("a screen time sync logs each step and uploads the event log", async () => {
+test("a screen time sync logs each step, skipping an empty upload, and uploads the event log", async () => {
   const fetch = globalThis.fetch;
   const api = fakeApi({ now: 20 * 60 * 60 * 1000, supabaseConfig: configuredSupabase() });
   const uploads = [];
@@ -2110,7 +2110,6 @@ test("a screen time sync logs each step and uploads the event log", async () => 
 
     assert.deepEqual(uploads.map((upload) => upload.p_events.map((event) => [event.type, event.message])), [[
       ["pageSilence", "x.com got no decision for 12 s from 1970-01-01T19:59:48.000Z."],
-      ["screenTimeSync", "Uploading 0 buckets."],
       ["screenTimeSync", "Downloading other devices' screen time."],
       ["screenTimeSync", "Saving the results."],
       ["screenTimeSync", "Done."]

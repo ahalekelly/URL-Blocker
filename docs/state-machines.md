@@ -167,7 +167,7 @@ On Chromium, an update or reload leaves no live script in open tabs, so the work
 
 ## Event log
 
-Stored as `eventLog` in browser storage, never native storage, so it keeps recording when native storage stops answering; `background.js` `recordEvent`. It holds up to 200 events (`{ id, atMs, type, message }`) not yet uploaded: worker starts, each step of a screen time sync (logged before the step starts), native storage calls over 1 second, queue waits over 5 seconds, errors, and pages' `reportSilence`. Each successful screen time sync uploads the log through `save_events` (`supabase/003_event_log.sql`) and removes the uploaded events. The server keeps 30 days.
+Stored as `eventLog` in browser storage, never native storage, so it keeps recording when native storage stops answering; `background.js` `recordEvent`. It holds up to 200 events (`{ id, atMs, type, message }`) not yet uploaded: worker starts, each step of a screen time sync (logged before the step starts; an upload only when there is time to upload), native storage calls over 1 second, queue waits over 5 seconds, errors, and pages' `reportSilence`. Each successful screen time sync uploads the log through `save_events` (`supabase/003_event_log.sql`) and removes the uploaded events. The server keeps 30 days.
 
 Android does not run `background.js`, so it keeps no event log.
 

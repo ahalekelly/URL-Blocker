@@ -1066,10 +1066,13 @@
 
         // Each step is logged before it starts, so a sync that hangs shows
         // where it stopped.
-        recordEvent("screenTimeSync", `Uploading ${dirtyBuckets.length} buckets.`);
-        const syncedBuckets = dirtyBuckets.length === 0
-          ? []
-          : sync.normalizeSyncedScreenTimeRows(await sync.saveRemoteScreenTime(active.config, active.session, dirtyBuckets, fetchJson), core);
+        let syncedBuckets = [];
+
+        if (dirtyBuckets.length > 0) {
+          recordEvent("screenTimeSync", `Uploading ${dirtyBuckets.length} buckets.`);
+          syncedBuckets = sync.normalizeSyncedScreenTimeRows(await sync.saveRemoteScreenTime(active.config, active.session, dirtyBuckets, fetchJson), core);
+        }
+
         recordEvent("screenTimeSync", "Downloading other devices' screen time.");
         const remoteRows = await sync.loadRemoteScreenTime(active.config, active.session, core.usageWindow(state.limitReset, currentTimeMs()), fetchJson);
 
