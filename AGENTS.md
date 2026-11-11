@@ -197,7 +197,7 @@ iOS and macOS builds sign with Adrian's team (`T3TBGN4UX7`). `make ios-build` us
 - Supabase project ref: `YOUR_PROJECT_REF`.
 - Runtime config is bundled from `URLBlockerWebExtension/supabase-config.json` into every platform, including Android. It must contain the project URL, publishable anon key, `redirectScheme: "urlblocker"`, and `screenTimeSyncAgeMs`.
 - The committed `supabase-config.json` must stay as an example with placeholder values. Keep real local values in that same file only with `git update-index --skip-worktree URLBlockerWebExtension/supabase-config.json` set, so local builds include the real config but Git status and commits ignore it. Use `git update-index --no-skip-worktree ...` only when intentionally editing the example config.
-- Backend schema lives in `supabase/001_url_blocker_sync.sql`.
+- Backend schema lives in `supabase/001_url_blocker_sync.sql` (settings and screen time) and `supabase/003_event_log.sql` (the extension's event log, see `docs/state-machines.md`).
 - Run Supabase CLI commands outside the Codex sandbox. The CLI writes local metadata under `supabase/.temp/` and `~/.supabase`.
 - `supabase/.temp/` is generated local CLI state and must not be committed.
 - Confirm linked CLI access with:
@@ -206,10 +206,17 @@ iOS and macOS builds sign with Adrian's team (`T3TBGN4UX7`). `make ios-build` us
 supabase db query --linked "select 1 as ok;"
 ```
 
-- The schema setup file is written to be safe to rerun. Apply the full schema with:
+- The schema files are safe to rerun. Writes need `--yes` when the CLI runs from an agent. Apply them with:
 
 ```sh
-supabase db query --linked -f supabase/001_url_blocker_sync.sql
+supabase db query --linked --yes -f supabase/001_url_blocker_sync.sql
+supabase db query --linked --yes -f supabase/003_event_log.sql
+```
+
+- Read a device's recent events, such as when blocking stopped on a phone:
+
+```sh
+supabase db query --linked --read-only "select device_id, to_timestamp(at_ms / 1000.0) at time zone 'America/Los_Angeles' as at, type, message from event_log order by at_ms desc limit 100;"
 ```
 
 - For small SQL fixes, it is still fine to put the exact SQL block in a temp file and run it with `supabase db query --linked -f /private/tmp/file.sql`.
@@ -220,8 +227,10 @@ supabase db query --linked -f supabase/001_url_blocker_sync.sql
 grant usage on schema public to authenticated;
 grant select, insert, update on public.user_settings to authenticated;
 grant select, insert, update on public.screen_time_buckets to authenticated;
+grant select, insert, delete on public.event_log to authenticated;
 grant execute on function public.save_user_settings(jsonb, bigint, text, text) to authenticated;
 grant execute on function public.sync_screen_time_buckets(jsonb) to authenticated;
+grant execute on function public.save_events(text, jsonb) to authenticated;
 ```
 
 - Google sign-in is configured. Apple sign-in is intentionally not configured yet.

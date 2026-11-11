@@ -516,6 +516,14 @@
     });
   }
 
+  async function saveRemoteEvents(config, session, deviceId, events, fetchJson) {
+    return fetchJson(`${config.supabaseUrl}/rest/v1/rpc/save_events`, {
+      method: "POST",
+      headers: supabaseHeaders(config, session),
+      body: JSON.stringify({ p_device_id: deviceId, p_events: events })
+    });
+  }
+
   async function loadRemoteScreenTime(config, session, window, fetchJson) {
     const url = new URL(`${config.supabaseUrl}/rest/v1/screen_time_buckets`);
 
@@ -705,6 +713,7 @@
     refreshSession,
     remoteSettingsAreNewer,
     isUnsupportedScreenTimeUsage,
+    saveRemoteEvents,
     saveRemoteScreenTime,
     saveRemoteSettings,
     screenTimeSyncDelayMs,

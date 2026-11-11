@@ -1416,7 +1416,7 @@ test("syncNow repairs remote settings missing added defaults", async () => {
       }]);
     }
 
-    if (String(url).includes("/screen_time_buckets")) {
+    if (String(url).includes("/screen_time_buckets") || String(url).includes("/rpc/save_events")) {
       return jsonResponse([]);
     }
 
@@ -2081,6 +2081,80 @@ test("an update injects the content script into open tabs of blocked sites", asy
     ["js", 3, ["content.js"]],
     ["js", 4, ["content.js"]]
   ]);
+});
+
+test("a screen time sync logs each step and uploads the event log", async () => {
+  const fetch = globalThis.fetch;
+  const api = fakeApi({ now: 20 * 60 * 60 * 1000, supabaseConfig: configuredSupabase() });
+  const uploads = [];
+
+  api.storageData.supabaseSession = supabaseSession();
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).includes("/rpc/save_events")) {
+      uploads.push(JSON.parse(options.body));
+      return jsonResponse(1);
+    }
+
+    if (String(url).includes("/user_settings") || String(url).includes("/screen_time_buckets")) {
+      return jsonResponse([]);
+    }
+
+    return fetch(url, options);
+  };
+
+  try {
+    const controller = createBackgroundController(api);
+
+    await controller.handleMessage({ type: "reportSilence", url: "https://x.com/home", sinceMs: api.nowValue - 12000 }, { tab: { id: 7 } });
+    await controller.syncNow();
+
+    assert.deepEqual(uploads.map((upload) => upload.p_events.map((event) => [event.type, event.message])), [[
+      ["pageSilence", "x.com got no answer for 12 s from 1970-01-01T19:59:48.000Z."],
+      ["screenTimeSync", "Uploading 0 buckets."],
+      ["screenTimeSync", "Downloading other devices' screen time."],
+      ["screenTimeSync", "Saving the results."],
+      ["screenTimeSync", "Done."]
+    ]]);
+    assert.equal(uploads[0].p_device_id, api.storageData.screenTimeUsage.deviceId);
+    assert.deepEqual(api.storageData.eventLog, []);
+  } finally {
+    globalThis.fetch = fetch;
+  }
+});
+
+test("a native storage call that never answers times out instead of holding the queue", async () => {
+  const timeout = AbortSignal.timeout;
+  const timeouts = [];
+  const api = fakeApi({ nativeStorage: true, now: 20 * 60 * 60 * 1000 });
+  const answer = api.runtime.sendNativeMessage;
+  const logMessage = { type: "screenTimeElapsed", url: "https://www.example.com/", elapsedMs: 2500 };
+  let hang = true;
+
+  api.nativeData[core.STATE_KEY] = validState([{ id, kind: "domain", value: "example.com" }]);
+  api.runtime.sendNativeMessage = (applicationId, message) => {
+    if (message.type === "saveScreenTimeUsage" && hang) {
+      hang = false;
+      queueMicrotask(() => timeouts.at(-1).abort());
+      return new Promise(() => {});
+    }
+
+    return answer(applicationId, message);
+  };
+  AbortSignal.timeout = () => {
+    const controller = new AbortController();
+
+    timeouts.push(controller);
+    return controller.signal;
+  };
+
+  try {
+    const controller = createBackgroundController(api);
+
+    await assert.rejects(() => controller.handleMessage(logMessage, { tab: { id: 7 } }), { errorCode: "NativeMessageTimeout" });
+    assert.deepEqual(await controller.handleMessage(logMessage, { tab: { id: 7 } }), { type: "logged", domain: "example.com", isOverLimit: false });
+  } finally {
+    AbortSignal.timeout = timeout;
+  }
 });
 
 function fakeApi(overrides = {}) {

@@ -394,6 +394,7 @@ private struct BlocklistWebView: UIViewRepresentable {
         ["default-blocked-pages.json", \(Safari.javaScriptString(defaultBlockedPagesURL))],
         ["supabase-config.json", \(Safari.javaScriptString(supabaseConfigURL))]
       ]);
+      const localData = {};
       let nextId = 0;
 
       window.__URLBlockerReply = (reply) => {
@@ -431,6 +432,10 @@ private struct BlocklistWebView: UIViewRepresentable {
           unregisterContentScripts: () => Promise.resolve()
         },
         storage: {
+          local: {
+            get: (key) => Promise.resolve({ [key]: localData[key] }),
+            set: (values) => Promise.resolve(Object.assign(localData, values))
+          },
           session: {
             get: () => Promise.resolve({}),
             remove: () => Promise.resolve(),

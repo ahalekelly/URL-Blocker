@@ -19,6 +19,13 @@
   // A stalled request would otherwise hold the settings queue, and every save
   // behind it, until the worker stops.
   const REQUEST_TIMEOUT_MS = 30 * 1000;
+  // A native storage call that never answers would otherwise hold the local
+  // queue, and every screen time write behind it.
+  const NATIVE_MESSAGE_TIMEOUT_MS = 5 * 1000;
+  const SLOW_NATIVE_MESSAGE_MS = 1000;
+  const SLOW_QUEUE_WAIT_MS = 5 * 1000;
+  const EVENT_LOG_KEY = "eventLog";
+  const MAX_EVENTS = 200;
   const SCREEN_TIME_USAGE_KEY = "screenTimeUsage";
   const SETTINGS_SYNC_KEY = "settingsSync";
   const SETTINGS_ACTIVATION_KEY = "settingsActivation";
@@ -32,21 +39,22 @@
   const ARRIVAL_PENDING = { type: "arrivalPending" };
 
   function createBackgroundController(api) {
-    const stateStorage = createStateStorage(api);
-    const settingsActivationStorage = createSettingsActivationStorage(api);
-    const blockedPageHtmlStorage = createBlockedPageHtmlStorage(api);
-    const screenTimeStorage = createScreenTimeStorage(api);
-    const settingsSyncStorage = createSettingsSyncStorage(api);
-    const sessionStorage = createSupabaseSessionStorage(api);
+    const inEventLogQueue = createQueue();
+    const stateStorage = createStateStorage(api, recordEvent);
+    const settingsActivationStorage = createSettingsActivationStorage(api, recordEvent);
+    const blockedPageHtmlStorage = createBlockedPageHtmlStorage(api, recordEvent);
+    const screenTimeStorage = createScreenTimeStorage(api, recordEvent);
+    const settingsSyncStorage = createSettingsSyncStorage(api, recordEvent);
+    const sessionStorage = createSupabaseSessionStorage(api, recordEvent);
     // Per-tab memory lives in session storage because Safari and Chromium
     // stop the service worker when idle, such as while the phone is locked.
     const tabStorage = api.storage.session;
     // Settings saves and syncs read the sync metadata, wait on the network,
     // then write it back, so they run one at a time.
-    const inSettingsQueue = createQueue();
+    const inSettingsQueue = timedQueue("Settings");
     // Short read-modify-writes of screen time, page passes, and content
     // script registration. Tasks in it never wait on each other.
-    const inLocalQueue = createQueue();
+    const inLocalQueue = timedQueue("Local");
     let defaultEntriesLoad;
     let configPromise;
     // Settings and screen time sync separately, so one succeeding must not
@@ -92,6 +100,9 @@
         case "screenTimeElapsed":
           requireKeys(message, ["type", "url", "elapsedMs"], "screenTimeElapsed message");
           return logScreenTime(message.url, message.elapsedMs, sender);
+        case "reportSilence":
+          requireKeys(message, ["type", "url", "sinceMs"], "reportSilence message");
+          return reportSilence(message.url, message.sinceMs);
         case "getScreenTimeLog":
           requireKeys(message, ["type"], "getScreenTimeLog message");
           return getScreenTimeLog();
@@ -299,6 +310,21 @@
         default:
           throw new Error(`Unknown screen time match type: ${match.type}`);
       }
+    }
+
+    function reportSilence(rawUrl, sinceMs) {
+      if (typeof rawUrl !== "string") {
+        throw codedError("SilenceInvalid", "Silent page URL must be a string.");
+      }
+
+      if (!Number.isInteger(sinceMs)) {
+        throw codedError("SilenceInvalid", "Silence start must be an integer.");
+      }
+
+      const seconds = Math.round((currentTimeMs() - sinceMs) / 1000);
+
+      recordEvent("pageSilence", `${new URL(rawUrl).hostname} got no answer for ${seconds} s from ${new Date(sinceMs).toISOString()}.`);
+      return { type: "recorded" };
     }
 
     async function getScreenTimeLog() {
@@ -1037,9 +1063,14 @@
         }
 
         const dirtyBuckets = sync.dirtyScreenTimeBuckets(usage);
+
+        // Each step is logged before it starts, so a sync that hangs shows
+        // where it stopped.
+        recordEvent("screenTimeSync", `Uploading ${dirtyBuckets.length} buckets.`);
         const syncedBuckets = dirtyBuckets.length === 0
           ? []
           : sync.normalizeSyncedScreenTimeRows(await sync.saveRemoteScreenTime(active.config, active.session, dirtyBuckets, fetchJson), core);
+        recordEvent("screenTimeSync", "Downloading other devices' screen time.");
         const remoteRows = await sync.loadRemoteScreenTime(active.config, active.session, core.usageWindow(state.limitReset, currentTimeMs()), fetchJson);
 
         const userId = sync.sessionUserId(active.session);
@@ -1047,7 +1078,8 @@
         // Pages log time while the requests run, so the results apply to the
         // stored usage rather than to the copy read before them. A sign-out
         // meanwhile already cleared the account's buckets.
-        await updateScreenTimeUsage(async (current) => {
+        recordEvent("screenTimeSync", "Saving the results.");
+        const savedUsage = await updateScreenTimeUsage(async (current) => {
           const session = sync.parseSession(await sessionStorage.loadSession());
 
           if (session.type === "signedOut" || sync.sessionUserId(session.session) !== userId) {
@@ -1058,6 +1090,8 @@
           sync.mergeRemoteScreenTimeBuckets(current, sync.normalizeRemoteScreenTimeRows(remoteRows, core));
         });
         await inSettingsQueue(async () => markSyncSuccessful(await loadSettingsSync()));
+        recordEvent("screenTimeSync", "Done.");
+        await uploadEventLog(active, savedUsage.deviceId);
         syncErrors.screenTime = "";
       } catch (error) {
         rememberSyncError("screenTime", error);
@@ -1149,7 +1183,70 @@
 
     function rememberSyncError(kind, error) {
       syncErrors[kind] = errorMessage(error);
-      console.error(`URL Blocker sync failed. ${errorLogText(error)}`);
+      reportError("URL Blocker sync failed.", error);
+    }
+
+    function reportError(text, error) {
+      console.error(`${text} ${errorLogText(error)}`);
+      recordEvent("error", `${text} ${errorLogText(error)}`);
+    }
+
+    // The log lives in browser storage, apart from native storage, so it keeps
+    // recording when native storage stops answering.
+    function recordEvent(type, message) {
+      const event = { id: root.crypto.randomUUID(), atMs: currentTimeMs(), type, message };
+
+      inEventLogQueue(async () => {
+        await api.storage.local.set({ [EVENT_LOG_KEY]: [...await loadEventLog(), event].slice(-MAX_EVENTS) });
+      }).catch((error) => console.error(`URL Blocker could not record an event. ${errorLogText(error)}`));
+    }
+
+    async function loadEventLog() {
+      const events = (await api.storage.local.get(EVENT_LOG_KEY))[EVENT_LOG_KEY];
+
+      if (events === undefined) {
+        return [];
+      }
+
+      if (!Array.isArray(events)) {
+        throw codedError("EventLogInvalid", "Event log must be an array.");
+      }
+
+      return events;
+    }
+
+    // Uploaded events leave the log, so it holds what the server has not seen.
+    async function uploadEventLog(active, deviceId) {
+      const events = await inEventLogQueue(loadEventLog);
+
+      if (events.length === 0) {
+        return;
+      }
+
+      await sync.saveRemoteEvents(active.config, active.session, deviceId, events, fetchJson);
+      const uploaded = new Set(events.map((event) => event.id));
+
+      await inEventLogQueue(async () => {
+        await api.storage.local.set({ [EVENT_LOG_KEY]: (await loadEventLog()).filter((event) => !uploaded.has(event.id)) });
+      });
+    }
+
+    function timedQueue(name) {
+      const inQueue = createQueue();
+
+      return (task) => {
+        const queuedAtMs = Date.now();
+
+        return inQueue(() => {
+          const waitedMs = Date.now() - queuedAtMs;
+
+          if (waitedMs >= SLOW_QUEUE_WAIT_MS) {
+            recordEvent("slowQueue", `${name} queue task waited ${waitedMs} ms.`);
+          }
+
+          return task();
+        });
+      };
     }
 
     function createId() {
@@ -1200,6 +1297,8 @@
       checkTabPage,
       redirectCommittedNavigation,
       redirectNavigationStart,
+      recordEvent,
+      reportError,
       finishSavedState,
       saveState,
       signInWithProvider,
@@ -1296,7 +1395,7 @@
     ), 0);
   }
 
-  function createStateStorage(api) {
+  function createStateStorage(api, recordEvent) {
     const browserStorage = {
       async loadState() {
         const stored = await api.storage.local.get(core.STATE_KEY);
@@ -1311,7 +1410,7 @@
     };
     const nativeStorage = {
       async loadState() {
-        const response = await sendNativeMessage(api, { type: "loadState" });
+        const response = await sendNativeMessage(api, recordEvent, { type: "loadState" });
 
         switch (response.type) {
           case "storedState":
@@ -1323,7 +1422,7 @@
         }
       },
       async saveState(state) {
-        const response = await sendNativeMessage(api, { type: "saveState", state });
+        const response = await sendNativeMessage(api, recordEvent, { type: "saveState", state });
 
         switch (response.type) {
           case "savedState":
@@ -1346,8 +1445,8 @@
     };
   }
 
-  function createBlockedPageHtmlStorage(api) {
-    const storage = createValueStorage(api, {
+  function createBlockedPageHtmlStorage(api, recordEvent) {
+    const storage = createValueStorage(api, recordEvent, {
       key: core.BLOCKED_PAGE_HTML_KEY,
       valueKey: "blockedPageHtml",
       loadType: "loadBlockedPageHtml",
@@ -1386,8 +1485,8 @@
     return core.normalizeBlockedPageHtml(stored.html);
   }
 
-  function createScreenTimeStorage(api) {
-    const storage = createValueStorage(api, {
+  function createScreenTimeStorage(api, recordEvent) {
+    const storage = createValueStorage(api, recordEvent, {
       key: SCREEN_TIME_USAGE_KEY,
       valueKey: "usage",
       loadType: "loadScreenTimeUsage",
@@ -1406,8 +1505,8 @@
     };
   }
 
-  function createSettingsSyncStorage(api) {
-    const storage = createValueStorage(api, {
+  function createSettingsSyncStorage(api, recordEvent) {
+    const storage = createValueStorage(api, recordEvent, {
       key: SETTINGS_SYNC_KEY,
       valueKey: "sync",
       loadType: "loadSettingsSync",
@@ -1426,8 +1525,8 @@
     };
   }
 
-  function createSettingsActivationStorage(api) {
-    const storage = createValueStorage(api, {
+  function createSettingsActivationStorage(api, recordEvent) {
+    const storage = createValueStorage(api, recordEvent, {
       key: SETTINGS_ACTIVATION_KEY,
       valueKey: "activation",
       loadType: "loadSettingsActivation",
@@ -1446,8 +1545,8 @@
     };
   }
 
-  function createSupabaseSessionStorage(api) {
-    const storage = createValueStorage(api, {
+  function createSupabaseSessionStorage(api, recordEvent) {
+    const storage = createValueStorage(api, recordEvent, {
       key: SUPABASE_SESSION_KEY,
       valueKey: "session",
       loadType: "loadSupabaseSession",
@@ -1464,7 +1563,7 @@
         return storage.saveValue(session);
       },
       async clearSession() {
-        return clearStoredValue(api, {
+        return clearStoredValue(api, recordEvent, {
           key: SUPABASE_SESSION_KEY,
           clearType: "clearSupabaseSession",
           clearedType: "clearedSupabaseSession"
@@ -1473,7 +1572,7 @@
     };
   }
 
-  function createValueStorage(api, types, usesNative) {
+  function createValueStorage(api, recordEvent, types, usesNative) {
     const browserStorage = {
       async loadValue() {
         const stored = await api.storage.local.get(types.key);
@@ -1488,7 +1587,7 @@
     };
     const nativeStorage = {
       async loadValue() {
-        const response = await sendNativeMessage(api, { type: types.loadType });
+        const response = await sendNativeMessage(api, recordEvent, { type: types.loadType });
 
         switch (response.type) {
           case types.loadedType:
@@ -1500,7 +1599,7 @@
         }
       },
       async saveValue(value) {
-        const response = await sendNativeMessage(api, { type: types.saveType, [types.valueKey]: value });
+        const response = await sendNativeMessage(api, recordEvent, { type: types.saveType, [types.valueKey]: value });
 
         switch (response.type) {
           case types.savedType:
@@ -1523,13 +1622,13 @@
     };
   }
 
-  async function clearStoredValue(api, types, usesNative) {
+  async function clearStoredValue(api, recordEvent, types, usesNative) {
     if (!(await usesNative(api))) {
       await api.storage.local.remove(types.key);
       return;
     }
 
-    const response = await sendNativeMessage(api, { type: types.clearType });
+    const response = await sendNativeMessage(api, recordEvent, { type: types.clearType });
 
     switch (response.type) {
       case types.clearedType:
@@ -1573,8 +1672,20 @@
     return !!api.runtime && typeof api.runtime.sendNativeMessage === "function";
   }
 
-  async function sendNativeMessage(api, message) {
-    const response = await api.runtime.sendNativeMessage("application.id", message);
+  async function sendNativeMessage(api, recordEvent, message) {
+    const startedAtMs = Date.now();
+    const timeout = AbortSignal.timeout(NATIVE_MESSAGE_TIMEOUT_MS);
+    const response = await new Promise((resolve, reject) => {
+      timeout.addEventListener("abort", () => {
+        reject(codedError("NativeMessageTimeout", `Native storage did not answer ${message.type} within ${NATIVE_MESSAGE_TIMEOUT_MS / 1000} seconds.`));
+      });
+      api.runtime.sendNativeMessage("application.id", message).then(resolve, reject);
+    });
+    const elapsedMs = Date.now() - startedAtMs;
+
+    if (elapsedMs >= SLOW_NATIVE_MESSAGE_MS) {
+      recordEvent("slowStorage", `Native ${message.type} took ${elapsedMs} ms.`);
+    }
 
     if (!isPlainObject(response) || typeof response.type !== "string") {
       throw codedError("NativeResponseInvalid", "Native response must include a type.");
@@ -1585,12 +1696,17 @@
 
   function attachRuntimeListener(api) {
     const controller = createBackgroundController(api);
+
+    controller.recordEvent("start", "Background started.");
     const action = api.action || api.browserAction;
 
     api.runtime.onMessage.addListener((message, sender, sendResponse) => {
       controller.handleMessage(message, sender)
         .then(sendResponse)
-        .catch((error) => sendResponse(errorResponse("error", error)));
+        .catch((error) => {
+          controller.reportError("URL Blocker could not answer a message.", error);
+          sendResponse(errorResponse("error", error));
+        });
 
       return true;
     });
@@ -1602,13 +1718,13 @@
         }
 
         controller.injectContentScriptIntoOpenTabs()
-          .catch((error) => console.error(`URL Blocker could not check open tabs. ${errorLogText(error)}`));
+          .catch((error) => controller.reportError("URL Blocker could not check open tabs.", error));
       });
     }
 
     if (action && action.onClicked) {
       action.onClicked.addListener(() => {
-        controller.openOptions().catch((error) => console.error(`URL Blocker could not open options. ${errorLogText(error)}`));
+        controller.openOptions().catch((error) => controller.reportError("URL Blocker could not open options.", error));
       });
     }
 
@@ -1619,25 +1735,25 @@
         }
 
         controller.checkTabPage(tabId, changeInfo.url, ARRIVAL_PENDING)
-          .catch((error) => console.error(`URL Blocker could not redirect updated tab. ${errorLogText(error)}`));
+          .catch((error) => controller.reportError("URL Blocker could not redirect updated tab.", error));
       });
     }
 
     if (api.tabs.onRemoved) {
       api.tabs.onRemoved.addListener((tabId) => {
         controller.forgetTab(tabId)
-          .catch((error) => console.error(`URL Blocker could not forget a closed tab. ${errorLogText(error)}`));
+          .catch((error) => controller.reportError("URL Blocker could not forget a closed tab.", error));
       });
     }
 
     if (api.webNavigation) {
       api.webNavigation.onBeforeNavigate.addListener((details) => {
         controller.redirectNavigationStart(details)
-          .catch((error) => console.error(`URL Blocker could not redirect starting navigation. ${errorLogText(error)}`));
+          .catch((error) => controller.reportError("URL Blocker could not redirect starting navigation.", error));
       });
       api.webNavigation.onCommitted.addListener((details) => {
         controller.redirectCommittedNavigation(details)
-          .catch((error) => console.error(`URL Blocker could not redirect committed navigation. ${errorLogText(error)}`));
+          .catch((error) => controller.reportError("URL Blocker could not redirect committed navigation.", error));
       });
     }
 
@@ -1732,6 +1848,6 @@
 
     controller.loadState()
       .then(controller.syncContentScripts)
-      .catch((error) => console.error(`URL Blocker could not sync website access. ${errorLogText(error)}`));
+      .catch((error) => controller.reportError("URL Blocker could not sync website access.", error));
   }
 })(globalThis);
