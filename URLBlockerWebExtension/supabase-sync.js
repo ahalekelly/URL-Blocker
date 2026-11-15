@@ -637,7 +637,7 @@
   }
 
   function requireNormalizedDomain(domain, core) {
-    if (typeof domain !== "string" || core.normalizeDomainEntryValue(domain) !== domain) {
+    if (typeof domain !== "string" || core.normalizeSite(domain) !== domain) {
       throw new Error("Screen time domain must be normalized.");
     }
   }

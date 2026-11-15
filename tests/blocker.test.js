@@ -490,6 +490,28 @@ test("URL entries with ports match only that port", () => {
   assert.equal(core.decidePage(allowedState, "https://media.example.net/web", inside, new Set(), noon).type, "match");
 });
 
+test("entries with ports treat that port as their own site", () => {
+  const noon = new Date(2026, 0, 1, 12, 0);
+  const inactive = { type: "dailyWindow", startMinute: 0, endMinute: 1 };
+  const allDay = { type: "dailyWindow", startMinute: 0, endMinute: 1439 };
+  const entries = [{ id: ids[0], kind: "urlWithSubpaths", value: "media.example.net:8096" }];
+  const hardScheduled = validState(entries, inactive, undefined, core.DEFAULT_LIMIT_RESET, allDay);
+  const scheduled = validState(entries, { type: "always" });
+  const fromOtherPort = { type: "arrival", from: { type: "referrer", url: "http://media.example.net:3000/" } };
+
+  assert.deepEqual(hardScheduled.domainLimits.map((limit) => limit.domain), ["media.example.net:8096"]);
+  assert.equal(core.decidePage(hardScheduled, "http://media.example.net:8096/web", inside, new Set(), noon).reason, "hardSchedule");
+  assert.equal(core.decidePage(hardScheduled, "http://media.example.net:3000/", inside, new Set(), noon).type, "none");
+  assert.equal(core.decidePage(hardScheduled, "https://media.example.net/", inside, new Set(), noon).type, "none");
+  assert.equal(core.decidePage(scheduled, "http://media.example.net:8096/web", fromOtherPort, new Set(), noon).type, "none");
+  assert.equal(core.decidePage(scheduled, "http://media.example.net:8096/web", { type: "arrival", from: { type: "referrer", url: "http://media.example.net:8096/" } }, new Set(), noon).type, "match");
+  assert.equal(core.decidePage(validState([{ id: ids[0], kind: "domain", value: "example.net" }], { type: "always" }), "http://media.example.net:3000/", inside, new Set(), noon).type, "match");
+  assert.deepEqual(core.screenTimeDomainForUrl(scheduled, "http://media.example.net:8096/web"), { type: "match", domain: "media.example.net:8096" });
+  assert.deepEqual(core.screenTimeDomainForUrl(scheduled, "http://media.example.net:3000/"), { type: "none" });
+  assert.equal(core.normalizeSite("media.example.net:8096"), "media.example.net:8096");
+  assert.throws(() => core.normalizeSite("media.example.net:8096/web"), /paths/);
+});
+
 test("validates allowed pages", () => {
   const state = validState([{ id: ids[0], kind: "url", value: "x.com" }]);
   const valid = core.validateState({ ...state, allowedPages: ["https://www.X.com/messages/", "studio.youtube.com"] }, []);

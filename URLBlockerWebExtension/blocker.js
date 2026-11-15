@@ -803,6 +803,17 @@
     return `${host}${port}${storedPath}`;
   }
 
+  // A site is a domain, or a host and port for entries with a port.
+  function normalizeSite(rawValue) {
+    const site = normalizeUrlValue(rawValue);
+
+    if (site.includes("/")) {
+      throw new Error("Sites cannot include paths.");
+    }
+
+    return site;
+  }
+
   function normalizeHost(rawHost) {
     const host = stripLeadingWww(rawHost.toLowerCase());
 
@@ -1086,7 +1097,7 @@
       let domain = "";
 
       try {
-        domain = normalizeDomainEntryValue(limit.domain);
+        domain = normalizeSite(limit.domain);
       } catch (error) {
         errors.push({ index: null, message: error.message });
         return;
@@ -1391,7 +1402,7 @@
 
         const result = normalizePageUrl(from.url);
 
-        return result.type === "valid" && !domainMatchesHost(domain, result.url.limitHost);
+        return result.type === "valid" && !siteMatchesHost(domain, result.url.limitHost);
       }
       default:
         throw new Error(`Unknown arrival type: ${from.type}`);
@@ -1417,7 +1428,7 @@
     }
 
     for (const entry of state.entries) {
-      if (entryIsEnabled(entry) && domainMatchesHost(associatedDomainForEntry(entry), result.url.limitHost)) {
+      if (entryIsEnabled(entry) && siteMatchesHost(associatedDomainForEntry(entry), result.url.limitHost)) {
         return { type: "match", reason: "hardSchedule" };
       }
     }
@@ -1465,7 +1476,7 @@
 
     const storedUrl = splitStoredUrl(entry.value);
 
-    return storedUrl.path === "" && domainMatchesHost(storedUrl.host, host);
+    return storedUrl.path === "" && siteMatchesHost(storedUrl.hostWithPort, host);
   }
 
   // Everything up to the first & or # identifies the page: extra query params
@@ -1485,7 +1496,7 @@
     }
 
     const site = Object.keys(SHORT_VIDEO_SITE_DOMAINS)
-      .find((candidate) => domainMatchesHost(SHORT_VIDEO_SITE_DOMAINS[candidate], result.url.host));
+      .find((candidate) => siteMatchesHost(SHORT_VIDEO_SITE_DOMAINS[candidate], result.url.host));
 
     if (site === undefined || !state.shortVideoHiding[site]) {
       return { type: "none" };
@@ -1525,7 +1536,7 @@
     const limits = activeDomainLimits(state).sort((left, right) => right.domain.length - left.domain.length);
 
     for (const limit of limits) {
-      if (domainMatchesHost(limit.domain, result.url.limitHost)) {
+      if (siteMatchesHost(limit.domain, result.url.limitHost)) {
         return { type: "match", domain: limit.domain };
       }
     }
@@ -1786,7 +1797,7 @@
         return entry.value;
       case "url":
       case "urlWithSubpaths":
-        return splitStoredUrl(entry.value).host;
+        return splitStoredUrl(entry.value).hostWithPort;
       case "regex":
         return domainForRegexEntryValue(entry.value);
       default:
@@ -1865,13 +1876,13 @@
 
     switch (entry.kind) {
       case "domain":
-        return domainMatchesUrl(entry.value, pageUrl);
+        return siteMatchesHost(entry.value, pageUrl.host);
       case "url":
         return makeContentRegex(entry).test(pageUrl.pathMatchUrl);
       case "urlWithSubpaths":
         return makeContentRegex(entry).test(pageUrl.pathMatchUrl);
       case "regex":
-        return domainMatchesHost(domainForRegexEntryValue(entry.value), pageUrl.host)
+        return siteMatchesHost(domainForRegexEntryValue(entry.value), pageUrl.host)
           && new RegExp(entry.value, "i").test(pageUrl.regexMatchUrl);
       default:
         throw new Error(`Unknown matcher kind: ${entry.kind}`);
@@ -1927,7 +1938,7 @@
         type: "valid",
         url: {
           host,
-          limitHost: hostAliasTarget(aliasHost) || host,
+          limitHost: `${hostAliasTarget(aliasHost) || host}${url.port === "" ? "" : `:${url.port}`}`,
           pathUrl,
           pathMatchUrl,
           regexMatchUrl
@@ -1948,7 +1959,7 @@
 
           break;
         case "pathRegex":
-          if (domainMatchesHost(alias.host, host) && alias.pathPattern.test(path)) {
+          if (siteMatchesHost(alias.host, host) && alias.pathPattern.test(path)) {
             return alias.target;
           }
 
@@ -1967,7 +1978,7 @@
         case "exact": {
           const source = splitStoredUrl(alias.source);
 
-          if (!domainMatchesHost(source.host, host)) {
+          if (!siteMatchesHost(source.host, host)) {
             continue;
           }
 
@@ -1978,7 +1989,7 @@
           return alias.target;
         }
         case "pathRegex":
-          if (domainMatchesHost(alias.host, host) && alias.pathPattern.test(path)) {
+          if (siteMatchesHost(alias.host, host) && alias.pathPattern.test(path)) {
             return alias.target;
           }
 
@@ -1997,14 +2008,14 @@
         case "exact": {
           const source = splitStoredUrl(alias.source);
 
-          if (domainMatchesHost(source.host, host)) {
+          if (siteMatchesHost(source.host, host)) {
             return splitStoredUrl(alias.target).host;
           }
 
           break;
         }
         case "pathRegex":
-          if (domainMatchesHost(alias.host, host)) {
+          if (siteMatchesHost(alias.host, host)) {
             return splitStoredUrl(alias.target).host;
           }
 
@@ -2049,12 +2060,11 @@
     return `${scheme}//${host}${path}`;
   }
 
-  function domainMatchesUrl(domain, pageUrl) {
-    return domainMatchesHost(domain, pageUrl.host);
-  }
+  // Sites without a port cover every port on their host.
+  function siteMatchesHost(site, host) {
+    const pageHost = site.includes(":") ? host : host.replace(/:\d+$/u, "");
 
-  function domainMatchesHost(domain, host) {
-    return host === domain || host.endsWith(`.${domain}`);
+    return pageHost === site || pageHost.endsWith(`.${site}`);
   }
 
   function splitStoredUrl(value) {
@@ -2208,6 +2218,7 @@
     overLimitDomains,
     pendingSettingsActivation,
     normalizeDomainEntryValue,
+    normalizeSite,
     normalizeBlockedPageHtml,
     normalizePageUrl,
     pageChangeKey,
