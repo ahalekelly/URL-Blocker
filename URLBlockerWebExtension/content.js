@@ -46,7 +46,13 @@
   // `problem`. covered: the page is covered until a check gets a decision.
   let silence = { type: "answered" };
 
-  start();
+  // A prerendered page shares its tab with the page the user is on, so
+  // checking it before activation would redirect the visible page.
+  if (document.prerendering) {
+    document.addEventListener("prerenderingchange", start, { once: true });
+  } else {
+    start();
+  }
 
   function start() {
     document.documentElement.setAttribute(SCRIPT_ATTRIBUTE, scriptId);

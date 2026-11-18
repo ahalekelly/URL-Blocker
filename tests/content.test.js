@@ -20,6 +20,16 @@ test("content script reports the startup URL with the document referrer", async 
   assert.deepEqual(page.messages, [checkPage("https://x.com/home", "https://search.example/")]);
 });
 
+test("content script waits for a prerendered page to activate before checking it", async () => {
+  const page = await runContentScript("https://www.reddit.com/r/foo", { referrer: "https://www.reddit.com/user/x", prerendering: true });
+
+  assert.deepEqual(page.messages, []);
+
+  await page.dispatch("prerenderingchange");
+
+  assert.deepEqual(page.messages, [checkPage("https://www.reddit.com/r/foo", "https://www.reddit.com/user/x")]);
+});
+
 test("content script keeps the page referrer when the site replaces its URL", async () => {
   const page = await runContentScript("https://www.reddit.com/comments/abc", { referrer: "https://search.example/" });
 
@@ -277,7 +287,11 @@ async function runContentScript(url, options = {}) {
     },
     document: {
       hidden: false,
+      prerendering: options.prerendering === true,
       referrer: options.referrer || "",
+      addEventListener(type, listener) {
+        context.listeners.set(type, listener);
+      },
       documentElement,
       createElement() {
         const element = {
