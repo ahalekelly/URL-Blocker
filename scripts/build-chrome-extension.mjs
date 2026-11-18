@@ -60,7 +60,7 @@ chromeFiles.forEach((file) => {
   }
 });
 
-assert.deepEqual(chromeManifest.permissions, ["identity", "scripting", "storage", "tabs", "webNavigation"]);
+assert.deepEqual(chromeManifest.permissions, ["alarms", "identity", "scripting", "storage", "tabs", "webNavigation"]);
 assert.deepEqual(chromeManifest.host_permissions, expectedHostPermissions);
 assert.deepEqual(chromeManifest.optional_host_permissions, ["*://*/*"]);
 

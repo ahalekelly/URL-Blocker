@@ -75,7 +75,7 @@ Invariants:
 
 "Apply" validates the remote state and makes it pending. A remote state from a newer schema version fails validation with an "update URL Blocker" error and changes nothing, locally or remotely.
 
-The extension syncs settings when the options page opens, after each save, and on Sync Now. Android pulls settings on every sync (at most once a minute while the screen is on) and never uploads them.
+The extension syncs settings and screen time every 5 minutes (the `sync` alarm), and syncs settings when the options page opens, after each save, and on Sync Now. Android pulls settings on every sync (at most once a minute while the screen is on) and never uploads them.
 
 ## Account
 
@@ -207,5 +207,4 @@ These are known and not fixed.
 - **iOS app and Safari extension share storage across processes.** Both run a background controller over the same app group keys. The queues are per process, so simultaneous edits from both can still lose a write.
 - **Chromium prerendering.** Prerendered pages may report navigation events with a nonzero frame ID, which the worker ignores, so a prerendered visit may only ever be judged as arrivalPending. Brave does not prerender, and branded Chrome will not load the unpacked extension, so this is untested.
 - **Safari updates.** The worker does not inject into open tabs after a Safari update. Whether Safari keeps their scripts alive is untested; if it does not, the old scripts cover their pages until they reload.
-- **Background settings pulls.** The extension pulls synced settings only when the options page opens or saves, unlike Android. Changes made on another device reach a browser after its options page next opens.
 - **Overlapping token refreshes.** A settings sync and a screen time sync can refresh an expiring session at the same time with the same refresh token. Supabase's refresh token reuse interval accepts both.

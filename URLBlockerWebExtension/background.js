@@ -30,6 +30,8 @@
   const SETTINGS_SYNC_KEY = "settingsSync";
   const SETTINGS_ACTIVATION_KEY = "settingsActivation";
   const SUPABASE_SESSION_KEY = "supabaseSession";
+  const SYNC_ALARM = "sync";
+  const SYNC_PERIOD_MINUTES = 5;
   const COMMITTED_NAVIGATION_PREFIX = "committedNavigation:";
   const PAGE_PASS_PREFIX = "pagePasses:";
   const MAX_PAGE_PASSES = 100;
@@ -1724,6 +1726,17 @@
           .catch((error) => controller.reportError("URL Blocker could not check open tabs.", error));
       });
     }
+
+    api.alarms.onAlarm.addListener(() => {
+      controller.syncNow().catch((error) => controller.reportError("URL Blocker could not sync.", error));
+    });
+    // Re-creating an existing alarm restarts its period, and the background
+    // restarts often, so create it only when missing.
+    api.alarms.get(SYNC_ALARM).then((alarm) => {
+      if (!alarm) {
+        return api.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MINUTES });
+      }
+    }).catch((error) => controller.reportError("URL Blocker could not schedule sync.", error));
 
     if (action && action.onClicked) {
       action.onClicked.addListener(() => {
