@@ -246,6 +246,5 @@ function isMainModule() {
 }
 
 export {
-  securePreferencesPath,
   userDataDirFromCommand,
 };
