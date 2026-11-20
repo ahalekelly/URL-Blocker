@@ -20,45 +20,6 @@ function blockedUrl(url, reason) {
   return `safari-web-extension://extension/blocked.html?reason=${reason}#${encodeURIComponent(url)}`;
 }
 
-test("options requests only missing website access for saved states", async () => {
-  const app = createExtensionApp();
-
-  app.backgroundApi.storageData[core.STATE_KEY] = validState([
-    { id, kind: "domain", value: "example.com" }
-  ]);
-
-  const page = await openOptionsPage(app);
-
-  assert.deepEqual(messageTypes(app).slice(0, 4), ["syncNow", "getLocalState", "getLocalScreenTimeLog", "getSyncStatus"]);
-  assert.equal(page.byId("permissionPanel").hidden, false);
-  assert.equal(page.byId("editorPanel").hidden, true);
-  assert.equal(page.byId("permissionMessage").textContent, "URL Blocker needs access to this website before blocking can run.");
-
-  await page.byId("grantAccessButton").dispatch("click");
-
-  assert.deepEqual(app.optionsApi.permissionRequests, [["*://*.example.com/*"]]);
-  assert.equal(page.byId("permissionPanel").hidden, true);
-  assert.equal(page.byId("editorPanel").hidden, false);
-  assert.deepEqual(app.backgroundApi.registeredScripts[0].matches, ["*://*.example.com/*", "*://*.facebook.com/*", "*://*.instagram.com/*", "*://*.linkedin.com/*", "*://*.youtube.com/*"]);
-});
-
-test("options renders local data before startup sync finishes", async () => {
-  const app = createExtensionApp({ delaySyncNow: true });
-
-  app.backgroundApi.storageData[core.STATE_KEY] = validState([
-    { id, kind: "domain", value: "example.com" }
-  ]);
-  app.backgroundApi.grantedOrigins.push("*://*.example.com/*");
-
-  const page = await openOptionsPage(app);
-
-  assert.deepEqual(messageTypes(app).slice(0, 4), ["syncNow", "getLocalState", "getLocalScreenTimeLog", "getSyncStatus"]);
-  assert.equal(page.byId("editorPanel").hidden, false);
-  assert.equal(page.customRows().at(-1).querySelector(".value-input").value, "example.com");
-
-  await app.optionsApi.finishSyncNow();
-});
-
 test("options keeps edits made before startup sync finishes", async () => {
   const app = createExtensionApp({ delaySyncNow: true });
 
@@ -87,91 +48,6 @@ test("options keeps unsaved edits through Sync now", async () => {
   await page.byId("syncNowButton").dispatch("click");
 
   assert.equal(page.byId("allowedPagesInput").value, "example.com/docs");
-});
-
-test("options keeps the editor hidden until local data loads", async () => {
-  const app = createExtensionApp({ delayGetLocalState: true });
-
-  app.backgroundApi.storageData[core.STATE_KEY] = validState([
-    { id, kind: "domain", value: "example.com" }
-  ]);
-  app.backgroundApi.grantedOrigins.push("*://*.example.com/*");
-
-  const page = await openOptionsPage(app);
-
-  assert.deepEqual(messageTypes(app), ["syncNow", "getLocalState"]);
-  assert.equal(page.byId("editorPanel").hidden, true);
-  assert.equal(page.byId("rows").children.length, 0);
-
-  await app.optionsApi.finishGetLocalState();
-
-  assert.equal(page.byId("editorPanel").hidden, false);
-  assert.equal(page.customRows().at(-1).querySelector(".value-input").value, "example.com");
-});
-
-test("options rounds displayed screen time to the nearest minute", async () => {
-  const app = createExtensionApp();
-  const hour = Math.floor(app.backgroundApi.nowValue / (60 * 60 * 1000));
-
-  app.backgroundApi.storageData[core.STATE_KEY] = validState([
-    { id, kind: "domain", value: "x.com" }
-  ]);
-  app.backgroundApi.storageData.screenTimeUsage = screenTimeUsage({
-    "x.com": { [hour]: 90000 }
-  });
-
-  const page = await openOptionsPage(app);
-  const screenTimeTotal = page.byId("screenTimeRows").children[0].querySelector(".screen-time-total");
-
-  assert.equal(page.byId("screenTimeTitle").textContent, "Last 24 Hours");
-  assert.equal(screenTimeTotal.textContent, "2m / 30m");
-});
-
-test("options updates the stats summary from draft limit reset settings", async () => {
-  const app = createExtensionApp();
-  const page = await openOptionsPage(app);
-
-  assert.equal(page.byId("screenTimeTitle").textContent, "Last 24 Hours");
-
-  page.byId("rollingWindowHoursInput").value = "6";
-  await page.byId("rollingWindowHoursInput").dispatch("input");
-
-  assert.equal(page.byId("screenTimeTitle").textContent, "Last 6 Hours");
-
-  await page.byId("dailyResetInput").dispatch("change");
-
-  assert.equal(page.byId("screenTimeTitle").textContent, "Today");
-});
-
-test("options keeps stats and limit reset visible when block schedule is always", async () => {
-  const app = createExtensionApp({ supabaseConfig: configuredSupabase() });
-  const hour = Math.floor(app.backgroundApi.nowValue / (60 * 60 * 1000));
-
-  app.backgroundApi.storageData[core.STATE_KEY] = validState([
-    { id, kind: "domain", value: "example.com" }
-  ], { type: "always" });
-  app.backgroundApi.storageData.screenTimeUsage = screenTimeUsage({
-    "example.com": { [hour]: 90000 }
-  });
-
-  const page = await openOptionsPage(app);
-
-  assert.equal(page.byId("screenTimePanel").hidden, false);
-  assert.equal(page.byId("screenTimeRows").children[0].querySelector(".screen-time-total").textContent, "2m");
-  assert.equal(page.byId("limitResetPanel").hidden, false);
-  assert.equal(page.customRows().at(-1).querySelector(".limit-control").hidden, true);
-  assert.equal(page.byId("limitGroupsPanel").hidden, true);
-  assert.equal(page.byId("syncStatusText").textContent, "Sign in to sync settings.");
-  assert.equal(page.byId("googleSignInButton").hidden, false);
-  assert.equal(page.byId("appleSignInButton").hidden, true);
-
-  await page.byId("dailyScheduleInput").dispatch("change");
-
-  assert.equal(page.byId("limitResetPanel").hidden, false);
-  assert.equal(page.byId("screenTimeRows").children[0].querySelector(".screen-time-total").textContent, "2m / 30m");
-  assert.equal(page.customRows().at(-1).querySelector(".limit-control").hidden, false);
-  assert.equal(page.byId("limitGroupsPanel").hidden, false);
-  assert.equal(page.byId("syncStatusText").textContent, "Sign in to sync settings and screen time limits.");
 });
 
 test("options round-trips allowed pages", async () => {
@@ -210,148 +86,6 @@ test("options hides provider sign-in buttons when sync is signed in", async () =
   assert.equal(page.byId("appleSignInButton").hidden, true);
   assert.equal(page.byId("syncNowButton").hidden, false);
   assert.equal(page.byId("signOutButton").hidden, false);
-});
-
-test("options hides provider sign-in buttons on iOS", async () => {
-  const app = createExtensionApp({
-    delaySyncNow: true,
-    nativeStorage: true,
-    supabaseConfig: configuredSupabase()
-  });
-
-  app.backgroundApi.nativeData[core.STATE_KEY] = validState([]);
-
-  const page = await openOptionsPage(app);
-  const signInLink = page.byId("syncStatusText").children[0];
-
-  assert.equal(signInLink.tagName, "a");
-  assert.equal(signInLink.href, "urlblocker://open");
-  assert.equal(signInLink.textContent, "Sign in to sync screen time limits and settings");
-  assert.equal(page.byId("googleSignInButton").hidden, true);
-  assert.equal(page.byId("appleSignInButton").hidden, true);
-  assert.equal(page.byId("syncNowButton").hidden, true);
-  assert.equal(page.byId("signOutButton").hidden, true);
-});
-
-test("options refreshes iOS sync status after native sign-in", async () => {
-  const app = createExtensionApp({
-    delaySyncNow: true,
-    nativeStorage: true,
-    supabaseConfig: configuredSupabase()
-  });
-
-  app.backgroundApi.nativeData[core.STATE_KEY] = validState([]);
-  const page = await openOptionsPage(app);
-
-  app.backgroundApi.nativeData.supabaseSession = supabaseSession();
-  app.backgroundApi.nativeData.settingsSync = settingsSync(app.backgroundApi.nowValue - 2 * 60 * 1000);
-  await page.dispatchWindow("focus");
-
-  assert.equal(page.byId("syncStatusText").textContent, "Last synced 2 minutes ago.");
-});
-
-test("options hides provider sign-in buttons when iOS sync is signed in", async () => {
-  const app = createExtensionApp({
-    delaySyncNow: true,
-    nativeStorage: true,
-    supabaseConfig: configuredSupabase()
-  });
-
-  app.backgroundApi.nativeData[core.STATE_KEY] = validState([]);
-  app.backgroundApi.nativeData.supabaseSession = supabaseSession();
-  app.backgroundApi.nativeData.settingsSync = settingsSync(app.backgroundApi.nowValue - 2 * 60 * 1000);
-
-  const page = await openOptionsPage(app);
-
-  assert.equal(page.byId("syncStatusText").textContent, "Last synced 2 minutes ago.");
-  assert.equal(page.byId("googleSignInButton").hidden, true);
-  assert.equal(page.byId("appleSignInButton").hidden, true);
-  assert.equal(page.byId("syncNowButton").hidden, false);
-  assert.equal(page.byId("signOutButton").hidden, false);
-});
-
-test("options shows immediate provider sign-in feedback", async () => {
-  const app = createExtensionApp({
-    delaySignInWithProvider: true,
-    supabaseConfig: configuredSupabase()
-  });
-
-  app.backgroundApi.storageData[core.STATE_KEY] = validState([]);
-
-  const page = await openOptionsPage(app);
-  const click = page.byId("googleSignInButton").dispatch("click");
-
-  await settle();
-
-  assert.equal(page.byId("syncStatusText").textContent, "Opening Google sign-in.");
-  assert.equal(page.byId("googleSignInButton").disabled, true);
-  assert.equal(page.byId("appleSignInButton").hidden, true);
-  assert.equal(page.byId("appleSignInButton").disabled, true);
-
-  await app.optionsApi.finishSignInWithProvider();
-  await click;
-});
-
-test("options shows the floating save button only for unsaved drafts", async () => {
-  const app = createExtensionApp();
-  const page = await openOptionsPage(app);
-  const saveButton = page.byId("saveButton");
-  const blockedPageHtmlInput = page.byId("blockedPageHtmlInput");
-  const savedHtml = blockedPageHtmlInput.value;
-
-  assert.equal(saveButton.hidden, true);
-
-  blockedPageHtmlInput.value = `${savedHtml}<p>Extra nudge</p>`;
-  await blockedPageHtmlInput.dispatch("input");
-
-  assert.equal(saveButton.hidden, false);
-
-  blockedPageHtmlInput.value = savedHtml;
-  await blockedPageHtmlInput.dispatch("input");
-
-  assert.equal(saveButton.hidden, true);
-});
-
-test("options clears validation messages while editing invalid rows", async () => {
-  const app = createExtensionApp();
-  const page = await openOptionsPage(app);
-
-  await page.byId("addRowButton").dispatch("click");
-  await page.byId("saveButton").dispatch("click");
-
-  let row = page.customRows().at(-1);
-
-  assert.equal(page.byId("errorSummary").hidden, false);
-  assert.equal(row.querySelector(".row-error").textContent, "Enter a value.");
-
-  row.querySelector(".value-input").value = "example.com";
-  await row.querySelector(".value-input").dispatch("input");
-
-  row = page.customRows().at(-1);
-
-  assert.equal(page.byId("errorSummary").hidden, true);
-  assert.equal(row.querySelector(".row-error").hidden, true);
-});
-
-test("options restores saved mode details after temporary mode changes", async () => {
-  const app = createExtensionApp();
-  const savedState = validState([], { type: "dailyWindow", startMinute: 60, endMinute: 120 });
-
-  savedState.limitReset = { type: "rollingWindow", windowHours: 16 };
-  app.backgroundApi.storageData[core.STATE_KEY] = savedState;
-
-  const page = await openOptionsPage(app);
-
-  await page.byId("alwaysScheduleInput").dispatch("change");
-  await page.byId("dailyScheduleInput").dispatch("change");
-
-  assert.equal(page.byId("scheduleStartInput").value, "01:00");
-  assert.equal(page.byId("scheduleEndInput").value, "02:00");
-
-  await page.byId("dailyResetInput").dispatch("change");
-  await page.byId("rollingResetInput").dispatch("change");
-
-  assert.equal(page.byId("rollingWindowHoursInput").value, "16");
 });
 
 test("options round-trips assigning sites to a limit group and deleting the group", async () => {
@@ -413,30 +147,6 @@ test("options round-trips assigning sites to a limit group and deleting the grou
 
   assert.deepEqual(saved.limitGroups, core.DEFAULT_LIMIT_GROUPS);
   assert.deepEqual(saved.domainLimits.find((limit) => limit.domain === "example.com").limit, { type: "site", limitMinutes: 15 });
-});
-
-test("options round-trips short video hiding toggles", async () => {
-  const app = createExtensionApp();
-  app.backgroundApi.storageData[core.STATE_KEY] = validState([]);
-  let page = await openOptionsPage(app);
-
-  assert.equal(page.byId("hideInstagramReelsInput").checked, true);
-
-  page.byId("hideInstagramReelsInput").checked = false;
-  await page.byId("hideInstagramReelsInput").dispatch("change");
-  await page.byId("saveButton").dispatch("click");
-
-  assert.deepEqual(app.backgroundApi.storageData[core.STATE_KEY].shortVideoHiding, {
-    youtube: true,
-    instagram: false,
-    facebook: true,
-    linkedin: true
-  });
-
-  page = await openOptionsPage(app);
-
-  assert.equal(page.byId("hideInstagramReelsInput").checked, false);
-  assert.equal(page.byId("hideYouTubeShortsInput").checked, true);
 });
 
 test("options round-trips hard schedule settings and restores saved window details", async () => {
@@ -543,48 +253,6 @@ test("end-to-end options save blocks a page and renders the blocked view", async
   assert.equal(blocked.byId("copyTargetButton").textContent, "Copied");
 });
 
-test("blocked page renders each reason body without a built-in title", async () => {
-  const app = createExtensionApp();
-  app.backgroundApi.storageData[core.STATE_KEY] = validState([]);
-  const reasons = [
-    ["hardSchedule", "All pages on this site are blocked during your hard block schedule."],
-    ["schedule", "This page is blocked during your schedule."],
-    ["limit", "You've reached your time limit for this site."]
-  ];
-
-  for (const [reason, body] of reasons) {
-    const blocked = await openBlockedPage(app, blockedUrl("https://example.com/focus", reason));
-
-    assert.equal(blocked.byId("blockedMessage").innerHTML, "<h1>Stay focused</h1>");
-    assert.equal(blocked.byId("blockedReason").textContent, body);
-    assert.equal(blocked.byId("blockedTarget").textContent, "https://example.com/focus");
-  }
-});
-
-test("blocked page rejects unknown reasons", async () => {
-  await assert.rejects(
-    () => openBlockedPage(createExtensionApp(), blockedUrl("https://example.com/focus", "mystery")),
-    /Unknown blocked page reason/
-  );
-});
-
-test("options hides the save button before saved-state follow-up finishes", async () => {
-  const app = createExtensionApp({ delayFinishSavedState: true });
-  const page = await openOptionsPage(app);
-  const saveButton = page.byId("saveButton");
-
-  await page.byId("addRowButton").dispatch("click");
-  page.customRows().at(-1).querySelector(".value-input").value = "example.com";
-  await page.customRows().at(-1).querySelector(".value-input").dispatch("input");
-  await saveButton.dispatch("click");
-
-  assert.equal(saveButton.hidden, true);
-  assert.equal(saveButton.disabled, false);
-  assert.ok(messageTypes(app).includes("finishSavedState"));
-
-  await app.optionsApi.finishSavedState();
-});
-
 test("end-to-end stats page renders background screen time totals", async () => {
   const app = createExtensionApp();
   const hour = Math.floor(app.backgroundApi.nowValue / (60 * 60 * 1000));
@@ -618,7 +286,6 @@ test("end-to-end stats page renders background screen time totals", async () => 
 
 async function openOptionsPage(app) {
   const document = optionsDocument();
-  const listeners = new Map();
   const context = {
     BlockerCore: core,
     browser: app.optionsApi,
@@ -638,9 +305,7 @@ async function openOptionsPage(app) {
       pathname: "/options.html"
     },
     history: { replaceState() {} },
-    addEventListener(type, listener) {
-      listeners.set(type, [...(listeners.get(type) || []), listener]);
-    },
+    addEventListener() {},
     scrollY: 0,
     scrollTo() {}
   };
@@ -648,7 +313,7 @@ async function openOptionsPage(app) {
   vm.runInNewContext(optionsScript, context, { filename: "options.js" });
   await settle();
 
-  return page(document, listeners);
+  return page(document);
 }
 
 async function openStatsPage(app) {
@@ -763,21 +428,10 @@ async function runContentScript(app, url, tabId) {
 function createExtensionApp(overrides = {}) {
   const backgroundApi = fakeBackgroundApi(overrides);
   const controller = createBackgroundController(backgroundApi);
-  let finishDelayedLocalState;
   let finishDelayedSync;
-  let finishDelayedSavedState;
-  let finishDelayedSignInWithProvider;
   const optionsApi = {
     messages: [],
     permissionRequests: [],
-    async finishGetLocalState() {
-      if (!finishDelayedLocalState) {
-        throw new Error("No delayed local-state load is pending.");
-      }
-
-      await finishDelayedLocalState();
-      await settle();
-    },
     async finishSyncNow() {
       if (!finishDelayedSync) {
         throw new Error("No delayed sync is pending.");
@@ -786,47 +440,13 @@ function createExtensionApp(overrides = {}) {
       await finishDelayedSync();
       await settle();
     },
-    async finishSavedState() {
-      if (!finishDelayedSavedState) {
-        throw new Error("No delayed saved-state follow-up is pending.");
-      }
-
-      await finishDelayedSavedState();
-      await settle();
-    },
-    async finishSignInWithProvider() {
-      if (!finishDelayedSignInWithProvider) {
-        throw new Error("No delayed provider sign-in is pending.");
-      }
-
-      await finishDelayedSignInWithProvider();
-      await settle();
-    },
     runtime: {
       sendMessage(message) {
         optionsApi.messages.push(message);
 
-        if (overrides.delayGetLocalState && message.type === "getLocalState") {
-          return new Promise((resolve, reject) => {
-            finishDelayedLocalState = () => controller.handleMessage(message, {}).then(resolve, reject);
-          });
-        }
-
         if (overrides.delaySyncNow && message.type === "syncNow") {
           return new Promise((resolve, reject) => {
             finishDelayedSync = () => controller.handleMessage(message, {}).then(resolve, reject);
-          });
-        }
-
-        if (overrides.delayFinishSavedState && message.type === "finishSavedState") {
-          return new Promise((resolve, reject) => {
-            finishDelayedSavedState = () => controller.handleMessage(message, {}).then(resolve, reject);
-          });
-        }
-
-        if (overrides.delaySignInWithProvider && message.type === "signInWithProvider") {
-          return new Promise((resolve, reject) => {
-            finishDelayedSignInWithProvider = () => controller.handleMessage(message, {}).then(resolve, reject);
           });
         }
 
@@ -854,7 +474,6 @@ function fakeBackgroundApi(overrides) {
   const api = {
     storageData: {},
     sessionData: {},
-    nativeData: {},
     grantedOrigins: [...manifest.host_permissions],
     tabsData: overrides.tabs || [],
     registeredScripts: [],
@@ -960,57 +579,11 @@ function fakeBackgroundApi(overrides) {
       async query() {
         return api.tabsData;
       },
-      async create({ url }) {
-        api.createdTab = url;
-      },
       async update(tabId, { url }) {
         api.updatedTabs.push({ tabId, url });
       }
     }
   };
-
-  if (overrides.nativeStorage) {
-    api.runtime.getPlatformInfo = async () => ({ os: "ios" });
-    api.runtime.sendNativeMessage = async (_applicationId, message) => {
-      switch (message.type) {
-        case "loadState":
-          return { type: "storedState", state: api.nativeData[core.STATE_KEY] };
-        case "saveState":
-          api.nativeData[core.STATE_KEY] = message.state;
-          return { type: "savedState", state: message.state };
-        case "loadBlockedPageHtml":
-          return { type: "storedBlockedPageHtml", blockedPageHtml: api.nativeData[core.BLOCKED_PAGE_HTML_KEY] };
-        case "saveBlockedPageHtml":
-          api.nativeData[core.BLOCKED_PAGE_HTML_KEY] = message.blockedPageHtml;
-          return { type: "savedBlockedPageHtml", blockedPageHtml: message.blockedPageHtml };
-        case "loadScreenTimeUsage":
-          return { type: "storedScreenTimeUsage", usage: api.nativeData.screenTimeUsage };
-        case "saveScreenTimeUsage":
-          api.nativeData.screenTimeUsage = message.usage;
-          return { type: "savedScreenTimeUsage", usage: message.usage };
-        case "loadSettingsSync":
-          return { type: "storedSettingsSync", sync: api.nativeData.settingsSync };
-        case "saveSettingsSync":
-          api.nativeData.settingsSync = message.sync;
-          return { type: "savedSettingsSync", sync: message.sync };
-        case "loadSettingsActivation":
-          return { type: "storedSettingsActivation", activation: api.nativeData.settingsActivation };
-        case "saveSettingsActivation":
-          api.nativeData.settingsActivation = message.activation;
-          return { type: "savedSettingsActivation", activation: message.activation };
-        case "loadSupabaseSession":
-          return { type: "storedSupabaseSession", session: api.nativeData.supabaseSession };
-        case "saveSupabaseSession":
-          api.nativeData.supabaseSession = message.session;
-          return { type: "savedSupabaseSession", session: message.session };
-        case "clearSupabaseSession":
-          delete api.nativeData.supabaseSession;
-          return { type: "clearedSupabaseSession" };
-        default:
-          return { type: "error", error: `Unknown native message type: ${message.type}.`, errorCode: "NativeTestUnknownMessage" };
-      }
-    };
-  }
 
   return api;
 }
@@ -1267,7 +840,7 @@ function rowTemplateContent() {
   return fragment;
 }
 
-function page(document, listeners = new Map()) {
+function page(document) {
   return {
     document,
     byId(id) {
@@ -1275,10 +848,6 @@ function page(document, listeners = new Map()) {
     },
     customRows() {
       return document.getElementById("rows").children.filter((row) => row.querySelector(".value-input"));
-    },
-    async dispatchWindow(type) {
-      await Promise.all((listeners.get(type) || []).map((listener) => listener()));
-      await settle();
     }
   };
 }

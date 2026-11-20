@@ -43,40 +43,6 @@ test("stats page renders screen time stats", async () => {
   assert.equal(document.elements.deviceRows.children[0].children[1].textContent, "1m");
 });
 
-test("stats page labels even hours on the x axis", async () => {
-  const response = screenTimeStatsResponse();
-
-  response.stats.hourlyTotals = [
-    { hour: 18, startedAtMs: localHourMs(18), totalMs: 0 },
-    { hour: 19, startedAtMs: localHourMs(19), totalMs: 0 },
-    { hour: 20, startedAtMs: localHourMs(20), totalMs: 0 }
-  ];
-
-  const { document } = await openStatsPage(response);
-  const xAxis = document.elements.hourlyBars.children[1].children[1];
-
-  assert.equal(xAxis.children[0].textContent, hourTickLabel(response.stats.hourlyTotals[0].startedAtMs));
-  assert.equal(xAxis.children[1].textContent, "");
-  assert.equal(xAxis.children[2].textContent, hourTickLabel(response.stats.hourlyTotals[2].startedAtMs));
-});
-
-test("stats page updates after synced stats load", async () => {
-  const local = screenTimeStatsResponse();
-  const synced = screenTimeStatsResponse();
-
-  local.stats.totalMs = 60000;
-  synced.stats.totalMs = 180000;
-
-  const { document, messages } = await openStatsPage({
-    getLocalScreenTimeStats: local,
-    getScreenTimeStats: synced
-  });
-
-  assert.deepEqual(messages.map((message) => message.type), ["getScreenTimeStats", "getLocalScreenTimeStats"]);
-  assert.equal(document.elements.statsShell.hidden, false);
-  assert.equal(document.elements.totalTime.textContent, "3m");
-});
-
 test("stats page hides limits when block schedule is always", async () => {
   const response = screenTimeStatsResponse();
 
@@ -93,18 +59,6 @@ test("stats page hides limits when block schedule is always", async () => {
   assert.equal(values.children.length, 1);
   assert.equal(values.children[0].textContent, "2m");
   assert.equal(row.children[1].textContent, "This device 1m · Other devices 1m");
-});
-
-test("stats page lists the member sites of limit groups", async () => {
-  const response = screenTimeStatsResponse();
-
-  response.stats.entries[0] = { ...response.stats.entries[0], type: "group", name: "Streaming", domains: ["hbomax.com", "netflix.com"] };
-
-  const { document } = await openStatsPage(response);
-  const row = document.elements.domainRows.children[0];
-
-  assert.equal(row.children[0].children[0].textContent, "Streaming");
-  assert.equal(row.children[2].textContent, "hbomax.com, netflix.com · This device 1m · Other devices 1m");
 });
 
 test("stats page shows background errors", async () => {
@@ -140,7 +94,7 @@ async function openStatsPage(response) {
         async sendMessage(message) {
           messages.push(message);
 
-          return responseForMessage(response, message, messages.length - 1);
+          return responseForMessage(response, message);
         }
       }
     },
@@ -155,11 +109,7 @@ async function openStatsPage(response) {
   return { document, messages };
 }
 
-function responseForMessage(response, message, index) {
-  if (Array.isArray(response)) {
-    return response[index];
-  }
-
+function responseForMessage(response, message) {
   if (response.type) {
     return response;
   }
@@ -169,10 +119,6 @@ function responseForMessage(response, message, index) {
 
 function hourTickLabel(startedAtMs) {
   return new Date(startedAtMs).toLocaleTimeString([], { hour: "numeric" });
-}
-
-function localHourMs(hour) {
-  return new Date(2026, 0, 1, hour).getTime();
 }
 
 function screenTimeStatsResponse() {

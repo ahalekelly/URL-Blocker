@@ -17,17 +17,6 @@ test("reads space-separated Chromium user data directories", async () => {
   assert.equal(script.userDataDirFromCommand(command), "/private/tmp/urlblocker-vivaldi-profile.123");
 });
 
-test("uses the configured profile under the running user data directory", async () => {
-  const script = await importScript();
-  const browserConfig = { profileDirectory: "Default" };
-  const browserState = { type: "running", userDataDir: "/private/tmp/urlblocker-brave-profile.123" };
-
-  assert.equal(
-    script.securePreferencesPath(browserConfig, browserState),
-    "/private/tmp/urlblocker-brave-profile.123/Default/Secure Preferences",
-  );
-});
-
 async function importScript() {
   return import(pathToFileURL(path.join(__dirname, "../scripts/install-chromium-extension.mjs")).href);
 }

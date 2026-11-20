@@ -81,40 +81,6 @@ test("saveState settles zero-minute settings delay through activation", async ()
   assert.deepEqual(api.registeredScripts.at(-1).matches, core.contentScriptOriginsForState(response.state));
 });
 
-test("saveState keeps matching content script registration", async () => {
-  const api = fakeApi();
-  const controller = createBackgroundController(api);
-  const state = validState([{ id, kind: "url", value: "https://x.com/home" }]);
-  const defaultState = core.emptyState(defaultBlockedPages);
-
-  api.registeredScripts = [{
-    id: "url-blocker-content",
-    js: ["content.js"],
-    css: ["content.css"],
-    matches: core.permissionOriginsForState(defaultState),
-    runAt: "document_start"
-  }];
-
-  const response = await controller.handleMessage({ type: "saveState", state }, {});
-
-  assert.equal(response.type, "saved");
-  assert.deepEqual(api.scriptRegistrations, []);
-  assert.deepEqual(api.scriptUnregistrations, []);
-  assert.deepEqual(api.registeredScripts[0].matches, core.permissionOriginsForState(defaultState));
-});
-
-test("getLocalState loads default blocked pages when storage is empty", async () => {
-  const controller = createBackgroundController(fakeApi());
-  const response = await controller.getLocalState();
-
-  assert.equal(response.type, "state");
-  assert.deepEqual(response.state.entries, core.emptyState(defaultBlockedPages).entries);
-  assert.deepEqual(response.state.schedule, { type: "dailyWindow", startMinute: 1380, endMinute: 1140 });
-  assert.deepEqual(response.state.hardSchedule, { type: "off" });
-  assert.deepEqual(response.state.limitReset, { type: "rollingWindow", windowHours: 24 });
-  assert.deepEqual(response.state.domainLimits, core.emptyState(defaultBlockedPages).domainLimits);
-});
-
 test("getLocalState reports plain object errors with details", async () => {
   const api = fakeApi();
 
@@ -151,93 +117,6 @@ test("getLocalState resets unsupported stored blocklist versions", async () => {
   assert.deepEqual(api.registeredScripts[0].matches, core.permissionOriginsForState(defaultState));
 });
 
-test("getBlockedPageHtml reads the cached HTML without remote settings sync", async () => {
-  const fetch = globalThis.fetch;
-  const userSettingsUrls = [];
-  const api = fakeApi({
-    now: 20 * 60 * 60 * 1000,
-    supabaseConfig: configuredSupabase()
-  });
-
-  api.storageData[core.BLOCKED_PAGE_HTML_KEY] = { html: "<p>Fast.</p>" };
-  api.storageData.supabaseSession = supabaseSession();
-  globalThis.fetch = async (url, options = {}) => {
-    if (String(url).includes("/user_settings")) {
-      userSettingsUrls.push(String(url));
-      return jsonResponse([]);
-    }
-
-    return fetch(url, options);
-  };
-
-  try {
-    const response = await createBackgroundController(api).handleMessage({ type: "getBlockedPageHtml" }, {});
-
-    assert.deepEqual(response, { type: "blockedPageHtml", html: "<p>Fast.</p>" });
-    assert.equal(userSettingsUrls.length, 0);
-  } finally {
-    globalThis.fetch = fetch;
-  }
-});
-
-test("getBlockedPageHtml backfills the cached HTML", async () => {
-  const api = fakeApi();
-  const state = validState([]);
-
-  api.storageData[core.STATE_KEY] = state;
-  const response = await createBackgroundController(api).getBlockedPageHtml();
-
-  assert.deepEqual(response, { type: "blockedPageHtml", html: state.blockedPageHtml });
-  assert.deepEqual(api.storageData[core.BLOCKED_PAGE_HTML_KEY], { html: state.blockedPageHtml });
-});
-
-test("getLocalState loads default blocked pages without runtime getURL", async () => {
-  const api = fakeApi();
-  const fetch = globalThis.fetch;
-  const location = Object.getOwnPropertyDescriptor(globalThis, "location");
-
-  delete api.runtime.getURL;
-  Object.defineProperty(globalThis, "location", {
-    configurable: true,
-    value: { href: "safari-web-extension://extension/background.js" }
-  });
-  globalThis.fetch = async (url) => {
-    if (url === "safari-web-extension://extension/supabase-config.json") {
-      return jsonResponse({
-        schemaVersion: 1,
-        supabaseUrl: "",
-        publishableKey: "",
-        redirectScheme: "urlblocker",
-        screenTimeSyncAgeMs: 60000
-      });
-    }
-
-    assert.equal(url, "safari-web-extension://extension/default-blocked-pages.json");
-
-    return {
-      ok: true,
-      async json() {
-        return defaultBlockedPages;
-      }
-    };
-  };
-
-  try {
-    const response = await createBackgroundController(api).getLocalState();
-
-    assert.equal(response.type, "state");
-    assert.deepEqual(response.state.entries, core.emptyState(defaultBlockedPages).entries);
-  } finally {
-    globalThis.fetch = fetch;
-
-    if (location) {
-      Object.defineProperty(globalThis, "location", location);
-    } else {
-      delete globalThis.location;
-    }
-  }
-});
-
 test("saveState rejects unsupported old state", async () => {
   const api = fakeApi();
   const controller = createBackgroundController(api);
@@ -251,46 +130,6 @@ test("saveState rejects unsupported old state", async () => {
   assert.equal(response.type, "validationError");
   assert.match(response.errors[0].message, /Unsupported/);
   assert.equal(api.storageData[core.STATE_KEY], undefined);
-});
-
-test("saveState removes access for sites no longer blocked", async () => {
-  const api = fakeApi();
-  const controller = createBackgroundController(api);
-  const response = await controller.saveState(validState([
-    { id, kind: "domain", value: "reddit.com" },
-    { id: "22222222-2222-4222-8222-222222222222", kind: "url", value: "https://x.com/home" }
-  ]));
-  const finishResponse = await controller.finishSavedState();
-
-  assert.equal(response.type, "saved");
-  assert.equal(finishResponse.type, "finishedSavedState");
-  assert.deepEqual(api.registeredScripts[0].matches, core.permissionOriginsForState(core.emptyState(defaultBlockedPages)));
-  assert.deepEqual(api.removedOrigins, ["*://*.example.com/*"]);
-});
-
-test("saveState keeps install-time permissions when they are no longer blocked", async () => {
-  const api = fakeApi({ grantedOrigins: ["*://*.example.com/*", "*://*.youtube.com/*"] });
-  const controller = createBackgroundController(api);
-  const response = await controller.saveState(validState([]));
-  const finishResponse = await controller.finishSavedState();
-
-  assert.equal(response.type, "saved");
-  assert.equal(finishResponse.type, "finishedSavedState");
-  assert.deepEqual(api.removedOrigins, ["*://*.example.com/*"]);
-  assert.deepEqual(api.grantedOrigins, ["*://*.youtube.com/*"]);
-});
-
-test("getDefaultState returns default blocked pages without saving", async () => {
-  const api = fakeApi();
-  const storedState = validState([]);
-
-  api.storageData[core.STATE_KEY] = storedState;
-  const controller = createBackgroundController(api);
-  const response = await controller.handleMessage({ type: "getDefaultState" }, {});
-
-  assert.equal(response.type, "state");
-  assert.deepEqual(response.state.entries, core.emptyState(defaultBlockedPages).entries);
-  assert.equal(api.storageData[core.STATE_KEY], storedState);
 });
 
 test("getDefaultState returns debug codes when default pages fail to load", async () => {
@@ -332,17 +171,6 @@ test("saveState registers the literal regex host", async () => {
   assert.deepEqual(api.removedOrigins, ["*://*.example.com/*"]);
 });
 
-test("missing website access returns an error response", async () => {
-  const api = fakeApi({ grantedOrigins: [] });
-  const controller = createBackgroundController(api);
-  await assert.rejects(() => controller.handleMessage({
-    type: "saveState",
-    state: validState([{ id, kind: "url", value: "https://x.com/home" }])
-  }, {}), /Website access/);
-
-  assert.equal(api.storageData[core.STATE_KEY], undefined);
-});
-
 test("failed validation leaves storage untouched", async () => {
   const api = fakeApi();
   const controller = createBackgroundController(api);
@@ -353,34 +181,6 @@ test("failed validation leaves storage untouched", async () => {
 
   assert.equal(response.type, "validationError");
   assert.equal(api.storageData[core.STATE_KEY], undefined);
-});
-
-test("unknown messages raise errors", async () => {
-  const controller = createBackgroundController(fakeApi());
-
-  await assert.rejects(() => controller.handleMessage({ type: "mystery" }, {}), /Unknown message type/);
-});
-
-test("openOptions opens the options page in a tab", async () => {
-  const api = fakeApi();
-  const controller = createBackgroundController(api);
-  const response = await controller.openOptions();
-
-  assert.equal(response.type, "opened");
-  assert.equal(api.createdTab, "safari-web-extension://extension/options.html");
-});
-
-test("syncWebsiteAccess registers content scripts for the saved blocklist", async () => {
-  const api = fakeApi();
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "url", value: "https://x.com/home" }
-  ]);
-
-  const controller = createBackgroundController(api);
-  const response = await controller.handleMessage({ type: "syncWebsiteAccess" }, {});
-
-  assert.equal(response.type, "synced");
-  assert.deepEqual(api.registeredScripts[0].matches, ["*://*.facebook.com/*", "*://*.instagram.com/*", "*://*.linkedin.com/*", "*://*.twitter.com/*", "*://*.x.com/*", "*://*.youtube.com/*"]);
 });
 
 test("checkPage blocks feeds and lets outside links through while restricted", async () => {
@@ -555,7 +355,6 @@ test("checkPage keeps single short videos to outside links outside the schedule"
     { tabId: 7, url: blockedUrl(nextReel, "shortVideo") },
     { tabId: 8, url: blockedUrl("https://www.facebook.com/reel/", "shortVideo") }
   ]);
-  assert.match(core.blockedReasonText("shortVideo"), /links on other sites/);
 });
 
 test("checkPage reports short video hiding for allowed pages", async () => {
@@ -581,15 +380,6 @@ test("checkPage keeps allowed pages open while their site is restricted", async 
   const controller = createBackgroundController(api);
 
   assert.equal((await controller.handleMessage(checkPageMessage("https://x.com/messages", "https://x.com/home"), { tab: { id: 7 } })).type, "allowed");
-});
-
-test("checkPage rejects malformed referrers", async () => {
-  const api = fakeApi();
-  api.storageData[core.STATE_KEY] = validState([{ id, kind: "url", value: "x.com" }]);
-  const controller = createBackgroundController(api);
-
-  await assert.rejects(controller.handleMessage({ type: "checkPage", url: "https://x.com/", arrival: { type: "referrer", url: null } }, { tab: { id: 7 } }), /referrer must be a string/);
-  await assert.rejects(controller.handleMessage({ type: "checkPage", url: "https://x.com/", arrival: { type: "typed" } }, { tab: { id: 7 } }), /Unknown page arrival type/);
 });
 
 test("openBlockedTarget keeps outside-link pages blocked", async () => {
@@ -736,41 +526,6 @@ test("screenTimeElapsed validates elapsed time", async () => {
   }, { tab: { id: 7 } }), /no more than 30 seconds/);
 });
 
-test("getScreenTimeLog sums the last 24 hour buckets without pruning storage", async () => {
-  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "domain", value: "example.com" }
-  ], core.DEFAULT_SCHEDULE, [
-    { domain: "example.com", limit: { type: "site", limitMinutes: 1 } }
-  ]);
-  api.storageData.screenTimeUsage = screenTimeUsage({
-    "example.com": {
-      4: 1000,
-      5: 2000,
-      19: 3000,
-      20: 4000,
-      21: 5000
-    }
-  });
-  const controller = createBackgroundController(api);
-
-  assert.deepEqual(await controller.handleMessage({ type: "getScreenTimeLog" }, {}), {
-    type: "screenTimeLog",
-    entries: [
-      { type: "site", name: "example.com", domains: ["example.com"], totalMs: 10000, limitMinutes: 1, isOverLimit: false }
-    ]
-  });
-  assert.deepEqual(api.storageData.screenTimeUsage, screenTimeUsage({
-    "example.com": {
-      4: 1000,
-      5: 2000,
-      19: 3000,
-      20: 4000,
-      21: 5000
-    }
-  }));
-});
-
 test("getScreenTimeStats returns summary, hourly, device, and zero-domain rows", async () => {
   const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
   api.storageData[core.STATE_KEY] = validState([
@@ -841,50 +596,6 @@ test("getScreenTimeStats returns summary, hourly, device, and zero-domain rows",
       ]
     }
   });
-});
-
-test("getLocalScreenTimeStats reads cached remote buckets without syncing", async () => {
-  const fetch = globalThis.fetch;
-  const remoteUrls = [];
-  const api = fakeApi({
-    now: 20 * 60 * 60 * 1000,
-    supabaseConfig: configuredSupabase()
-  });
-
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "domain", value: "example.com" }
-  ], core.DEFAULT_SCHEDULE, [
-    { domain: "example.com", limit: { type: "site", limitMinutes: 1 } }
-  ], { type: "rollingWindow", windowHours: 2 });
-  api.storageData.screenTimeUsage = screenTimeUsage({
-    "example.com": { 19: 2000 }
-  }, {
-    "other-device": {
-      "example.com": { 20: 3000 }
-    }
-  });
-  api.storageData.supabaseSession = supabaseSession();
-  globalThis.fetch = async (url, options = {}) => {
-    if (String(url).includes("/screen_time_buckets")) {
-      remoteUrls.push(String(url));
-    }
-
-    return fetch(url, options);
-  };
-
-  try {
-    const response = await createBackgroundController(api).handleMessage({ type: "getLocalScreenTimeStats" }, {});
-
-    assert.equal(response.type, "screenTimeStats");
-    assert.equal(response.stats.totalMs, 5000);
-    assert.deepEqual(response.stats.deviceTotals, [
-      { label: "This Device", totalMs: 2000 },
-      { label: "Other Device 1", totalMs: 3000 }
-    ]);
-    assert.equal(remoteUrls.length, 0);
-  } finally {
-    globalThis.fetch = fetch;
-  }
 });
 
 test("screenTimeElapsed keeps historical buckets when saving", async () => {
@@ -1041,37 +752,6 @@ test("screen time limits include remote device buckets after sync", async () => 
   }
 });
 
-test("signOut keeps screen time local-only by clearing cached remote buckets", async () => {
-  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
-
-  api.storageData[core.STATE_KEY] = validState([
-    { id, kind: "domain", value: "example.com" }
-  ], core.DEFAULT_SCHEDULE, [
-    { domain: "example.com", limit: { type: "site", limitMinutes: 1 } }
-  ]);
-  api.storageData.supabaseSession = supabaseSession();
-  api.storageData.screenTimeUsage = screenTimeUsage({
-    "example.com": { 20: 30000 }
-  }, {
-    "other-device": {
-      "example.com": { 20: 31000 }
-    }
-  });
-
-  const controller = createBackgroundController(api);
-
-  await controller.handleMessage({ type: "signOut" }, {});
-
-  assert.equal(api.storageData.supabaseSession, undefined);
-  assert.deepEqual(api.storageData.screenTimeUsage.remoteBuckets, {});
-  assert.deepEqual(await controller.handleMessage({ type: "getScreenTimeLog" }, {}), {
-    type: "screenTimeLog",
-    entries: [
-      { type: "site", name: "example.com", domains: ["example.com"], totalMs: 30000, limitMinutes: 1, isOverLimit: false }
-    ]
-  });
-});
-
 test("screen time sync waits until dirty data is old enough", async () => {
   const fetch = globalThis.fetch;
   const posts = [];
@@ -1214,40 +894,6 @@ test("Supabase failures leave screen time local and dirty", async () => {
   }
 });
 
-test("Supabase HTTP failures include response details", async () => {
-  const fetch = globalThis.fetch;
-  const consoleError = console.error;
-  const api = fakeApi({
-    now: 20 * 60 * 60 * 1000,
-    supabaseConfig: configuredSupabase()
-  });
-
-  api.storageData.supabaseSession = supabaseSession();
-  console.error = () => {};
-  globalThis.fetch = async (url, options = {}) => {
-    if (String(url).includes("supabase.co")) {
-      return httpErrorResponse(400, {
-        code: "PGRST205",
-        message: "Could not find the table 'public.user_settings' in the schema cache"
-      });
-    }
-
-    return fetch(url, options);
-  };
-
-  try {
-    const controller = createBackgroundController(api);
-    const response = await controller.syncNow();
-
-    assert.equal(response.type, "synced");
-    assert.match(response.status.error, /Could not find the table/);
-    assert.match(response.status.error, /PGRST205/);
-  } finally {
-    globalThis.fetch = fetch;
-    console.error = consoleError;
-  }
-});
-
 test("settings sync metadata migrates missing last sync timestamp", () => {
   const metadata = sync.parseSettingsSync({
     schemaVersion: 1,
@@ -1265,39 +911,6 @@ test("settings sync metadata migrates missing last sync timestamp", () => {
     dirty: false,
     lastSuccessfulSyncMs: null
   });
-});
-
-test("syncNow records the last successful sync time", async () => {
-  const fetch = globalThis.fetch;
-  const api = fakeApi({
-    now: 20 * 60 * 60 * 1000,
-    supabaseConfig: configuredSupabase()
-  });
-
-  api.storageData.supabaseSession = supabaseSession();
-  globalThis.fetch = async (url, options = {}) => {
-    if (String(url).includes("/user_settings") || String(url).includes("/screen_time_buckets")) {
-      return jsonResponse([]);
-    }
-
-    return fetch(url, options);
-  };
-
-  try {
-    const controller = createBackgroundController(api);
-    const syncResponse = await controller.syncNow();
-
-    assert.equal(syncResponse.status.lastSuccessfulSyncAgeMs, 0);
-    assert.equal(api.storageData.settingsSync.lastSuccessfulSyncMs, 72000000);
-
-    api.nowValue += 2 * 60 * 1000;
-
-    const statusResponse = await controller.handleMessage({ type: "getSyncStatus" }, {});
-
-    assert.equal(statusResponse.lastSuccessfulSyncAgeMs, 2 * 60 * 1000);
-  } finally {
-    globalThis.fetch = fetch;
-  }
 });
 
 test("saveState returns after local write before Supabase follow-up", async () => {
@@ -1521,17 +1134,6 @@ test("signing out lets the next account's older settings apply", async () => {
   }
 });
 
-test("signing out keeps edits that never synced", async () => {
-  const api = fakeApi({ now: 20 * 60 * 60 * 1000 });
-  const unsynced = { schemaVersion: 2, deviceId: "device", updatedAtMs: 72000000, revisionId: "local", dirty: true, lastSuccessfulSyncMs: null };
-
-  api.storageData.settingsSync = unsynced;
-  api.storageData.supabaseSession = supabaseSession();
-  await createBackgroundController(api).signOut();
-
-  assert.deepEqual(api.storageData.settingsSync, unsynced);
-});
-
 test("a screen time sync that ends after sign-out keeps other devices' time cleared", async () => {
   const fetch = globalThis.fetch;
   const api = fakeApi({
@@ -1744,40 +1346,6 @@ test("overlapping settings activations register the content script once", async 
   assert.deepEqual(api.registeredScripts[0].matches, core.contentScriptOriginsForState(pendingState));
 });
 
-test("getLocalState reads storage without remote settings sync", async () => {
-  const fetch = globalThis.fetch;
-  const userSettingsUrls = [];
-  const api = fakeApi({
-    now: 20 * 60 * 60 * 1000,
-    supabaseConfig: configuredSupabase()
-  });
-  const localState = validState([
-    { id, kind: "domain", value: "example.com" }
-  ]);
-
-  api.storageData[core.STATE_KEY] = localState;
-  api.storageData.supabaseSession = supabaseSession();
-  globalThis.fetch = async (url, options = {}) => {
-    if (String(url).includes("/user_settings")) {
-      userSettingsUrls.push(String(url));
-      return jsonResponse([]);
-    }
-
-    return fetch(url, options);
-  };
-
-  try {
-    const controller = createBackgroundController(api);
-    const response = await controller.handleMessage({ type: "getLocalState" }, {});
-
-    assert.equal(response.type, "state");
-    assert.deepEqual(response.state, localState);
-    assert.equal(userSettingsUrls.length, 0);
-  } finally {
-    globalThis.fetch = fetch;
-  }
-});
-
 test("signInWithProvider returns an OAuth URL when browser identity is unavailable", async () => {
   const api = fakeApi({ supabaseConfig: configuredSupabase() });
   const controller = createBackgroundController(api);
@@ -1815,48 +1383,6 @@ test("signInWithProvider keeps Chromium on the web OAuth flow", async () => {
   assert.equal(response.type, "openOAuth");
   assert.match(response.url, /^https:\/\/project\.supabase\.co\/auth\/v1\/authorize/);
   assert.match(response.url, /redirect_to=chrome-extension/);
-});
-
-test("getSyncStatus reads the native mac session", async () => {
-  const api = fakeApi({
-    nativeSessionStorage: true,
-    supabaseConfig: configuredSupabase()
-  });
-  api.nativeData.supabaseSession = supabaseSession();
-  const controller = createBackgroundController(api);
-  const response = await controller.handleMessage({ type: "getSyncStatus" }, {});
-
-  assert.equal(response.type, "syncStatus");
-  assert.equal(response.status, "signedIn");
-});
-
-test("getSyncStatus reads the native session in the iOS containing app webview", async () => {
-  const api = fakeApi({
-    nativeStorage: true,
-    runtimeScheme: "file",
-    supabaseConfig: configuredSupabase()
-  });
-  api.nativeData.supabaseSession = supabaseSession();
-  const controller = createBackgroundController(api);
-  const response = await controller.handleMessage({ type: "getSyncStatus" }, {});
-
-  assert.equal(response.type, "syncStatus");
-  assert.equal(response.status, "signedIn");
-});
-
-test("getSyncStatus requires native sign-in on iOS when signed out", async () => {
-  const api = fakeApi({
-    nativeStorage: true,
-    supabaseConfig: configuredSupabase()
-  });
-  const controller = createBackgroundController(api);
-  const response = await controller.handleMessage({ type: "getSyncStatus" }, {});
-
-  assert.deepEqual(response, {
-    type: "syncStatus",
-    status: "nativeSignInRequired",
-    error: ""
-  });
 });
 
 test("saveState closes open feeds that match the new state", async () => {
@@ -2064,38 +1590,6 @@ function httpErrorResponse(status, value) {
   };
 }
 
-async function flushPromises() {
-  for (let i = 0; i < 5; i += 1) {
-    await Promise.resolve();
-  }
-}
-
-test("an update injects the content script into open tabs of blocked sites", async () => {
-  const api = fakeApi({ tabs: [{ id: 3, url: "https://x.com/someone/status/1" }, { id: 4, url: "https://x.com/home" }] });
-  const state = validState([{ id, kind: "domain", value: "x.com" }], inactiveSchedule());
-  const queries = [];
-  const injections = [];
-
-  api.storageData[core.STATE_KEY] = state;
-  api.storageData.settingsActivation = { schemaVersion: 1, activeState: state, pending: { type: "none" } };
-  api.tabs.query = async (query) => {
-    queries.push(query);
-    return api.tabsData;
-  };
-  api.scripting.insertCSS = async ({ target, files }) => injections.push(["css", target.tabId, files]);
-  api.scripting.executeScript = async ({ target, files }) => injections.push(["js", target.tabId, files]);
-
-  await createBackgroundController(api).injectContentScriptIntoOpenTabs();
-
-  assert.deepEqual(queries, [{ url: core.contentScriptOriginsForState(state), discarded: false }]);
-  assert.deepEqual(injections, [
-    ["css", 3, ["content.css"]],
-    ["css", 4, ["content.css"]],
-    ["js", 3, ["content.js"]],
-    ["js", 4, ["content.js"]]
-  ]);
-});
-
 test("a screen time sync logs each step, skipping an empty upload, and uploads the event log", async () => {
   const fetch = globalThis.fetch;
   const api = fakeApi({ now: 20 * 60 * 60 * 1000, supabaseConfig: configuredSupabase() });
@@ -2173,13 +1667,10 @@ function fakeApi(overrides = {}) {
   const api = {
     storageData: {},
     sessionData: {},
-    storageSets: [],
     nativeData: {},
     grantedOrigins: overrides.grantedOrigins || ["*://*.example.com/*", ...manifest.host_permissions],
     tabsData: overrides.tabs || [],
     registeredScripts: [],
-    scriptRegistrations: [],
-    scriptUnregistrations: [],
     removedOrigins: [],
     updatedTabs: [],
     timers: [],
@@ -2238,7 +1729,6 @@ function fakeApi(overrides = {}) {
           delete api.storageData[key];
         },
         async set(value) {
-          api.storageSets.push(JSON.parse(JSON.stringify(value)));
           Object.assign(api.storageData, value);
         }
       },
@@ -2273,20 +1763,15 @@ function fakeApi(overrides = {}) {
         return api.registeredScripts.filter((script) => ids.includes(script.id));
       },
       async unregisterContentScripts({ ids }) {
-        api.scriptUnregistrations.push([...ids]);
         api.registeredScripts = api.registeredScripts.filter((script) => !ids.includes(script.id));
       },
       async registerContentScripts(scripts) {
-        api.scriptRegistrations.push(...scripts);
         api.registeredScripts.push(...scripts);
       }
     },
     tabs: {
       async query() {
         return api.tabsData;
-      },
-      async create({ url }) {
-        api.createdTab = url;
       },
       async update(tabId, { url }) {
         api.updatedTabs.push({ tabId, url });

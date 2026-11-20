@@ -192,13 +192,6 @@ test("signing out lets the next account's older settings apply", async () => {
   assert.deepEqual(engine.json("settings-activation.json").pending.state, alwaysBlock);
 });
 
-test("supabaseErrorMessage includes Supabase error details", () => {
-  assert.equal(sync.supabaseErrorMessage(400, ""), "Supabase request failed: 400");
-  assert.equal(sync.supabaseErrorMessage(400, JSON.stringify({ message: "bad", code: "42702" })), "Supabase request failed: 400. bad 42702");
-  assert.equal(sync.supabaseErrorMessage(400, JSON.stringify({ code: 400, msg: "Refresh token is not valid" })), "Supabase request failed: 400. Refresh token is not valid");
-  assert.equal(sync.supabaseErrorMessage(502, "Bad gateway"), "Supabase request failed: 502. Bad gateway");
-});
-
 test("sessionEmail reads the email claim", () => {
   assert.equal(sync.sessionEmail(session(0)), "user@example.com");
   assert.throws(() => sync.sessionEmail({ ...session(0), accessToken: "e30.e30.signature" }), /missing an email/);

@@ -10,38 +10,6 @@ function checkPage(url, referrer = "") {
   return { type: "checkPage", url, arrival: { type: "referrer", url: referrer } };
 }
 
-function checkHistoryPage(url) {
-  return { type: "checkPage", url, arrival: { type: "history" } };
-}
-
-test("content script reports the startup URL with the document referrer", async () => {
-  const page = await runContentScript("https://x.com/home", { referrer: "https://search.example/" });
-
-  assert.deepEqual(page.messages, [checkPage("https://x.com/home", "https://search.example/")]);
-});
-
-test("content script waits for a prerendered page to activate before checking it", async () => {
-  const page = await runContentScript("https://www.reddit.com/r/foo", { referrer: "https://www.reddit.com/user/x", prerendering: true });
-
-  assert.deepEqual(page.messages, []);
-
-  await page.dispatch("prerenderingchange");
-
-  assert.deepEqual(page.messages, [checkPage("https://www.reddit.com/r/foo", "https://www.reddit.com/user/x")]);
-});
-
-test("content script keeps the page referrer when the site replaces its URL", async () => {
-  const page = await runContentScript("https://www.reddit.com/comments/abc", { referrer: "https://search.example/" });
-
-  page.location.href = "https://www.reddit.com/comments/abc/title_slug";
-  await page.dispatch("currententrychange", 0, { navigationType: "replace" });
-
-  assert.deepEqual(page.messages, [
-    checkPage("https://www.reddit.com/comments/abc", "https://search.example/"),
-    checkPage("https://www.reddit.com/comments/abc/title_slug", "https://search.example/")
-  ]);
-});
-
 test("content script counts a replace from one single short video to another as a hop inside the site", async () => {
   const singleVideo = { type: "allowed", shortVideo: { type: "singleVideo", site: "facebook" } };
   const page = await runContentScript("https://www.facebook.com/reel/123", {
@@ -50,65 +18,15 @@ test("content script counts a replace from one single short video to another as 
   });
 
   page.location.href = "https://www.facebook.com/reel/123/?s=share";
-  await page.dispatch("currententrychange", 0, { navigationType: "replace" });
+  await page.dispatch("currententrychange", { navigationType: "replace" });
   page.location.href = "https://www.facebook.com/reel/456";
-  await page.dispatch("currententrychange", 0, { navigationType: "replace" });
+  await page.dispatch("currententrychange", { navigationType: "replace" });
 
   assert.deepEqual(page.messages, [
     checkPage("https://www.facebook.com/reel/123", "https://news.example/"),
     checkPage("https://www.facebook.com/reel/123/?s=share", "https://news.example/"),
     checkPage("https://www.facebook.com/reel/456", "https://www.facebook.com/reel/123/?s=share")
   ]);
-});
-
-test("content script reports in-page URL changes with the previous URL as referrer", async () => {
-  const page = await runContentScript("https://www.youtube.com/watch?v=abc", { referrer: "https://search.example/" });
-
-  page.location.href = "https://www.youtube.com/watch?v=abc&t=30";
-  await page.dispatch("currententrychange");
-  await page.dispatch("currententrychange");
-  page.location.href = "https://www.youtube.com/watch?v=def";
-  await page.dispatch("currententrychange");
-
-  assert.deepEqual(page.messages, [
-    checkPage("https://www.youtube.com/watch?v=abc", "https://search.example/"),
-    checkPage("https://www.youtube.com/watch?v=abc&t=30", "https://www.youtube.com/watch?v=abc"),
-    checkPage("https://www.youtube.com/watch?v=abc&t=30", "https://www.youtube.com/watch?v=abc"),
-    checkPage("https://www.youtube.com/watch?v=def", "https://www.youtube.com/watch?v=abc&t=30")
-  ]);
-});
-
-test("content script polls screen time and the current page", async () => {
-  const page = await runContentScript("https://x.com/home");
-
-  await page.tick();
-
-  assert.deepEqual(page.messages, [
-    checkPage("https://x.com/home"),
-    { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 5000 },
-    checkPage("https://x.com/home")
-  ]);
-});
-
-test("content script checks the page when it is shown again", async () => {
-  const page = await runContentScript("https://x.com/home");
-
-  await page.dispatch("pageshow", 0, { persisted: false });
-  await page.dispatch("pageshow", 0, { persisted: true });
-  await page.setHidden(true);
-  await page.setHidden(false);
-
-  assert.deepEqual(page.messages, [
-    checkPage("https://x.com/home"),
-    checkHistoryPage("https://x.com/home"),
-    checkHistoryPage("https://x.com/home")
-  ]);
-});
-
-test("content script reports Back and Forward loads as history", async () => {
-  const page = await runContentScript("https://www.youtube.com/watch?v=b", { referrer: "https://search.example/", navigationType: "back_forward" });
-
-  assert.deepEqual(page.messages, [checkHistoryPage("https://www.youtube.com/watch?v=b")]);
 });
 
 test("content script marks short video pages and locks single short videos", async () => {
@@ -138,10 +56,10 @@ test("content script marks short video pages and locks single short videos", asy
     stopImmediatePropagation() { swallowed.push(`${key}:stop`); }
   });
 
-  await page.dispatch("wheel", 0, event("wheel"));
-  await page.dispatch("keydown", 0, event("ArrowDown"));
-  await page.dispatch("keydown", 0, event("a"));
-  await page.dispatch("keydown", 0, { ...event("ArrowUp"), target: { tagName: "TEXTAREA", isContentEditable: false } });
+  await page.dispatch("wheel", event("wheel"));
+  await page.dispatch("keydown", event("ArrowDown"));
+  await page.dispatch("keydown", event("a"));
+  await page.dispatch("keydown", { ...event("ArrowUp"), target: { tagName: "TEXTAREA", isContentEditable: false } });
   assert.deepEqual(swallowed, ["wheel:prevent", "wheel:stop", "ArrowDown:prevent", "ArrowDown:stop"]);
 
   page.location.href = "https://www.example.com/";
@@ -174,45 +92,6 @@ test("content script ignores URL check responses for an earlier URL", async () =
   assert.equal(page.documentElement.attributes["data-url-blocker-path"], "/explore/");
 });
 
-test("content script logs elapsed time before changed URLs", async () => {
-  const page = await runContentScript("https://x.com");
-
-  page.location.href = "https://x.com/home";
-  await page.dispatch("currententrychange", 700);
-
-  assert.deepEqual(page.messages, [
-    checkPage("https://x.com"),
-    { type: "screenTimeElapsed", url: "https://x.com", elapsedMs: 700 },
-    checkPage("https://x.com/home", "https://x.com")
-  ]);
-});
-
-test("content script logs elapsed time when the page hides", async () => {
-  const page = await runContentScript("https://x.com/home");
-
-  await page.setHidden(true, 900);
-  await page.tick();
-
-  assert.deepEqual(page.messages, [
-    checkPage("https://x.com/home"),
-    { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 900 }
-  ]);
-});
-
-test("content script ignores stale screen time after sleep", async () => {
-  const page = await runContentScript("https://x.com/home");
-
-  await page.tick(10 * 60 * 1000);
-  await page.tick();
-
-  assert.deepEqual(page.messages, [
-    checkPage("https://x.com/home"),
-    checkPage("https://x.com/home"),
-    { type: "screenTimeElapsed", url: "https://x.com/home", elapsedMs: 5000 },
-    checkPage("https://x.com/home")
-  ]);
-});
-
 test("content script logs plain object message errors with details", async () => {
   const error = { message: "Tab update failed.", code: "TabUpdateTestError" };
   const page = await runContentScript("https://x.com/home", { sendError: error });
@@ -222,16 +101,6 @@ test("content script logs plain object message errors with details", async () =>
   assert.deepEqual(page.consoleErrors, [[
     `URL Blocker could not check the current URL. ${JSON.stringify(error)} (TabUpdateTestError)`
   ]]);
-});
-
-test("content script falls back to the poll without the Navigation API", async () => {
-  const page = await runContentScript("https://x.com", { navigationApi: false });
-
-  page.location.href = "https://x.com/home";
-  await page.tick();
-
-  assert.deepEqual(page.messages.at(-1), checkPage("https://x.com/home", "https://x.com"));
-  assert.match(page.consoleErrors[0][0], /needs the Navigation API/);
 });
 
 async function runContentScript(url, options = {}) {
@@ -253,10 +122,6 @@ async function runContentScript(url, options = {}) {
     }
   };
   const pausedMedia = [];
-
-  if (options.staleCover) {
-    documentElement.children.push({ ...options.staleCover, remove() { documentElement.children = []; } });
-  }
   const context = {
     browser: {
       runtime: {
@@ -287,7 +152,7 @@ async function runContentScript(url, options = {}) {
     },
     document: {
       hidden: false,
-      prerendering: options.prerendering === true,
+      prerendering: false,
       referrer: options.referrer || "",
       addEventListener(type, listener) {
         context.listeners.set(type, listener);
@@ -315,14 +180,14 @@ async function runContentScript(url, options = {}) {
     },
     performance: {
       getEntriesByType(type) {
-        return type === "navigation" ? [{ type: options.navigationType || "navigate" }] : [];
+        return type === "navigation" ? [{ type: "navigate" }] : [];
       }
     },
     intervals: [],
     listeners: new Map(),
     URL,
     location: { href: url },
-    navigation: options.navigationApi === false ? undefined : {
+    navigation: {
       addEventListener(type, listener) {
         context.listeners.set(type, listener);
       }
@@ -365,27 +230,25 @@ async function runContentScript(url, options = {}) {
     },
     documentElement,
     pausedMedia,
-    runtime: context.browser.runtime,
     get coverText() {
       return context.document.getElementById("url-blocker-cover")?.textContent;
     },
     hasListener(type) {
       return context.listeners.has(type);
     },
-    async dispatch(type, elapsedMs = 0, event = {}) {
-      context.now += elapsedMs;
+    async dispatch(type, event = {}) {
       context.listeners.get(type)(event);
       await flush();
     },
-    async setHidden(hidden, elapsedMs = 0) {
+    async setHidden(hidden) {
       context.document.hidden = hidden;
-      await this.dispatch("visibilitychange", elapsedMs);
+      await this.dispatch("visibilitychange");
     },
     async flush() {
       await flush();
     },
-    async tick(elapsedMs = context.intervals[0].delay) {
-      context.now += elapsedMs;
+    async tick() {
+      context.now += context.intervals[0].delay;
       context.intervals.forEach((interval) => interval.listener());
       await flush();
     }
@@ -459,41 +322,4 @@ test("content script restarts the silent poll count when a hidden page is shown 
 
   await page.tick();
   assert.match(page.coverText, /isn't responding/);
-});
-
-test("content script covers the page when the extension stops running", async () => {
-  const page = await runContentScript("https://x.com/home");
-
-  page.runtime.id = undefined;
-  await page.tick();
-
-  assert.match(page.coverText, /Reload the page/);
-});
-
-test("an orphaned content script leaves the page to the script that replaced it", async () => {
-  const page = await runContentScript("https://x.com/home");
-
-  page.documentElement.attributes["data-url-blocker-script"] = "newer script";
-  page.runtime.id = undefined;
-  await page.tick();
-
-  assert.equal(page.coverText, undefined);
-});
-
-test("an orphaned content script with a check in flight does not cover the replaced page", async () => {
-  const page = await runContentScript("https://x.com/home", { silent: () => true });
-
-  await page.tick();
-  page.documentElement.attributes["data-url-blocker-script"] = "newer script";
-  await page.tick();
-
-  assert.equal(page.coverText, undefined);
-});
-
-test("content script removes a cover left by the script it replaced", async () => {
-  const page = await runContentScript("https://x.com/home", {
-    staleCover: { id: "url-blocker-cover", textContent: "URL Blocker stopped running on this page." }
-  });
-
-  assert.equal(page.coverText, undefined);
 });

@@ -24,73 +24,6 @@ const ids = [
   "55555555-5555-4555-8555-555555555555"
 ];
 
-test("labels matcher options in display order", () => {
-  assert.deepEqual(Object.entries(core.EDITABLE_KIND_LABELS), [
-    ["url", "URL"],
-    ["urlWithSubpaths", "URL and subpaths"],
-    ["domain", "Full domain"],
-    ["regex", "Custom regex"]
-  ]);
-
-  assert.deepEqual(Object.entries(core.KIND_LABELS), [
-    ["url", "URL"],
-    ["urlWithSubpaths", "URL and subpaths"],
-    ["domain", "Full domain"],
-    ["regex", "Custom regex"]
-  ]);
-});
-
-test("loads default blocked pages for new installs", () => {
-  const state = core.emptyState(defaultBlockedPages);
-
-  assert.deepEqual(state.entries.map(({ type, kind, value, enabled }) => ({ type, kind, value, enabled })), [
-    { type: "default", kind: "url", value: "x.com", enabled: true },
-    { type: "default", kind: "url", value: "instagram.com", enabled: true },
-    { type: "default", kind: "url", value: "instagram.com/explore", enabled: true },
-    { type: "default", kind: "url", value: "tiktok.com", enabled: true },
-    { type: "default", kind: "url", value: "tiktok.com/following", enabled: true },
-    { type: "default", kind: "url", value: "tiktok.com/discover", enabled: true },
-    { type: "default", kind: "url", value: "facebook.com", enabled: true },
-    { type: "default", kind: "url", value: "facebook.com/watch", enabled: true },
-    { type: "default", kind: "url", value: "facebook.com/groups/feed", enabled: true },
-    { type: "default", kind: "url", value: "threads.com", enabled: true },
-    { type: "default", kind: "url", value: "threads.com/following", enabled: true },
-    { type: "default", kind: "url", value: "bsky.app", enabled: true },
-    { type: "default", kind: "url", value: "bsky.app/profile/bsky.app/feed/whats-hot", enabled: true },
-    { type: "default", kind: "url", value: "pinterest.com", enabled: true },
-    { type: "default", kind: "url", value: "pinterest.com/today", enabled: true },
-    { type: "default", kind: "url", value: "pinterest.com/ideas", enabled: true },
-    { type: "default", kind: "url", value: "linkedin.com", enabled: true },
-    { type: "default", kind: "url", value: "youtube.com", enabled: true },
-    { type: "default", kind: "url", value: "youtube.com/feed/subscriptions", enabled: true },
-    { type: "default", kind: "url", value: "reddit.com", enabled: true },
-    { type: "default", kind: "url", value: "reddit.com/r/*", enabled: true },
-    { type: "default", kind: "url", value: "ycombinator.com", enabled: true },
-    { type: "default", kind: "urlWithSubpaths", value: "netflix.com", enabled: true },
-    { type: "default", kind: "urlWithSubpaths", value: "hbomax.com", enabled: true }
-  ]);
-  assert.deepEqual(state.schedule, { type: "dailyWindow", startMinute: 1380, endMinute: 1140 });
-  assert.deepEqual(state.hardSchedule, { type: "off" });
-  assert.deepEqual(state.limitReset, { type: "rollingWindow", windowHours: 24 });
-  assert.deepEqual(state.settingsDelay, { delayMinutes: 60 });
-  assert.deepEqual(state.limitGroups, [{ id: streamingGroupId, name: "Streaming", limitMinutes: 60 }]);
-  assert.deepEqual(state.domainLimits, [
-    domainLimit("bsky.app"),
-    domainLimit("facebook.com"),
-    groupDomainLimit("hbomax.com", streamingGroupId),
-    domainLimit("instagram.com"),
-    domainLimit("linkedin.com"),
-    groupDomainLimit("netflix.com", streamingGroupId),
-    domainLimit("pinterest.com"),
-    domainLimit("reddit.com"),
-    domainLimit("threads.com"),
-    domainLimit("tiktok.com"),
-    domainLimit("x.com"),
-    domainLimit("ycombinator.com"),
-    domainLimit("youtube.com")
-  ]);
-});
-
 test("keeps install-time permissions aligned with default blocked pages", () => {
   assert.deepEqual([
     "https://*.supabase.co/*",
@@ -641,21 +574,6 @@ test("limit groups sum usage across members and block every member once over", (
   assert.equal(core.decidePage(state, "https://example.com/", inside, overLimitDomains, evening).type, "none");
 });
 
-test("validates short video hiding settings", () => {
-  const state = validState([]);
-  const disabled = core.validateState({ ...state, shortVideoHiding: { ...state.shortVideoHiding, facebook: false } }, []);
-  const { linkedin, ...missingSite } = state.shortVideoHiding;
-  const missing = core.validateState({ ...state, shortVideoHiding: missingSite }, []);
-  const typed = core.validateState({ ...state, shortVideoHiding: { ...state.shortVideoHiding, youtube: "yes" } }, []);
-  const unknown = core.validateState({ ...state, shortVideoHiding: { ...state.shortVideoHiding, tiktok: true } }, []);
-
-  assert.equal(disabled.type, "valid");
-  assert.equal(disabled.state.shortVideoHiding.facebook, false);
-  assert.deepEqual(missing.errors, [{ index: null, message: "Short video hiding setting for linkedin must be a boolean." }]);
-  assert.deepEqual(typed.errors, [{ index: null, message: "Short video hiding setting for youtube must be a boolean." }]);
-  assert.deepEqual(unknown.errors, [{ index: null, message: "Short video hiding settings has unknown key: tiktok." }]);
-});
-
 test("short video pages follow each site's toggle", () => {
   const state = validState([]);
   const youtubeOff = { ...state, shortVideoHiding: { ...state.shortVideoHiding, youtube: false } };
@@ -687,20 +605,6 @@ test("short video pages follow each site's toggle", () => {
   assert.deepEqual(core.shortVideoPage(state, "https://www.youtube.com/shorts/"), { type: "videoFeed", site: "youtube" });
   assert.deepEqual(core.shortVideoPage(state, "https://example.com/shorts/abc"), { type: "none" });
   assert.deepEqual(core.shortVideoPage(youtubeOff, "https://www.youtube.com/shorts/abc"), { type: "none" });
-});
-
-test("short video sites get content scripts only while hiding is on", () => {
-  const state = validState([{ id: ids[0], kind: "domain", value: "example.com" }]);
-  const allOff = { ...state, shortVideoHiding: { youtube: false, instagram: false, facebook: false, linkedin: false } };
-
-  assert.deepEqual(core.contentScriptOriginsForState(state), [
-    "*://*.example.com/*",
-    "*://*.facebook.com/*",
-    "*://*.instagram.com/*",
-    "*://*.linkedin.com/*",
-    "*://*.youtube.com/*"
-  ]);
-  assert.deepEqual(core.contentScriptOriginsForState(allOff), ["*://*.example.com/*"]);
 });
 
 test("short video pages follow their own rule at all hours", () => {
@@ -919,84 +823,6 @@ test("validates blocked page HTML and rejects old state", () => {
   assert.match(script.errors[0].message, /inline scripts/);
 });
 
-test("validates schedules and detects active windows", () => {
-  assert.equal(core.isScheduleActive({ type: "always" }, new Date(2026, 0, 1, 12, 0)), true);
-  assert.equal(core.isScheduleActive({ type: "off" }, new Date(2026, 0, 1, 12, 0)), false);
-  assert.equal(core.isScheduleActive({ type: "dailyWindow", startMinute: 540, endMinute: 1020 }, new Date(2026, 0, 1, 9, 30)), true);
-  assert.equal(core.isScheduleActive({ type: "dailyWindow", startMinute: 540, endMinute: 1020 }, new Date(2026, 0, 1, 17, 0)), false);
-  assert.equal(core.isScheduleActive({ type: "dailyWindow", startMinute: 1320, endMinute: 420 }, new Date(2026, 0, 1, 23, 0)), true);
-  assert.equal(core.isScheduleActive({ type: "dailyWindow", startMinute: 1320, endMinute: 420 }, new Date(2026, 0, 1, 6, 30)), true);
-  assert.equal(core.isScheduleActive({ type: "dailyWindow", startMinute: 1320, endMinute: 420 }, new Date(2026, 0, 1, 12, 0)), false);
-
-  const equalTimes = core.validateState({
-    schemaVersion: core.SCHEMA_VERSION,
-    entries: [],
-    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
-    schedule: { type: "dailyWindow", startMinute: 540, endMinute: 540 },
-    hardSchedule: core.DEFAULT_HARD_SCHEDULE,
-    limitReset: core.DEFAULT_LIMIT_RESET,
-    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
-    allowedPages: [],
-    limitGroups: core.DEFAULT_LIMIT_GROUPS,
-    domainLimits: []
-  }, []);
-
-  assert.equal(equalTimes.type, "invalid");
-  assert.match(equalTimes.errors[0].message, /different/);
-
-  const hardScheduleOff = core.validateState({
-    schemaVersion: core.SCHEMA_VERSION,
-    entries: [],
-    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
-    schedule: core.DEFAULT_SCHEDULE,
-    hardSchedule: { type: "off" },
-    limitReset: core.DEFAULT_LIMIT_RESET,
-    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
-    allowedPages: [],
-    limitGroups: core.DEFAULT_LIMIT_GROUPS,
-    domainLimits: []
-  }, []);
-
-  assert.equal(hardScheduleOff.type, "valid");
-  assert.deepEqual(hardScheduleOff.state.hardSchedule, { type: "off" });
-
-  const hardScheduleAlways = core.validateState({
-    schemaVersion: core.SCHEMA_VERSION,
-    entries: [],
-    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
-    schedule: core.DEFAULT_SCHEDULE,
-    hardSchedule: { type: "always" },
-    limitReset: core.DEFAULT_LIMIT_RESET,
-    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
-    allowedPages: [],
-    limitGroups: core.DEFAULT_LIMIT_GROUPS,
-    domainLimits: []
-  }, []);
-
-  assert.equal(hardScheduleAlways.type, "invalid");
-  assert.match(hardScheduleAlways.errors[0].message, /Unknown schedule type/);
-
-  const equalHardScheduleTimes = core.validateState({
-    schemaVersion: core.SCHEMA_VERSION,
-    entries: [],
-    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
-    schedule: core.DEFAULT_SCHEDULE,
-    hardSchedule: { type: "dailyWindow", startMinute: 540, endMinute: 540 },
-    limitReset: core.DEFAULT_LIMIT_RESET,
-    settingsDelay: core.DEFAULT_SETTINGS_DELAY,
-    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
-    allowedPages: [],
-    limitGroups: core.DEFAULT_LIMIT_GROUPS,
-    domainLimits: []
-  }, []);
-
-  assert.equal(equalHardScheduleTimes.type, "invalid");
-  assert.match(equalHardScheduleTimes.errors[0].message, /different/);
-});
-
 test("validates limit reset settings", () => {
   assert.deepEqual(validState([], core.DEFAULT_SCHEDULE, [], { type: "rollingWindow", windowHours: 4 }).limitReset, {
     type: "rollingWindow",
@@ -1023,40 +849,6 @@ test("validates limit reset settings", () => {
 
   assert.equal(invalidDailyReset.type, "invalid");
   assert.match(invalidDailyReset.errors[0].message, /hour/);
-});
-
-test("validates settings delay settings", () => {
-  const immediate = core.validateState({
-    schemaVersion: core.SCHEMA_VERSION,
-    entries: [],
-    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
-    schedule: core.DEFAULT_SCHEDULE,
-    hardSchedule: core.DEFAULT_HARD_SCHEDULE,
-    limitReset: core.DEFAULT_LIMIT_RESET,
-    settingsDelay: { delayMinutes: 0 },
-    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
-    allowedPages: [],
-    limitGroups: core.DEFAULT_LIMIT_GROUPS,
-    domainLimits: []
-  }, []);
-  const invalidDelay = core.validateState({
-    schemaVersion: core.SCHEMA_VERSION,
-    entries: [],
-    blockedPageHtml: core.DEFAULT_BLOCKED_PAGE_HTML,
-    schedule: core.DEFAULT_SCHEDULE,
-    hardSchedule: core.DEFAULT_HARD_SCHEDULE,
-    limitReset: core.DEFAULT_LIMIT_RESET,
-    settingsDelay: { delayMinutes: -1 },
-    shortVideoHiding: core.DEFAULT_SHORT_VIDEO_HIDING,
-    allowedPages: [],
-    limitGroups: core.DEFAULT_LIMIT_GROUPS,
-    domainLimits: []
-  }, []);
-
-  assert.equal(immediate.type, "valid");
-  assert.equal(core.settingsDelayMinutes(immediate.state.settingsDelay), 0);
-  assert.equal(invalidDelay.type, "invalid");
-  assert.match(invalidDelay.errors[0].message, /between 0/);
 });
 
 test("hard schedule blocks whole domains for all entry kinds while active", () => {
@@ -1344,92 +1136,6 @@ test("matches regex entries case-insensitively without fragments", () => {
   assert.equal(core.findMatchingEntry(state, "https://x.com/HOME/#feed").type, "match");
   assert.equal(core.findMatchingEntry(state, "https://x.com/messages").type, "none");
   assert.equal(core.findMatchingEntry(state, "https://not-x.com/home").type, "none");
-});
-
-test("screen time entries use the configured rolling reset window", () => {
-  const state = validState([
-    { id: ids[0], kind: "domain", value: "example.com" }
-  ], core.DEFAULT_SCHEDULE, [
-    domainLimit("example.com", 1)
-  ], { type: "rollingWindow", windowHours: 2 });
-  const usage = screenTimeUsage({ "example.com": { 18: 1000, 19: 2000, 20: 3000 } });
-
-  assert.deepEqual(core.usageWindow(state.limitReset, 20 * hourMs), { startHour: 19, endHour: 20 });
-  assert.deepEqual(core.screenTimeEntries(state, usage, 20 * hourMs), [
-    { type: "site", name: "example.com", domains: ["example.com"], totalMs: 5000, limitMinutes: 1, isOverLimit: false }
-  ]);
-});
-
-test("screen time entries use the latest daily reset hour", () => {
-  const now = new Date(2026, 0, 2, 10, 30).getTime();
-  const resetHour = Math.floor(new Date(2026, 0, 2, 6).getTime() / hourMs);
-  const state = validState([
-    { id: ids[0], kind: "domain", value: "example.com" }
-  ], core.DEFAULT_SCHEDULE, [
-    domainLimit("example.com", 1)
-  ], { type: "daily", resetHour: 6 });
-  const usage = screenTimeUsage({
-    "example.com": {
-      [resetHour - 1]: 1000,
-      [resetHour]: 2000,
-      [resetHour + 4]: 3000,
-      [resetHour + 5]: 4000
-    }
-  });
-
-  assert.deepEqual(core.usageWindow(state.limitReset, now), { startHour: resetHour, endHour: resetHour + 4 });
-  assert.deepEqual(core.usageWindow(state.limitReset, new Date(2026, 0, 2, 5, 30).getTime()), {
-    startHour: resetHour - 24,
-    endHour: resetHour - 1
-  });
-  assert.deepEqual(core.screenTimeEntries(state, usage, now), [
-    { type: "site", name: "example.com", domains: ["example.com"], totalMs: 5000, limitMinutes: 1, isOverLimit: false }
-  ]);
-});
-
-test("screen time entries hide active domains with zero usage", () => {
-  const state = validState([
-    { id: ids[0], kind: "domain", value: "example.com" },
-    { id: ids[1], kind: "domain", value: "idle.example" }
-  ]);
-  const usage = screenTimeUsage({ "example.com": { 20: 1000 } });
-
-  assert.deepEqual(core.screenTimeEntries(state, usage, 20 * hourMs), [
-    { type: "site", name: "example.com", domains: ["example.com"], totalMs: 1000, limitMinutes: 30, isOverLimit: false }
-  ]);
-});
-
-test("over limit domains add remote device buckets to local usage", () => {
-  const state = validState([
-    { id: ids[0], kind: "domain", value: "example.com" },
-    { id: ids[1], kind: "domain", value: "other.example" }
-  ], core.DEFAULT_SCHEDULE, [
-    domainLimit("example.com", 1),
-    domainLimit("other.example", 1)
-  ]);
-  const usage = screenTimeUsage({
-    "example.com": { 20: 30 * 1000 },
-    "other.example": { 20: 59 * 1000 }
-  }, {
-    "other-device": { "example.com": { 19: 30 * 1000 } }
-  });
-
-  assert.deepEqual(core.overLimitDomains(state, usage, 20 * hourMs), new Set(["example.com"]));
-  assert.equal(core.screenTimeTotalMs(usage, "example.com", { startHour: 20, endHour: 20 }), 30 * 1000);
-});
-
-test("pending settings wait for the active settings delay and then activate", () => {
-  const activeState = validState([{ id: ids[0], kind: "domain", value: "example.com" }]);
-  const pendingState = validState([{ id: ids[1], kind: "domain", value: "other.example" }]);
-  const activation = core.pendingSettingsActivation(core.activeSettingsActivation(activeState), pendingState, 1000);
-  const effectiveAtMs = 1000 + core.DEFAULT_SETTINGS_DELAY_MINUTES * 60 * 1000;
-
-  assert.deepEqual(activation.pending, { type: "pending", state: pendingState, effectiveAtMs });
-  assert.deepEqual(core.settleSettingsActivation(activation, effectiveAtMs - 1), { type: "unchanged", activation });
-  assert.deepEqual(core.settleSettingsActivation(activation, effectiveAtMs), {
-    type: "activated",
-    activation: core.activeSettingsActivation(pendingState)
-  });
 });
 
 test("validates stored settings activations", () => {

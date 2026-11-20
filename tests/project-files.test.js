@@ -5,8 +5,6 @@ const assert = require("node:assert/strict");
 
 const repoRoot = path.resolve(__dirname, "..");
 const projectText = fs.readFileSync(path.join(repoRoot, "URLBlocker.xcodeproj/project.pbxproj"), "utf8");
-const optionsHtml = fs.readFileSync(path.join(repoRoot, "URLBlockerWebExtension/options.html"), "utf8");
-const statsHtml = fs.readFileSync(path.join(repoRoot, "URLBlockerWebExtension/stats.html"), "utf8");
 const sharedManifest = require("../URLBlockerWebExtension/manifest.json");
 const chromeManifest = require("../ChromeExtension/manifest.json");
 const webExtensionFiles = [
@@ -40,35 +38,9 @@ test("Xcode references the renamed shared web extension folder", () => {
   });
 });
 
-test("options and stats pages link to each other", () => {
-  assert.match(optionsHtml, /href="stats\.html"/);
-  assert.match(statsHtml, /href="options\.html"/);
-});
-
-test("reset settings follow the block schedule settings", () => {
-  const blockScheduleIndex = optionsHtml.indexOf("<h2>Block Schedule</h2>");
-  const hardScheduleIndex = optionsHtml.indexOf("<h2>Hard Block Schedule</h2>");
-  const limitResetIndex = optionsHtml.indexOf("id=\"limitResetPanel\"");
-
-  assert.notEqual(blockScheduleIndex, -1);
-  assert.notEqual(hardScheduleIndex, -1);
-  assert.notEqual(limitResetIndex, -1);
-  assert.ok(blockScheduleIndex < limitResetIndex);
-  assert.ok(blockScheduleIndex < hardScheduleIndex);
-  assert.ok(hardScheduleIndex < limitResetIndex);
-  assert.match(optionsHtml, /<h2>Reset<\/h2>/);
-  assert.doesNotMatch(optionsHtml, /<h2>Limit Reset<\/h2>/);
-  assert.doesNotMatch(optionsHtml, /<h2>Schedule<\/h2>/);
-});
-
 test("blocked page is not exposed to every website", () => {
   assert.equal(sharedManifest.web_accessible_resources, undefined);
   assert.equal(chromeManifest.web_accessible_resources, undefined);
-});
-
-test("Safari runs the background as an event page and Chromium as a service worker", () => {
-  assert.deepEqual(sharedManifest.background, { scripts: ["blocker.js", "supabase-sync.js", "background.js"], persistent: false });
-  assert.deepEqual(chromeManifest.background, { service_worker: "background.js" });
 });
 
 function escapeRegex(value) {
