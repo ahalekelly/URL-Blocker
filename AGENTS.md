@@ -11,7 +11,7 @@
 
 - After the initial draft of changes, run `make test` and then fix any issues. Then install all platforms with `make install`. Make sure all builds succeed. If the iOS or Android build succeeds but the device install fails, the phone probably isn't connected, so don't bother retrying. Notify the user whether all installs succeeded or which device installs failed.
 - If you made functional or UI changes, verify them in a browser: headless Brave (see Commands) for automated checks, or Computer Use in Brave or Safari when you need the user's logged-in sites.
-- After finishing and testing the change, commit the changes for that completed work.
+- After finishing and testing the change, commit it to `main` and push. This is Adrian's own repo (github.com/ahalekelly/URL-Blocker), so committing and pushing to `main` is routine; don't open a pull request.
 
 ## Coding Preferences
 
