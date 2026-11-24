@@ -38,8 +38,13 @@ html[data-url-blocker-short-video="instagram"][data-url-blocker-path^="/explore"
   display: none !important;
 }
 
-/* Facebook: Reels posts and carousels in feeds, Reels nav and shortcut entries, and next/previous controls on a single reel. */
+/*
+  Facebook: Reels posts and carousels in feeds, Reels nav and shortcut entries, and next/previous controls on a single reel.
+  The mobile layout (iOS Safari) marks video posts from accounts you don't follow with originated_from_recommendation.
+*/
 html[data-url-blocker-short-video="facebook"] div[role="feed"] > div:has(a[href*="/reel/"]),
+html[data-url-blocker-short-video="facebook"] [data-tracking-duration-id]:has([data-mcomponent="MVideo"][data-video-tracking*='"originated_from_recommendation":"1"']),
+html[data-url-blocker-short-video="facebook"] [role="tab"][aria-label^="reels," i],
 html[data-url-blocker-short-video="facebook"] div[aria-posinset]:has(a[href*="/reel/"]),
 html[data-url-blocker-short-video="facebook"] [role="navigation"] li:has(a[href*="/reel/"]),
 html[data-url-blocker-short-video="facebook"] [role="navigation"] li:has(a[href*="/reels/"]),
