@@ -55,6 +55,21 @@ html[data-url-blocker-short-video="facebook"][data-url-blocker-single-short-vide
   display: none !important;
 }
 
+/* Facebook mobile layout: the tab bar places each tab at a fixed offset, so spread the tabs left after hiding Reels. */
+html[data-url-blocker-short-video="facebook"] [role="tablist"]:has(> [role="tab"][aria-label^="reels," i]) {
+  flex-direction: row !important;
+}
+html[data-url-blocker-short-video="facebook"] [role="tablist"]:has(> [role="tab"][aria-label^="reels," i]) > [role="tab"] {
+  flex: 1 0 0 !important;
+  margin: 0 !important;
+}
+html[data-url-blocker-short-video="facebook"] [role="tablist"]:has(> [role="tab"][aria-label^="reels," i]) > [role="tab"] > [data-mcomponent="MContainer"] {
+  margin-inline: auto !important;
+}
+html[data-url-blocker-short-video="facebook"] [role="tablist"]:has(> [role="tab"][aria-label^="reels," i]) > [role="tab"] > [data-mcomponent="ServerTextArea"] {
+  width: 100% !important;
+}
+
 /* LinkedIn: video carousels in the feed. */
 html[data-url-blocker-short-video="linkedin"] .feed-shared-update-v2:has([class*="video-carousel"]),
 html[data-url-blocker-short-video="linkedin"] [data-view-name*="video-carousel"] {
