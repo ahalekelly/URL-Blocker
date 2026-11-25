@@ -55,6 +55,18 @@ html[data-url-blocker-short-video="facebook"][data-url-blocker-single-short-vide
   display: none !important;
 }
 
+/*
+  Facebook mobile layout: the feed swaps off-screen posts for filler sized from each post's stored height, so a
+  hidden post's height comes back when it scrolls off and the page jumps. Keep every post rendered and fillers empty.
+  :where keeps these below the hiding rules above.
+*/
+html[data-url-blocker-short-video="facebook"] :where([data-type="vscroller"] > .m:not(.displayed)) {
+  display: flex !important;
+}
+html[data-url-blocker-short-video="facebook"] :where([data-type="vscroller"] > .filler) {
+  height: 0 !important;
+}
+
 /* Facebook mobile layout: the tab bar places each tab at a fixed offset, so spread the tabs left after hiding Reels. */
 html[data-url-blocker-short-video="facebook"] [role="tablist"]:has(> [role="tab"][aria-label^="reels," i]) {
   flex-direction: row !important;
